@@ -1,0 +1,17 @@
+// pane_role.h
+#ifndef PANE_ROLE_H
+#define PANE_ROLE_H
+
+typedef enum UIPaneRole {
+    PANE_ROLE_MENUBAR,
+    PANE_ROLE_EDITOR,
+    PANE_ROLE_ICONBAR,
+    PANE_ROLE_TOOLPANEL,
+    PANE_ROLE_CONTROLPANEL,
+    PANE_ROLE_TERMINAL,
+    PANE_ROLE_POPUP,
+    PANE_ROLE_UNKNOWN
+} UIPaneRole;
+
+#endif // PANE_ROLE_H
+

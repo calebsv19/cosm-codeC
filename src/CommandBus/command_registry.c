@@ -1,0 +1,148 @@
+#include "command_registry.h"
+#include <string.h>
+#include <stdbool.h>
+
+#define INVALID_ROLE -1
+
+static CommandRule commandRegistry[] = {
+    // === Editor Commands ===
+    { COMMAND_CUT,                   { PANE_ROLE_EDITOR, INVALID_ROLE } },
+    { COMMAND_COPY,                  { PANE_ROLE_EDITOR, INVALID_ROLE } },
+    { COMMAND_PASTE,                 { PANE_ROLE_EDITOR, INVALID_ROLE } },
+    { COMMAND_SELECT_ALL,           { PANE_ROLE_EDITOR, INVALID_ROLE } },
+    { COMMAND_DELETE,               { PANE_ROLE_EDITOR, INVALID_ROLE } },
+    { COMMAND_INSERT_NEWLINE,       { PANE_ROLE_EDITOR, INVALID_ROLE } },
+    { COMMAND_SAVE_FILE,            { PANE_ROLE_EDITOR, PANE_ROLE_MENUBAR, INVALID_ROLE } },
+
+    // === Menu Bar ===
+    { COMMAND_BUILD_PROJECT,        { PANE_ROLE_MENUBAR, INVALID_ROLE } },
+    { COMMAND_RUN_EXECUTABLE,       { PANE_ROLE_MENUBAR, PANE_ROLE_TERMINAL, INVALID_ROLE } },
+    { COMMAND_DEBUG_EXECUTABLE,     { PANE_ROLE_MENUBAR, INVALID_ROLE } },
+    { COMMAND_OPEN_BUILD_LOG,       { PANE_ROLE_MENUBAR, INVALID_ROLE } },
+
+    // === Terminal ===
+    { COMMAND_CLEAR_TERMINAL,       { PANE_ROLE_TERMINAL, INVALID_ROLE } },
+
+    // === Tool Panel: Project / Library / Tasks / Build Output ===
+    { COMMAND_OPEN_FILE,            { PANE_ROLE_TOOLPANEL, PANE_ROLE_MENUBAR, INVALID_ROLE } },
+    { COMMAND_RENAME_FILE,          { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_NEW_FILE,             { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_RENAME_TASK,          { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_DELETE_TASK,          { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_ADD_TASK,             { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_MOVE_TASK_UP,         { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_MOVE_TASK_DOWN,       { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_CLEAR_BUILD_OUTPUT,   { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_SCROLL_BUILD_OUTPUT_TOP, { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+
+    // === Git Tool ===
+    { COMMAND_REFRESH_GIT_STATUS,   { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_STAGE_SELECTED_FILE,  { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_COMMIT_CHANGES,       { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+
+    // === Errors Tool ===
+    { COMMAND_JUMP_TO_FIRST_ERROR,  { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_CLEAR_ERROR_LIST,     { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+
+    // === Assets Tool ===
+    { COMMAND_REFRESH_ASSET_LIST,   { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_PREVIEW_SELECTED_ASSET, { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+
+    // === Control Panel ===
+    { COMMAND_TOGGLE_LIVE_PARSE,    { PANE_ROLE_CONTROLPANEL, INVALID_ROLE } },
+    { COMMAND_TOGGLE_SHOW_ERRORS,   { PANE_ROLE_CONTROLPANEL, INVALID_ROLE } },
+
+    // === Icon Bar ===
+    { COMMAND_SELECT_ICON_PROJECT_FILES,   { PANE_ROLE_ICONBAR, INVALID_ROLE } },
+    { COMMAND_SELECT_ICON_LIBRARIES,       { PANE_ROLE_ICONBAR, INVALID_ROLE } },
+    { COMMAND_SELECT_ICON_BUILD_OUTPUT,    { PANE_ROLE_ICONBAR, INVALID_ROLE } },
+    { COMMAND_SELECT_ICON_ERRORS,          { PANE_ROLE_ICONBAR, INVALID_ROLE } },
+    { COMMAND_SELECT_ICON_ASSET_MANAGER,   { PANE_ROLE_ICONBAR, INVALID_ROLE } },
+    { COMMAND_SELECT_ICON_TASKS,           { PANE_ROLE_ICONBAR, INVALID_ROLE } },
+    { COMMAND_SELECT_ICON_VERSION_CONTROL, { PANE_ROLE_ICONBAR, INVALID_ROLE } },
+
+    // === Fullscreen, Popup, Misc ===
+    { COMMAND_TOGGLE_FULLSCREEN,    { PANE_ROLE_MENUBAR, INVALID_ROLE } },
+};
+
+bool commandIsValidForRole(InputCommand cmd, UIPaneRole role) {
+    for (int i = 0; i < sizeof(commandRegistry) / sizeof(CommandRule); i++) {
+        if (commandRegistry[i].cmd == cmd) {
+            for (int j = 0; j < MAX_ALLOWED_ROLES; j++) {
+                if (commandRegistry[i].allowedRoles[j] == INVALID_ROLE) break;
+                if (commandRegistry[i].allowedRoles[j] == role) return true;
+            }
+            return false;
+        }
+    }
+    return true;  // Default to true if command is unlisted
+}
+
+
+const char* getCommandName(InputCommand cmd) {
+    switch (cmd) {
+        // === Editor ===
+        case COMMAND_CUT: return "COMMAND_CUT";
+        case COMMAND_COPY: return "COMMAND_COPY";
+        case COMMAND_PASTE: return "COMMAND_PASTE";
+        case COMMAND_SELECT_ALL: return "COMMAND_SELECT_ALL";
+        case COMMAND_DELETE: return "COMMAND_DELETE";
+        case COMMAND_INSERT_NEWLINE: return "COMMAND_INSERT_NEWLINE";
+        case COMMAND_SAVE_FILE: return "COMMAND_SAVE_FILE";
+
+        // === MenuBar / Build / Run
+        case COMMAND_BUILD_PROJECT: return "COMMAND_BUILD_PROJECT";
+        case COMMAND_RUN_EXECUTABLE: return "COMMAND_RUN_EXECUTABLE";
+        case COMMAND_DEBUG_EXECUTABLE: return "COMMAND_DEBUG_EXECUTABLE";
+        case COMMAND_OPEN_BUILD_LOG: return "COMMAND_OPEN_BUILD_LOG";
+
+        // === Terminal
+        case COMMAND_CLEAR_TERMINAL: return "COMMAND_CLEAR_TERMINAL";
+
+        // === Tool Panel: Project / Tasks / Build Output
+        case COMMAND_OPEN_FILE: return "COMMAND_OPEN_FILE";
+        case COMMAND_RENAME_FILE: return "COMMAND_RENAME_FILE";
+        case COMMAND_NEW_FILE: return "COMMAND_NEW_FILE";
+
+        case COMMAND_RENAME_TASK: return "COMMAND_RENAME_TASK";
+        case COMMAND_DELETE_TASK: return "COMMAND_DELETE_TASK";
+        case COMMAND_ADD_TASK: return "COMMAND_ADD_TASK";
+        case COMMAND_MOVE_TASK_UP: return "COMMAND_MOVE_TASK_UP";
+        case COMMAND_MOVE_TASK_DOWN: return "COMMAND_MOVE_TASK_DOWN";
+
+        case COMMAND_CLEAR_BUILD_OUTPUT: return "COMMAND_CLEAR_BUILD_OUTPUT";
+        case COMMAND_SCROLL_BUILD_OUTPUT_TOP: return "COMMAND_SCROLL_BUILD_OUTPUT_TOP";
+
+        // === Git
+        case COMMAND_REFRESH_GIT_STATUS: return "COMMAND_REFRESH_GIT_STATUS";
+        case COMMAND_STAGE_SELECTED_FILE: return "COMMAND_STAGE_SELECTED_FILE";
+        case COMMAND_COMMIT_CHANGES: return "COMMAND_COMMIT_CHANGES";
+
+        // === Errors
+        case COMMAND_JUMP_TO_FIRST_ERROR: return "COMMAND_JUMP_TO_FIRST_ERROR";
+        case COMMAND_CLEAR_ERROR_LIST: return "COMMAND_CLEAR_ERROR_LIST";
+
+        // === Assets
+        case COMMAND_REFRESH_ASSET_LIST: return "COMMAND_REFRESH_ASSET_LIST";
+        case COMMAND_PREVIEW_SELECTED_ASSET: return "COMMAND_PREVIEW_SELECTED_ASSET";
+
+        // === Control Panel
+        case COMMAND_TOGGLE_LIVE_PARSE: return "COMMAND_TOGGLE_LIVE_PARSE";
+        case COMMAND_TOGGLE_SHOW_ERRORS: return "COMMAND_TOGGLE_SHOW_ERRORS";
+
+        // === Icon Bar
+        case COMMAND_SELECT_ICON_PROJECT_FILES: return "COMMAND_SELECT_ICON_PROJECT_FILES";
+        case COMMAND_SELECT_ICON_LIBRARIES: return "COMMAND_SELECT_ICON_LIBRARIES";
+        case COMMAND_SELECT_ICON_BUILD_OUTPUT: return "COMMAND_SELECT_ICON_BUILD_OUTPUT";
+        case COMMAND_SELECT_ICON_ERRORS: return "COMMAND_SELECT_ICON_ERRORS";
+        case COMMAND_SELECT_ICON_ASSET_MANAGER: return "COMMAND_SELECT_ICON_ASSET_MANAGER";
+        case COMMAND_SELECT_ICON_TASKS: return "COMMAND_SELECT_ICON_TASKS";
+        case COMMAND_SELECT_ICON_VERSION_CONTROL: return "COMMAND_SELECT_ICON_VERSION_CONTROL";
+
+        // === Misc
+        case COMMAND_TOGGLE_FULLSCREEN: return "COMMAND_TOGGLE_FULLSCREEN";
+
+        default: return "UNKNOWN_COMMAND";
+    }
+}
+
