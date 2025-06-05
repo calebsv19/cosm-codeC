@@ -146,3 +146,46 @@ void addScrollThumbHitbox(SDL_Rect rect, EditorView* view, UIPane* pane) {
 
 
 
+void addLeafHitbox(SDL_Rect rect, EditorView* view) {
+    if (leafHitboxCount >= MAX_LEAF_HITBOXES) return;
+    leafHitboxes[leafHitboxCount].rect = rect;
+    leafHitboxes[leafHitboxCount].view = view;
+    leafHitboxCount++;
+}
+    
+void collectLeafHitboxes(EditorView* view) {
+    if (!view) return;
+    
+    if (view->type == VIEW_LEAF) {
+        SDL_Rect rect = { view->x, view->y, view->w, view->h };
+        addLeafHitbox(rect, view);
+        return;
+    }
+    
+    if (view->childA) collectLeafHitboxes(view->childA);
+    if (view->childB) collectLeafHitboxes(view->childB);
+}   
+        
+void rebuildLeafHitboxes(EditorView* root) {
+    resetViewCounters();             // resets all hitbox counts
+    collectLeafHitboxes(root);
+}
+        
+    
+    
+    
+EditorView* findLeafUnderCursor(EditorView* root, int mouseX, int mouseY) {
+    if (!root) return NULL;
+        
+    if (root->type == VIEW_LEAF) {
+        if (mouseX >= root->x && mouseX < root->x + root->w &&
+            mouseY >= root->y && mouseY < root->y + root->h) {
+            return root;
+        }
+        return NULL;
+    }
+        
+    EditorView* a = findLeafUnderCursor(root->childA, mouseX, mouseY);
+    if (a) return a;
+    return findLeafUnderCursor(root->childB, mouseX, mouseY);
+}

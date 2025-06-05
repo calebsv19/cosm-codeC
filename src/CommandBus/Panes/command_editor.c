@@ -27,7 +27,7 @@ void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
 
         // === Insert / Delete ===
         case COMMAND_INSERT_NEWLINE:
-            insertCharAtCursor('\n');
+	    handleReturnKey(editorBuffer, editorState);
             break;
 
         case COMMAND_DELETE:

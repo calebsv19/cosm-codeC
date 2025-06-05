@@ -232,8 +232,11 @@ bool handleEditorScrollbarEvent(UIPane* pane, SDL_Event* event) {
     EditorState* state = &file->state;
 
     const int lineHeight = 20;
-    const int contentY = pane->y + HEADER_HEIGHT + 2;
-    const int contentH = pane->h - (contentY - pane->y);
+
+    // 🔄 Use the actual view dimensions, not the full pane
+    const int contentY = view->y;
+    const int contentH = view->h;
+
     if (contentH <= 0) return false;
 
     const int maxVisibleLines = contentH / lineHeight;
@@ -250,8 +253,8 @@ bool handleEditorScrollbarEvent(UIPane* pane, SDL_Event* event) {
 
     // === Drag Scroll Behavior ===
     if (event->type == SDL_MOUSEMOTION && getDraggingEditorPane() == pane) {
-        return handleCommandEditorScrollDrag(state, buffer, event->motion.y, scrollbarY, 
-						scrollbarH, thumbH, maxVisibleLines);
+        return handleCommandEditorScrollDrag(state, buffer, event->motion.y,
+                                             scrollbarY, scrollbarH, thumbH, maxVisibleLines);
     }
 
     // === End Drag Behavior ===
@@ -263,7 +266,6 @@ bool handleEditorScrollbarEvent(UIPane* pane, SDL_Event* event) {
 
     return false;
 }
-
 
 
 

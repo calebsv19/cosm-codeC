@@ -5,6 +5,7 @@
 #include "InputManager/input_macros.h"
 
 
+
 // === Keyboard ===
 void handleEditorKeyboardInput(UIPane* pane, SDL_Event* event) {
     if (!pane || event->type != SDL_KEYDOWN) return;
@@ -60,29 +61,38 @@ void handleEditorKeyboardInput(UIPane* pane, SDL_Event* event) {
 void handleEditorMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !pane->editorView) return;
 
-    if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
-        int mx = event->button.x;
-        int my = event->button.y;
-        updateActiveEditorViewFromMouse(mx, my);
-        printf("    UPDATED ACTIVE EDITOR\n");
-    }
-
     IDECoreState* core = getCoreState();
     EditorView* view = core->activeEditorView;
 
     switch (event->type) {
         case SDL_MOUSEBUTTONDOWN:
-            handleEditorMouseClick(pane, event, view);
+            if (event->button.button == SDL_BUTTON_LEFT) {
+                int mx = event->button.x;
+                int my = event->button.y;
+                updateActiveEditorViewFromMouse(mx, my);
+                if (handleEditorScrollbarEvent(pane, event)) return; // early out if scrollbar clicked
+                handleEditorMouseClick(pane, event, view);
+            }
             break;
+
         case SDL_MOUSEMOTION:
             if (event->motion.state & SDL_BUTTON_LMASK) {
+                if (handleEditorScrollbarEvent(pane, event)) return; // handle drag
                 handleEditorMouseDrag(pane, event, view);
             }
             break;
+
+        case SDL_MOUSEBUTTONUP:
+            if (handleEditorScrollbarEvent(pane, event)) return;
+            break;
+
         default:
             break;
     }
 }
+
+
+
 
 // === Scroll ===
 void handleEditorScrollInput(UIPane* pane, SDL_Event* event) {

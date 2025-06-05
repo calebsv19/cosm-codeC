@@ -29,8 +29,13 @@ static void routeMouseToTargetPane(SDL_Event* event, UIPane** panes, int paneCou
                 core->focusedPane = pane;
             }
 
-            if (pane->inputHandler && pane->inputHandler->onMouse)
-                pane->inputHandler->onMouse(pane, event);
+	    if (event->type == SDL_MOUSEWHEEL) {
+		if (pane->inputHandler && pane->inputHandler->onScroll)
+		        pane->inputHandler->onScroll(pane, event);
+	    } else {
+		if (pane->inputHandler && pane->inputHandler->onMouse)
+		        pane->inputHandler->onMouse(pane, event);
+	    }
 
             break;
         }

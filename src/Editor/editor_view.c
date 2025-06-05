@@ -20,6 +20,8 @@
 
 
 
+
+
 // 		RENDER METHODS
 
 
@@ -57,24 +59,6 @@ void layoutSplitChildren(EditorView* view) {
 // ==========================================
 // 		EDITOR VIEW MECHANICS
 
-
-
-
-EditorView* findLeafUnderCursor(EditorView* root, int mouseX, int mouseY) {
-    if (!root) return NULL;
-    
-    if (root->type == VIEW_LEAF) {
-        if (mouseX >= root->x && mouseX < root->x + root->w &&
-            mouseY >= root->y && mouseY < root->y + root->h) {
-            return root;        
-        }
-        return NULL;
-    }
-        
-    EditorView* a = findLeafUnderCursor(root->childA, mouseX, mouseY);
-    if (a) return a;
-    return findLeafUnderCursor(root->childB, mouseX, mouseY);
-}   
 
 
 
@@ -309,6 +293,10 @@ void performEditorLayout(EditorView* view, int x, int y, int w, int h) {
             performEditorLayout(view->childB, x, y + childHeight + splitGap, w, childHeight);
         }
     }
+
+
+    IDECoreState* core = getCoreState();
+    rebuildLeafHitboxes(core->persistentEditorView);
 }
 
 
@@ -335,25 +323,6 @@ void updateActiveEditorViewFromMouse(int mouseX, int mouseY) {
             EditorView* view = leafHitboxes[i].view;
             setActiveEditorView(view);
 
-/*
-            printf("\n[Click] Activated editor view %p\n", (void*)view);
-            printf(" ├─ Type:           %s\n", (view->type == VIEW_LEAF) ? "LEAF" : "SPLIT");
-            printf(" ├─ Parent Pane:    %p\n", (void*)view->parentPane);
-            printf(" ├─ Layout:         x=%d, y=%d, w=%d, h=%d\n", view->x, view->y, view->w, 
-				view->h);
-
-            if (view->type == VIEW_SPLIT) {
-                printf(" ├─ Split Type:     %s\n", (view->splitType == SPLIT_VERTICAL) ? "VERTICAL" 
-				: "HORIZONTAL");
-                printf(" ├─ Child A:        %p\n", (void*)view->childA);
-                printf(" └─ Child B:        %p\n", (void*)view->childB);
-            } else if (view->type == VIEW_LEAF) {
-                printf(" ├─ Tab Count:      %d\n", view->fileCount);
-                printf(" ├─ Active Tab:     %d\n", view->activeTab);
-                printf(" └─ OpenFile[0]:    %p\n", (void*)(view->fileCount > 0 ? view->openFiles[0] 
-				: NULL));
-            }
-*/
             return;
         }
     }

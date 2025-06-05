@@ -82,6 +82,7 @@ typedef struct EditorView {
 
 
 
+
 void layoutSplitChildren(EditorView* view);
 void performEditorLayout(EditorView* view, int x, int y, int w, int h);
 

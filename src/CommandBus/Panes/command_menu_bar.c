@@ -24,7 +24,15 @@ void handleMenuBarCommand(UIPane* pane, InputCommandMetadata meta) {
             printf("[MenuBarCommand] Debug\n");
             break;
 
-        case COMMAND_TOGGLE_FULLSCREEN:  // repurposed for Control Panel toggle
+	case COMMAND_TOGGLE_CONTROL_PANEL: {
+	    UIState* ui = getUIState();
+	    ui->controlPanelVisible = !ui->controlPanelVisible;
+	    printf("[MenuBarCommand] Toggle Control Panel: %s\n",
+	           ui->controlPanelVisible ? "VISIBLE" : "HIDDEN");
+	    break;
+	}
+	    	    
+
         case COMMAND_OPEN_BUILD_LOG:     // or new Command
         {
             UIState* ui = getUIState();

@@ -100,5 +100,9 @@ extern int leafHitboxCount;
 void resetViewCounters(void);
 void addScrollThumbHitbox(SDL_Rect rect, struct EditorView* view, struct UIPane* pane);
 
+void addLeafHitbox(SDL_Rect rect, struct EditorView* view);
+void collectLeafHitboxes(struct EditorView* view);
+void rebuildLeafHitboxes(struct EditorView* root);
+
 #endif // EDITOR_STATE_H
 
