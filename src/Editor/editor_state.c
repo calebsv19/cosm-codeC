@@ -1,6 +1,6 @@
-#include "editor_state.h"
-#include "editor_view.h"
-#include "pane.h"
+#include "Editor/editor_state.h"
+#include "Editor/editor_view.h"
+#include "PaneInfo/pane.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -80,6 +80,8 @@ void resetEditorState(EditorState* state) {
     state->selecting = false;
     state->selStartRow = 0;
     state->selStartCol = 0;
+
+    state->mouseHasMovedSinceClick = false;
     state->draggingWithMouse = false;
     state->draggingOutsidePane = false;
     state->draggingReturnedToPane = false;
@@ -87,6 +89,8 @@ void resetEditorState(EditorState* state) {
     state->initialTopRow = 0;
     state->scrollbarDragOffsetY = 0;
     state->scrollbarHasMovedYet = false;
+
+    state->closeButtonRect = (SDL_Rect){0, 0, 0, 0};
 }
 
 // Free memory

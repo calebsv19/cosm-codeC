@@ -2,7 +2,7 @@
 #define SYSTEM_CONTROL_H
 
 #include <SDL2/SDL.h>
-#include "../pane.h"
+#include "PaneInfo/pane.h"
 
 int STARTING_WIDTH, STARTING_HEIGHT;
 

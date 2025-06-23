@@ -27,6 +27,7 @@ typedef struct {
 
     bool scrollbarHasMovedYet;
 
+    bool mouseHasMovedSinceClick;
     bool draggingWithMouse;
     bool draggingOutsidePane;
     bool draggingReturnedToPane;
@@ -35,6 +36,8 @@ typedef struct {
     int initialTopRow;
 
     int scrollbarDragOffsetY;  
+
+    SDL_Rect closeButtonRect;
 } EditorState;
 
 // Lifecycle

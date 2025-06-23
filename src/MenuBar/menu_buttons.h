@@ -4,7 +4,7 @@
 #include <SDL2/SDL.h>
 
 #include "../Editor/editor_view.h" 
-#include "pane.h"
+#include "PaneInfo/pane.h"
 
 
 // Logical groups of buttons

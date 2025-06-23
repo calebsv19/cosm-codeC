@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "editor_view.h"
+#include "Editor/editor_view.h"
 
 // Called when a user types or deletes and a snapshot should be stored
 void pushUndoState(OpenFile* file);

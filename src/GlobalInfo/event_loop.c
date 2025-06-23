@@ -13,7 +13,7 @@
 #include "CommandBus/command_bus.h"
 #include "Watcher/file_watcher.h"
 #include "Popup/popup_pane.h"
-
+#include "ToolPanels/Project/tool_project.h"
 
 #include "UI/layout.h"
 #include "UI/resize.h"
@@ -36,8 +36,6 @@ static void layoutAndSyncPanes(UIPane** panes, int* paneCount) {
 }
 
 static void processInputEvents(FrameContext* ctx) {
-    RenderContext* rctx = getRenderContext();
-
     while (SDL_PollEvent(ctx->event)) {
         if (ctx->event->type == SDL_KEYDOWN) {
             SDL_Keycode key = ctx->event->key.keysym.sym;
@@ -97,5 +95,10 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     processInputEvents(ctx);
     tickBackgroundSystems();
     checkRenderFrame(ctx, now);
+
+    if (pendingProjectRefresh) {
+        refreshProjectDirectory();
+        pendingProjectRefresh = false;
+    }
 }
 

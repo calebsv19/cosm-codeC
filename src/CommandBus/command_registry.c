@@ -26,7 +26,11 @@ static CommandRule commandRegistry[] = {
     // === Tool Panel: Project / Library / Tasks / Build Output ===
     { COMMAND_OPEN_FILE,            { PANE_ROLE_TOOLPANEL, PANE_ROLE_MENUBAR, INVALID_ROLE } },
     { COMMAND_RENAME_FILE,          { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_CANCEL_RENAME,        { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_CONFIRM_RENAME,       { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
     { COMMAND_NEW_FILE,             { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_NEW_FOLDER,           { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
+    { COMMAND_DELETE_ENTRY,         { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
     { COMMAND_RENAME_TASK,          { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
     { COMMAND_DELETE_TASK,          { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
     { COMMAND_ADD_TASK,             { PANE_ROLE_TOOLPANEL, INVALID_ROLE } },
@@ -103,6 +107,8 @@ const char* getCommandName(InputCommand cmd) {
         case COMMAND_OPEN_FILE: return "COMMAND_OPEN_FILE";
         case COMMAND_RENAME_FILE: return "COMMAND_RENAME_FILE";
         case COMMAND_NEW_FILE: return "COMMAND_NEW_FILE";
+        case COMMAND_NEW_FOLDER: return "COMMAND_NEW_FOLDER";
+        case COMMAND_DELETE_ENTRY: return "COMMAND_DELETE_ENTRY";
 
         case COMMAND_RENAME_TASK: return "COMMAND_RENAME_TASK";
         case COMMAND_DELETE_TASK: return "COMMAND_DELETE_TASK";

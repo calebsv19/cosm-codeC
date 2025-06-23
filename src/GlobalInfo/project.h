@@ -18,7 +18,11 @@ typedef struct DirEntry {
     EntryType type;
     char* name;             // Just the filename or folder name
     char* path;             // Full absolute path
+
+
+    struct DirEntry* parent; // NEW: Pointer to parent DirEntry
     struct DirEntry** children;
+
     int childCount;
     int childCapacity;
 
@@ -30,6 +34,11 @@ typedef struct DirEntry {
 struct UIPane;
 extern DirEntry* projectRoot;       // Root of currently loaded project (NULL if none)
 extern char projectPath[1024];       // Full path to the project root directory
+extern char projectRootPath[1024];   // Full path to IDE root
+extern bool pendingProjectRefresh;
+
+
+void initProjectPaths(void);
 
 // --- Project Management API ---
 

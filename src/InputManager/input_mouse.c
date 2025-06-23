@@ -1,6 +1,7 @@
 #include "input_mouse.h"
 #include "Editor/editor_view.h"
 #include "Editor/editor.h"
+#include "Editor/Input/editor_input_mouse.h"
 #include "UI/ui_state.h"
 #include "GlobalInfo/core_state.h"  // Add this to top of input_mouse.c
 

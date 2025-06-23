@@ -2,7 +2,7 @@
 #include "core_state.h"
 
 #include "project.h"
-#include "ToolPanels/tool_libraries.h"
+#include "ToolPanels/Libraries/tool_libraries.h"
 
 
 #include "Render/render_pipeline.h"
@@ -22,9 +22,22 @@
 
 
 static void loadTestProject() {
-    strcpy(projectPath, "/Users/mac/Desktop/CompilerWorkMac/IDE/src/Project");
+    const char* testPath = "/Users/calebsv16/Desktop/CodeWork/IDE/src/Project";
+
+    printf("[Project] Loading test project from: %s\n", testPath);
+
+    strncpy(projectPath, testPath, sizeof(projectPath));
+    projectPath[sizeof(projectPath) - 1] = '\0';  // ensure null-termination
+
     projectRoot = loadProjectDirectory(projectPath);
+
+    if (projectRoot) {
+        printf("[Project] Project loaded successfully.\n");
+    } else {
+        fprintf(stderr, "[Project] Failed to load project.\n");
+    }
 }
+
 
 
 bool initializeSystem() {
@@ -89,7 +102,9 @@ bool initializeSystem() {
     initializeUIPanesIfNeeded();
     initFileWatcher();
 
+    initProjectPaths();
     loadTestProject();
+
     initLibrariesPanel();
 
     return true;

@@ -11,7 +11,7 @@ bool initFontSystem() {
         fprintf(stderr, "Failed to initialize SDL_ttf: %s\n", TTF_GetError());
         return false;
     }
-    return loadFontByID(FONT_MONTSERRAT_MEDIUM);
+    return loadFontByID(FONT_MONTSERRAT_REGULAR);
 }
 
 void shutdownFontSystem() {

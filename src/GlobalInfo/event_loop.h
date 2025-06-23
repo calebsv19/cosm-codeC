@@ -2,7 +2,7 @@
 #define EVENT_LOOP_H
 
 #include <SDL2/SDL.h>
-#include "pane.h"
+#include "PaneInfo/pane.h"
 #include "UI/resize.h"
 
 

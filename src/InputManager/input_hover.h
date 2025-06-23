@@ -2,7 +2,7 @@
 #define INPUT_HOVER_H
 
 #include <SDL2/SDL.h>
-#include "../pane.h"
+#include "PaneInfo/pane.h"
 
 // Called from input_manager on mouse motion
 void handleHoverUpdate(SDL_Event* event, UIPane** panes, int paneCount);

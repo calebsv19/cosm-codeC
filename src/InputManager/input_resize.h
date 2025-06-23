@@ -2,7 +2,7 @@
 #define INPUT_RESIZE_H
 
 #include <SDL2/SDL.h>
-#include "../pane.h"
+#include "PaneInfo/pane.h"
 #include "../UI/resize.h"
 
 // Used by input_manager.c to manage pane boundary dragging

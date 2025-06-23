@@ -1,5 +1,5 @@
 #include "ui_state.h"
-#include "pane.h"
+#include "PaneInfo/pane.h"
 #include "../GlobalInfo/core_state.h"
 
 

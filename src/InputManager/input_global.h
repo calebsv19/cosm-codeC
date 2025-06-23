@@ -2,7 +2,7 @@
 #define INPUT_GLOBAL_H
 
 #include <SDL2/SDL.h>
-#include "pane.h"
+#include "PaneInfo/pane.h"
 
 void handleWindowGlobalEvents(SDL_Event* event,
                               UIPane** panes, int* paneCountRef,

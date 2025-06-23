@@ -3,10 +3,10 @@
 
 #include "../GlobalInfo/core_state.h"
 #include "editor.h"  // For EditorBuffer and EditorState
-#include "editor_state.h"
-#include "editor_buffer.h"
+#include "Editor/editor_state.h"
+#include "Editor/editor_buffer.h"
 
-#include "InputManager/Panes/input_editor.h" // for &editorInputHandler
+#include "Editor/Input/input_editor.h" // for &editorInputHandler
 
 
 // Shared UI layout constants
@@ -114,6 +114,7 @@ EditorView* cloneLeafView(EditorView* src, SplitOrientation parentSplit);
 
 
 // Tab management
+void closeFileInAllViews(EditorView* view, const char* filePath);
 void closeTab(EditorView* view, int index);
 void switchTab(EditorView* view, int direction); // -1 = left, +1 = right
 

@@ -1,14 +1,28 @@
 #include "project.h"
-#include "pane.h" // for UIPane
+#include "PaneInfo/pane.h" // for UIPane
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h> // POSIX directory reading
 #include <sys/stat.h>
+#include <unistd.h>
 
 DirEntry* projectRoot = NULL;
 char projectPath[1024] = {0};
+char projectRootPath[1024] = {0};
+
+
+void initProjectPaths(void) {
+    // Set project root (IDE directory) to current working directory
+    getcwd(projectRootPath, sizeof(projectRootPath));
+
+    // Set test project to IDE/src/Project
+    snprintf(projectPath, sizeof(projectPath), "%s/src/Project", projectRootPath);
+}
+
+
+
 
 // --- Internal Helpers ---
 
@@ -68,6 +82,10 @@ DirEntry* loadProjectDirectory(const char* path) {
     }
 
     DirEntry* root = createDirEntry(path, path, ENTRY_FOLDER);
+    if (!root) {
+        closedir(dir);
+        return NULL;
+    }
 
     struct dirent* entry;
     while ((entry = readdir(dir)) != NULL) {
@@ -85,15 +103,17 @@ DirEntry* loadProjectDirectory(const char* path) {
         }
 
         if (S_ISDIR(st.st_mode)) {
-            // Recursively load subdirectory
             DirEntry* childFolder = loadProjectDirectory(fullPath);
             if (childFolder) {
+                childFolder->parent = root;
                 addChildEntry(root, childFolder);
             }
         } else if (S_ISREG(st.st_mode)) {
-            // Regular file
             DirEntry* childFile = createDirEntry(entry->d_name, fullPath, ENTRY_FILE);
-            addChildEntry(root, childFile);
+            if (childFile) {
+                childFile->parent = root;
+                addChildEntry(root, childFile);
+            }
         }
     }
 

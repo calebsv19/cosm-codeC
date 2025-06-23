@@ -1,6 +1,6 @@
 #pragma once
 
-#include "pane_role.h"
+#include "PaneInfo/pane_role.h"
 #include "command_metadata.h"
 
 #include <stdbool.h>

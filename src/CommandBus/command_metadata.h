@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../InputManager/input_command_enums.h"
-#include "../pane_role.h"
+#include "PaneInfo/pane_role.h"
 
 
 

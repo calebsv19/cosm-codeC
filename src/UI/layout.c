@@ -3,11 +3,13 @@
 #include "../Render/render_pipeline.h"
 #include "../Editor/editor_view.h"
 
-#include "../pane.h"
+#include "PaneInfo/pane.h"
 #include "layout_config.h"
 #include "ui_state.h"
 #include <SDL2/SDL.h>
 
+
+bool long_terminal = true;
 
 UITheme theme = {
 	.bgMenuBar = {40, 40, 40, 255},
@@ -46,6 +48,9 @@ static void updateToolPanelPane(UIPane* pane, int winH, LayoutDimensions* layout
     pane->y = PANE_MENU_HEIGHT;
     pane->w = layout->toolWidth;
     pane->h = winH - PANE_MENU_HEIGHT;
+    if (long_terminal){
+        pane->h -= layout->terminalHeight; 
+    }
     pane->visible = true;
 }
 
@@ -54,6 +59,9 @@ static void updateControlPanelPane(UIPane* pane, int winW, int winH, LayoutDimen
     pane->y = PANE_MENU_HEIGHT;
     pane->w = layout->controlWidth;
     pane->h = winH - PANE_MENU_HEIGHT;
+    if (long_terminal){
+        pane->h -= layout->terminalHeight;
+    }
     pane->visible = true;
 }
 
@@ -61,8 +69,8 @@ static void updateEditorPane(UIPane* pane, int winW, int winH, LayoutDimensions*
     int x = PANE_ICON_WIDTH + (ui->toolPanelVisible ? layout->toolWidth : 0);
     int y = PANE_MENU_HEIGHT;
     int w = winW - x - (ui->controlPanelVisible ? layout->controlWidth : 0);
-    int h = winH - layout->terminalHeight - PANE_MENU_HEIGHT;
 
+    int h = winH - PANE_MENU_HEIGHT - layout->terminalHeight;
     pane->x = x;
     pane->y = y;
     pane->w = w;
@@ -82,9 +90,16 @@ static void updateEditorPane(UIPane* pane, int winW, int winH, LayoutDimensions*
 }
 
 static void updateTerminalPane(UIPane* pane, int winW, int winH, LayoutDimensions* layout, UIState* ui) {
-    int x = PANE_ICON_WIDTH + (ui->toolPanelVisible ? layout->toolWidth : 0);
+    int x = PANE_ICON_WIDTH;
+    if (!long_terminal){
+    	x += (ui->toolPanelVisible ? layout->toolWidth : 0);
+    }
     int y = winH - layout->terminalHeight;
-    int w = winW - x - (ui->controlPanelVisible ? layout->controlWidth : 0);
+
+    int w = winW - x;
+    if (!long_terminal){
+    	w -= (ui->controlPanelVisible ? layout->controlWidth : 0);
+    }
     int h = layout->terminalHeight;
 
     pane->x = x;

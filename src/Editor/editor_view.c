@@ -5,9 +5,9 @@
 
 
 #include "../Render/render_pipeline.h"
-#include "editor_view.h"
+#include "Editor/editor_view.h"
 #include "editor.h"
-#include "editor_state.h"
+#include "Editor/editor_state.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -373,6 +373,22 @@ void setParentPaneForView(EditorView* view, UIPane* pane) {
 // 	===============================
 // 		TAB LOGIC
 
+
+void closeFileInAllViews(EditorView* view, const char* filePath) {
+    if (!view || !filePath) return;
+
+    if (view->type == VIEW_LEAF) {
+        for (int i = view->fileCount - 1; i >= 0; i--) {
+            OpenFile* file = view->openFiles[i];
+            if (file && file->filePath && strcmp(file->filePath, filePath) == 0) {
+                closeTab(view, i);
+            }
+        }
+    } else {
+        closeFileInAllViews(view->childA, filePath);
+        closeFileInAllViews(view->childB, filePath);
+    }
+}
 
 
 void closeTab(EditorView* view, int index) {

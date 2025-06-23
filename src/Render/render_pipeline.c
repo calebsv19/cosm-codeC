@@ -1,22 +1,22 @@
-#include "render_pipeline.h"
-#include "render_helpers.h"
-#include "render_text_helpers.h"
+#include "Render/render_pipeline.h"
+#include "Render/render_helpers.h"
+#include "Render/render_text_helpers.h"
 #include "Render/render_font.h"
 
-#include "render_menu_bar.h"
-#include "render_editor.h"
-#include "render_terminal.h"
+#include "MenuBar/render_menu_bar.h"
+#include "Editor/Render/render_editor.h"
+#include "Terminal/render_terminal.h"
 
-#include "render_icon_bar.h"
+#include "IconBar/render_icon_bar.h"
 #include "ToolPanels/render_tool_panel.h"
-#include "render_control_panel.h"
-#include "render_popup.h"
+#include "ControlPanel/render_control_panel.h"
+#include "Popup/render_popup.h"
 
 
 // External dependencies
 #include "GlobalInfo/core_state.h"
 
-#include "pane.h"
+#include "PaneInfo/pane.h"
 #include "UI/layout.h"
 #include "Editor/editor_view.h"
 #include "MenuBar/menu_buttons.h"

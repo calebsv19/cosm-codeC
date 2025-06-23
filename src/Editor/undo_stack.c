@@ -1,12 +1,12 @@
 // undo_stack.c
 
 
-#include "undo_stack.h"
+#include "Editor/undo_stack.h"
 #include "../GlobalInfo/core_state.h"
 #include "editor.h"
-#include "editor_view.h"
-#include "editor_buffer.h"
-#include "editor_state.h"
+#include "Editor/editor_view.h"
+#include "Editor/editor_buffer.h"
+#include "Editor/editor_state.h"
 
 #include <stdlib.h>
 #include <string.h>

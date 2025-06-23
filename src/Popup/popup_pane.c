@@ -4,7 +4,7 @@
 
 #include "../GlobalInfo/core_state.h"
 #include "../UI/ui_state.h"
-#include "../Render/render_popup.h"
+#include "Popup/render_popup.h"
 #include <string.h>
 
 void syncPopupPane(UIPane** panes, int* paneCount) {

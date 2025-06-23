@@ -1,0 +1,10 @@
+#ifndef TOOL_BUILD_OUTPUT_H
+#define TOOL_BUILD_OUTPUT_H
+
+#include "PaneInfo/pane.h"
+#include <SDL2/SDL.h>
+
+void handleBuildOutputEvent(UIPane* pane, SDL_Event* event);
+
+#endif
+

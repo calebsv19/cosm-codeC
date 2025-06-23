@@ -3,7 +3,7 @@
 
 #include <SDL2/SDL.h>
 #include "../GlobalInfo/core_state.h"
-#include "../pane.h"
+#include "PaneInfo/pane.h"
 #include "../UI/ui_state.h"
 #include "../UI/resize.h"
 

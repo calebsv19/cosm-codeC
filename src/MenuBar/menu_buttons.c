@@ -5,7 +5,7 @@
 #include "../UI/layout_config.h"
 #include "../UI/ui_state.h"
 #include "../CommandBus/command_bus.h"
-#include "../pane.h"
+#include "PaneInfo/pane.h"
 #include "../Editor/editor_view.h"
 
 #include <SDL2/SDL.h>

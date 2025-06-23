@@ -8,7 +8,7 @@
 
 
 #include "../GlobalInfo/core_state.h"
-#include "../GlobalInfo/project.h"
+#include "GlobalInfo/project.h"
 
 
 #include "../CommandBus/command_bus.h"
@@ -17,7 +17,7 @@
 #include "../Editor/editor.h"
 #include "../Editor/editor_view.h"
 
-#include "../pane.h"
+#include "PaneInfo/pane.h"
 #include "../UI/layout_config.h"
 #include "../UI/layout.h"
 
