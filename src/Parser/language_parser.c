@@ -1,5 +1,5 @@
 #include "language_parser.h"
-#include "../Diagnostics/diagnostics_engine.h"
+#include "core/Diagnostics/diagnostics_engine.h"
 #include <stdlib.h>
 #include <string.h>
 
