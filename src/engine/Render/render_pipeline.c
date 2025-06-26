@@ -176,6 +176,11 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
         }
     }
 
+    if (isRenaming()) {
+        renderPopupQueueContents();  // This draws both popup messages and the rename UI
+    }
+
+
     SDL_RenderPresent(ctx->renderer);
 }
 

@@ -6,13 +6,11 @@
 #include "input_global.h"
 
 
-
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
 
-
 #include "core/CommandBus/command_bus.h"
-
+#include "core/InputManager/UserInput/rename_flow.h"
 
 #include "ide/Panes/Editor/editor.h"
 #include "ide/Panes/Editor/editor_view.h"
@@ -33,6 +31,15 @@ void handleInput(SDL_Event* event,
                  int* paneCountRef, bool* running) {
 
     handleWindowGlobalEvents(event, panes, paneCountRef, running);  // simplified
+
+ 
+    if (event->type == SDL_TEXTINPUT && isRenaming()) {
+        const char* text = event->text.text;
+        for (int i = 0; text[i] != '\0'; i++) {
+            handleRenameTextInput(text[i]);
+        }
+        return;  // steal input from other systems
+    }
 
     if (event->type == SDL_KEYDOWN) {
         handleKeyboardInput(event, panes, paneCountRef, running);

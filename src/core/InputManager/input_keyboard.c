@@ -1,6 +1,8 @@
 #include "input_keyboard.h"
 #include "core/InputManager/input_macros.h"
+#include "core/InputManager/UserInput/rename_flow.h"
 #include "core/CommandBus/command_bus.h"
+#include "core/InputManager/UserInput/rename_access.h"
 
 #include "ide/UI/layout.h"
 
@@ -33,6 +35,25 @@ void handleKeyboardInput(SDL_Event* event,
     if (key == SDLK_ESCAPE) {
         *running = false;
         return;
+    }
+
+
+    if (isRenaming()) {
+	    if (key == SDLK_RETURN) { submitRename(); return; }
+	    else if (key == SDLK_ESCAPE) { cancelRename(); return; }
+	    else if (key == SDLK_BACKSPACE) { handleRenameTextInput('\b'); return; }
+	
+	    else if (key == SDLK_LEFT) {
+	        if (RENAME->cursorPosition > 0)
+	            RENAME->cursorPosition--;
+	        return;
+	    }
+	
+	    else if (key == SDLK_RIGHT) {
+	        if (RENAME->cursorPosition < (int)strlen(RENAME->inputBuffer))
+	            RENAME->cursorPosition++;
+	        return;
+	    }
     }
 
 

@@ -7,6 +7,8 @@
 #include "ide/UI/ui_state.h"
 #include "ide/UI/layout_config.h"
 
+#include "core/InputManager/UserInput/rename_flow.h"
+
 
 struct EditorView;
 struct UIPane;
@@ -32,6 +34,10 @@ typedef struct IDECoreState {
     // Modular subsystems
     UIState ui;
     LayoutDimensions layout;
+
+
+    // Track rename flow globally
+    RenameRequest renameFlow;
 
     // Add more as needed (e.g., diagnostics, plugin state, build info...)
 } IDECoreState;

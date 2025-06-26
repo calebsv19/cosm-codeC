@@ -9,7 +9,7 @@
 #include "ide/Panes/Popup/popup_system.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "Parser/language_parser.h"
-#include "Build/build_system.h"
+#include "core/Build/build_system.h"
 #include "ide/Plugin/plugin_interface.h"
 #include "core/Watcher/file_watcher.h"
 #include "ide/UI/ui_state.h"
