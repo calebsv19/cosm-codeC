@@ -1,6 +1,8 @@
-
 #include "core_state.h"
-#include <string.h>  // for memset if needed
+#include "ide/Panes/Editor/editor_view_state.h"
+
+#include <string.h>  // for memset
+#include <stdlib.h>  // for malloc, free
 
 static IDECoreState coreState;
 
@@ -9,7 +11,6 @@ IDECoreState* getCoreState(void) {
 }
 
 void initCoreState(void) {
-    // Optional: zero/init struct fields here
     coreState.editorViewCount = 1;
     coreState.editorPane = NULL;
     coreState.activeEditorDragPane = NULL;
@@ -18,15 +19,27 @@ void initCoreState(void) {
     coreState.activeEditorView = NULL;
     coreState.persistentEditorView = NULL;
 
+    // Allocate and initialize global editor view interaction state
+    coreState.editorViewState = malloc(sizeof(EditorViewState));
+    if (coreState.editorViewState) {
+        memset(coreState.editorViewState, 0, sizeof(EditorViewState));
+    }
+
     coreState.initializePopup = false;
     coreState.popupPaneActive = false;
 
-    // Zero UIState/LayoutDimensions
+    // Zero UI/layout state
     memset(&coreState.ui, 0, sizeof(UIState));
     memset(&coreState.layout, 0, sizeof(LayoutDimensions));
+
+    // Optionally clear rename flow
+    memset(&coreState.renameFlow, 0, sizeof(RenameRequest));
 }
 
 void shutdownCoreState(void) {
-    // Optional: free dynamic subsystems if any
+    if (coreState.editorViewState) {
+        free(coreState.editorViewState);
+        coreState.editorViewState = NULL;
+    }
 }
 

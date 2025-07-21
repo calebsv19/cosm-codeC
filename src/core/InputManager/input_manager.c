@@ -32,13 +32,20 @@ void handleInput(SDL_Event* event,
 
     handleWindowGlobalEvents(event, panes, paneCountRef, running);  // simplified
 
- 
-    if (event->type == SDL_TEXTINPUT && isRenaming()) {
-        const char* text = event->text.text;
-        for (int i = 0; text[i] != '\0'; i++) {
-            handleRenameTextInput(text[i]);
+    if (event->type == SDL_TEXTINPUT) {
+        if (isRenaming()) {
+            const char* text = event->text.text;
+            for (int i = 0; text[i] != '\0'; i++) {
+                handleRenameTextInput(text[i]);
+            }
+            return;  // steal input from other systems
+        } else {
+            UIPane* focused = getCoreState()->focusedPane;
+            if (focused && focused->inputHandler && focused->inputHandler->onTextInput) {
+                focused->inputHandler->onTextInput(focused, event);
+                return;
+            }
         }
-        return;  // steal input from other systems
     }
 
     if (event->type == SDL_KEYDOWN) {
@@ -58,7 +65,7 @@ void handleInput(SDL_Event* event,
             SDL_Event fakeMotion;
             SDL_GetMouseState(&fakeMotion.motion.x, &fakeMotion.motion.y);
             fakeMotion.type = SDL_MOUSEMOTION;
-            handleHoverUpdate(&fakeMotion, panes, paneCount); 
+            handleHoverUpdate(&fakeMotion, panes, paneCount);
         }
     }
 }

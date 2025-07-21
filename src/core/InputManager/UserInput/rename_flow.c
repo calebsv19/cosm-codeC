@@ -17,10 +17,11 @@ bool caretVisible = true;
 bool renameErrorVisible = false;
 Uint32 renameErrorStart = 0;
 
-void beginRename(const char* oldName, RenameCallback callback, void* context) {
+void beginRename(const char* oldName, RenameCallback callback, RenameValidateFn validate, void* context) {
     strncpy(RENAME->originalName, oldName, MAX_PATH_LENGTH);
     strncpy(RENAME->inputBuffer, oldName, MAX_PATH_LENGTH);
     RENAME->onRenameComplete = callback;
+    RENAME->onValidate = validate;         
     RENAME->context = context;
     RENAME->active = true;
     RENAME->cursorPosition = (int)strlen(oldName);
@@ -46,7 +47,7 @@ void submitRename(void) {
         return;
     }
 
-    if (!isRenameValid(newName, (DirEntry*)RENAME->context)) {
+    if (RENAME->onValidate && !RENAME->onValidate(newName, RENAME->context)) {
         renameErrorVisible = true;
         renameErrorStart = SDL_GetTicks();
         return;

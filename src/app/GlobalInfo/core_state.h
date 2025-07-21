@@ -3,7 +3,6 @@
 
 #include <stdbool.h>
 
-// #include "ide/Panes/Editor/editor_view.h"
 #include "ide/UI/ui_state.h"
 #include "ide/UI/layout_config.h"
 
@@ -11,6 +10,7 @@
 
 
 struct EditorView;
+struct EditorViewState;
 struct UIPane;
 
 // All core state lives here
@@ -24,6 +24,7 @@ typedef struct IDECoreState {
 
     struct EditorView* activeEditorView;
     struct EditorView* persistentEditorView;
+    struct EditorViewState* editorViewState;
 
     // Counters and toggles
     int editorViewCount;
@@ -35,6 +36,9 @@ typedef struct IDECoreState {
     UIState ui;
     LayoutDimensions layout;
 
+
+    int mouseX;
+    int mouseY;
 
     // Track rename flow globally
     RenameRequest renameFlow;

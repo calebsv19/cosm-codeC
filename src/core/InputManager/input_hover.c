@@ -6,6 +6,10 @@ void handleHoverUpdate(SDL_Event* event, UIPane** panes, int paneCount) {
     int mouseX = event->motion.x;
     int mouseY = event->motion.y;
 
+    IDECoreState* state = getCoreState();
+    state->mouseX = mouseX;
+    state->mouseY = mouseY;
+
     UIPane* hovered = NULL;
 
     for (int i = 0; i < paneCount; i++) {

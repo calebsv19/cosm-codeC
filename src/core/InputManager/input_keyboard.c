@@ -64,7 +64,7 @@ void handleKeyboardInput(SDL_Event* event,
     }
 */
     // Ctrl+1 or Tab → Switch tab globally
-    if ((mod & KMOD_CTRL && key == SDLK_1) || key == SDLK_TAB) {
+    if ((mod & KMOD_CTRL && key == SDLK_1)) {
         CMD(COMMAND_SWITCH_TAB);
         return;
     }

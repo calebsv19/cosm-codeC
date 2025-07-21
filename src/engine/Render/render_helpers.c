@@ -7,10 +7,14 @@
 #include <string.h>
 
 void drawText(int x, int y, const char* text) {
-    TTF_Font* font = getActiveFont();     
+    if (!text || text[0] == '\0') return;
+
+    TTF_Font* font = getActiveFont();
     if (!font) return;
 
     RenderContext* ctx = getRenderContext();
+    if (!ctx || !ctx->renderer) return;
+
     SDL_Renderer* renderer = ctx->renderer;
 
     SDL_Color color = {255, 255, 255, 255};
@@ -18,6 +22,11 @@ void drawText(int x, int y, const char* text) {
     if (!surface) return;
 
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if (!texture) {
+        SDL_FreeSurface(surface);
+        return;
+    }
+
     SDL_Rect dst = {x, y, surface->w, surface->h};
     SDL_RenderCopy(renderer, texture, NULL, &dst);
 
@@ -26,8 +35,10 @@ void drawText(int x, int y, const char* text) {
 }
 
 void drawClippedText(int x, int y, const char* text, int maxWidth) {
-    int len = strlen(text);
-    char temp[1024]; 
+    if (!text || text[0] == '\0' || maxWidth <= 0) return;
+
+    int len = strnlen(text, 1023);  // Prevent overflow
+    char temp[1024] = {0};
     int cutoff = len;
 
     for (int i = 1; i <= len; i++) {
@@ -45,6 +56,7 @@ void drawClippedText(int x, int y, const char* text, int maxWidth) {
 
     drawText(x, y, temp);
 }
+
 
 void renderButton(SDL_Rect rect, const char* label) {
     RenderContext* ctx = getRenderContext();

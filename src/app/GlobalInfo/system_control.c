@@ -7,12 +7,17 @@
 
 #include "engine/Render/render_pipeline.h"
 #include "ide/Panes/Popup/popup_system.h"
-#include "core/Diagnostics/diagnostics_engine.h"
-#include "Parser/language_parser.h"
-#include "core/Build/build_system.h"
+#include "ide/Panes/ToolPanels/Tasks/task_json_helper.h"
+#include "ide/Panes/ToolPanels/Tasks/tool_tasks.h"
 #include "ide/Plugin/plugin_interface.h"
-#include "core/Watcher/file_watcher.h"
 #include "ide/UI/ui_state.h"
+
+
+#include "core/Watcher/file_watcher.h"
+#include "core/Build/build_system.h"
+#include "core/Diagnostics/diagnostics_engine.h"
+
+#include "Parser/language_parser.h"
 
 #include <SDL2/SDL_ttf.h>
 #include <stdio.h>
@@ -21,23 +26,56 @@
 
 
 
+static void printTaskNode(TaskNode* node, int depth) {
+    if (!node) return;
+
+    for (int i = 0; i < depth; i++) printf("  ");
+    printf("• %s (completed: %s, group: %s, expanded: %s)\n",
+        node->label,
+        node->completed ? "yes" : "no",
+        node->isGroup ? "yes" : "no",
+        node->isExpanded ? "yes" : "no"
+    );
+
+    for (int i = 0; i < node->childCount; i++) {
+        printTaskNode(node->children[i], depth + 1);
+    }
+}
+
 static void loadTestProject() {
     const char* testPath = "/Users/calebsv16/Desktop/CodeWork/IDE/src/Project";
-
     printf("[Project] Loading test project from: %s\n", testPath);
-
+        
     strncpy(projectPath, testPath, sizeof(projectPath));
-    projectPath[sizeof(projectPath) - 1] = '\0';  // ensure null-termination
-
+    projectPath[sizeof(projectPath) - 1] = '\0';
+    
     projectRoot = loadProjectDirectory(projectPath);
-
     if (projectRoot) {
         printf("[Project] Project loaded successfully.\n");
     } else {
         fprintf(stderr, "[Project] Failed to load project.\n");
     }
-}
+        
+    // 🧼 Clear old task roots before attempting to load
+    for (int i = 0; i < MAX_TASK_ROOTS; i++) {
+        taskRoots[i] = NULL;
+    }
+    taskRootCount = 0;
+        
+    // 📦 Load task tree from file
+    char taskPath[1024];
+    snprintf(taskPath, sizeof(taskPath), "%s/task_tree.json", projectPath);
+    bool loaded = loadTaskTreeFromFile(taskPath, &taskRoots, &taskRootCount);
 
+    if (loaded && taskRootCount > 0) {
+        printf("[TaskLoad] Loaded %d root task(s):\n", taskRootCount);
+        for (int i = 0; i < taskRootCount; i++) {
+            printTaskNode(taskRoots[i], 0);
+        }
+    } else {
+        printf("[TaskLoad] No valid task tree found in file. Task tree will remain empty.\n");
+    }
+}
 
 
 bool initializeSystem() {
@@ -111,20 +149,40 @@ bool initializeSystem() {
 }
 
 void shutdownSystem(UIPane** panes, int paneCount) {
+    // === Destroy UI panes ===
     for (int i = 0; i < paneCount; i++) {
         destroyPane(panes[i]);
     }
-     
+
     shutdownRenderPipeline();
     unloadAllPlugins();
-    
+
+    // === Save current task tree to JSON ===
+    char taskPath[1024];
+    snprintf(taskPath, sizeof(taskPath), "%s/task_tree.json", projectPath);
+    if (!saveTaskTreeToFile(taskPath, taskRoots, taskRootCount)) {
+        fprintf(stderr, "[Shutdown] Failed to save task tree to %s\n", taskPath);
+    }
+
+    // === Free all task tree memory ===
+    if (taskRoots) {
+        for (int i = 0; i < taskRootCount; i++) {
+            if (taskRoots[i]) {
+                freeTaskTree(taskRoots[i]);
+            }
+        }
+        free(taskRoots);
+        taskRoots = NULL;
+    }
+    taskRootCount = 0;
+
+    // === Clean up SDL systems ===
     TTF_Quit();
-    
+
     RenderContext* ctx = getRenderContext();
     if (ctx->renderer) SDL_DestroyRenderer(ctx->renderer);
     if (ctx->window) SDL_DestroyWindow(ctx->window);
 
-    
     SDL_Quit();
 }
 

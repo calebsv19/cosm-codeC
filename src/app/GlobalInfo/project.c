@@ -18,7 +18,8 @@ void initProjectPaths(void) {
     getcwd(projectRootPath, sizeof(projectRootPath));
 
     // Set test project to IDE/src/Project
-    snprintf(projectPath, sizeof(projectPath), "%s/src/Project", projectRootPath);
+//    snprintf(projectPath, sizeof(projectPath), "%s/src/Project", projectRootPath);
+    snprintf(projectPath, sizeof(projectPath), "%s", "/Users/calebsv16/Desktop/CodeWork/IDE");
 }
 
 

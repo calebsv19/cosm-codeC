@@ -15,18 +15,23 @@ extern bool renameErrorVisible;
 extern Uint32 renameErrorStart;
 
 typedef void (*RenameCallback)(const char* oldName, const char* newName, void* context);
+typedef bool (*RenameValidateFn)(const char* newName, void* context);
+
 
 typedef struct {
     char inputBuffer[MAX_PATH_LENGTH];
     char originalName[MAX_PATH_LENGTH];
     RenameCallback onRenameComplete;
+    RenameValidateFn onValidate;          
     void* context;
     bool active;
     int cursorPosition;
 } RenameRequest;
 
 // Core interface
-void beginRename(const char* oldName, RenameCallback callback, void* context);
+
+
+void beginRename(const char* oldName, RenameCallback callback, RenameValidateFn validate, void* context);
 void cancelRename(void);
 void submitRename(void);
 void handleRenameTextInput(char ch);
