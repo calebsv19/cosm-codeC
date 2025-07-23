@@ -4,10 +4,7 @@ build/
 *.o
 *.d
 *.log
-src/Project
-src/Libraries
-include/fonts
-include/testFiles
+
 
 # Ignore system files
 .DS_Store

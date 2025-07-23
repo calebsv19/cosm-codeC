@@ -17,9 +17,11 @@ void initProjectPaths(void) {
     // Set project root (IDE directory) to current working directory
     getcwd(projectRootPath, sizeof(projectRootPath));
 
-    // Set test project to IDE/src/Project
-//    snprintf(projectPath, sizeof(projectPath), "%s/src/Project", projectRootPath);
-    snprintf(projectPath, sizeof(projectPath), "%s", "/Users/calebsv16/Desktop/CodeWork/IDE");
+
+    // Set test project to ~/Desktop/Project
+    const char* defaultProjectPath = "/Users/calebsv16/Desktop/Project";
+    snprintf(projectPath, sizeof(projectPath), "%s", defaultProjectPath);
+
 }
 
 

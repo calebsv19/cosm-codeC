@@ -22,6 +22,11 @@
 #include "ide/Panes/MenuBar/menu_buttons.h"
 
 
+
+// TimerHud extension
+#include "engine/TimerHUD/src/api/time_scope.h"
+
+
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <string.h>
@@ -52,6 +57,7 @@ void setRenderContext(SDL_Renderer* renderer, SDL_Window* window,
 
 
 bool initRenderPipeline() {
+    ts_init();
     return initFontSystem();
 }
 
@@ -149,6 +155,9 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
                               int* lastW, int* lastH, ResizeZone* resizeZones,
                               int* resizeZoneCount, IDECoreState* core){
 
+    ts_start_timer("Render");
+
+
     int winW, winH;
     RenderContext* ctx = getRenderContext();
     if (!ctx) return;
@@ -181,6 +190,15 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     }
 
 
+    ts_stop_timer("Render");
+
+
+    if (ts_settings.hud_enabled) {
+        ts_render(ctx->renderer);
+    }    
+
     SDL_RenderPresent(ctx->renderer);
+
+
 }
 

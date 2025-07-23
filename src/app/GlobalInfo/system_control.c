@@ -9,6 +9,7 @@
 #include "ide/Panes/Popup/popup_system.h"
 #include "ide/Panes/ToolPanels/Tasks/task_json_helper.h"
 #include "ide/Panes/ToolPanels/Tasks/tool_tasks.h"
+#include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
 #include "ide/Plugin/plugin_interface.h"
 #include "ide/UI/ui_state.h"
 
@@ -24,6 +25,9 @@
 #include <unistd.h>
 #include <string.h>
 
+
+
+bool printTaskNodes = false;
 
 
 static void printTaskNode(TaskNode* node, int depth) {
@@ -43,7 +47,7 @@ static void printTaskNode(TaskNode* node, int depth) {
 }
 
 static void loadTestProject() {
-    const char* testPath = "/Users/calebsv16/Desktop/CodeWork/IDE/src/Project";
+    const char* testPath = "/Users/calebsv16/Desktop/Project";
     printf("[Project] Loading test project from: %s\n", testPath);
         
     strncpy(projectPath, testPath, sizeof(projectPath));
@@ -69,9 +73,12 @@ static void loadTestProject() {
 
     if (loaded && taskRootCount > 0) {
         printf("[TaskLoad] Loaded %d root task(s):\n", taskRootCount);
-        for (int i = 0; i < taskRootCount; i++) {
-            printTaskNode(taskRoots[i], 0);
-        }
+        
+	if (printTaskNodes){
+		for (int i = 0; i < taskRootCount; i++) {
+        	    printTaskNode(taskRoots[i], 0);
+        	}
+	}
     } else {
         printf("[TaskLoad] No valid task tree found in file. Task tree will remain empty.\n");
     }
@@ -135,6 +142,8 @@ bool initializeSystem() {
     initDiagnosticsEngine();
     initLanguageParser();
     initBuildSystem();
+    initBuildOutputPanelState();
+
     initPluginSystem();
 
     initializeUIPanesIfNeeded();
@@ -177,6 +186,7 @@ void shutdownSystem(UIPane** panes, int paneCount) {
     taskRootCount = 0;
 
     // === Clean up SDL systems ===
+    freeBuildOutputPanelState();
     TTF_Quit();
 
     RenderContext* ctx = getRenderContext();

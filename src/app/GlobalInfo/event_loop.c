@@ -20,6 +20,8 @@
 #include "engine/Render/render_pipeline.h"
 
 
+// TimerHud extension
+#include "engine/TimerHUD/src/api/time_scope.h"
 
 
 //      ================================================
@@ -88,17 +90,31 @@ static void checkRenderFrame(FrameContext* ctx, Uint64 now) {
 
 
 void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
+    ts_start_timer("SystemLoop");
+
     EditorView* savedView = saveEditorViewState();
 
+    ts_start_timer("Other");
     layoutAndSyncPanes(ctx->panes, ctx->paneCount);
     bindEditorViewToEditorPane(savedView, ctx->panes, *ctx->paneCount);
+    ts_stop_timer("Other");    
+
+    ts_start_timer("Input");
     processInputEvents(ctx);
+    ts_stop_timer("Input");
+
+    ts_start_timer("BackgroundTick");
     tickBackgroundSystems();
+    ts_stop_timer("BackgroundTick");
+
+    
     checkRenderFrame(ctx, now);
 
     if (pendingProjectRefresh) {
         refreshProjectDirectory();
         pendingProjectRefresh = false;
     }
+
+    ts_stop_timer("SystemLoop");
 }
 

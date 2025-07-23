@@ -11,7 +11,7 @@ bool initFontSystem() {
         fprintf(stderr, "Failed to initialize SDL_ttf: %s\n", TTF_GetError());
         return false;
     }
-    return loadFontByID(FONT_MONTSERRAT_REGULAR);
+    return loadFontByID(FONT_MONTSERRAT_MEDIUM);
 }
 
 void shutdownFontSystem() {
@@ -31,28 +31,32 @@ bool loadFontByID(FontID id) {
     int fontSize = 14;
 
     switch (id) {
+        case FONT_MONTSERRAT_BOLD:
+            fontPath = "include/fonts/Montserrat/Montserrat-Bold.ttf";
+            break;
         case FONT_MONTSERRAT_MEDIUM:
-            fontPath = "include/fonts/Montserrat/static/Montserrat-Medium.ttf";
+            fontPath = "include/fonts/Montserrat/Montserrat-Medium.ttf";
+            break;
+        case FONT_MONTSERRAT_MEDIUM_ITALIC:
+            fontPath = "include/fonts/Montserrat/Montserrat-MediumItalic.ttf";
             break;
         case FONT_MONTSERRAT_REGULAR:
-            fontPath = "include/fonts/Montserrat/static/Montserrat-Regular.ttf";
+            fontPath = "include/fonts/Montserrat/Montserrat-Regular.ttf";
+            break;	
+
+        case FONT_LATO_BOLD:
+            fontPath = "include/fonts/Lato/Lato-Bold.ttf";
             break;
-        case FONT_INTER_REGULAR:
-            fontPath = "include/fonts/Inter/static/Inter_18pt-Regular.ttf";
+        case FONT_LATO_BOLD_ITALIC:
+            fontPath = "include/fonts/Lato/Lato-BoldItalic.ttf";
+            break;
+        case FONT_LATO_ITALIC:
+            fontPath = "include/fonts/Lato/Lato-Italic.ttf";
             break;
         case FONT_LATO_REGULAR:
             fontPath = "include/fonts/Lato/Lato-Regular.ttf";
             break;
-        case FONT_LATO_BOLD:
-            fontPath = "include/fonts/Lato/Lato-Bold.ttf";
-            break;
-        case FONT_ROBOTO_LIGHT:
-            fontPath = "include/fonts/Roboto/static/Roboto-Light.ttf";
-            break;
-        case FONT_IBM_CONDENSED:
-            fontPath = "include/fonts/IBM_Plex_Sans/static/IBMPlexSans_Condensed-Regular.ttf";
-            fontSize = 20;
-            break;
+
         default:
             fprintf(stderr, "Unknown font ID\n");
             return false;
