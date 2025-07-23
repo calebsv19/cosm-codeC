@@ -1,4 +1,6 @@
 # ===== CONFIGURATION =====
+#testing testing
+
 CC = cc
 CFLAGS = -g -Wall -I./src -std=c99 -MMD -MP
 LDFLAGS = -lSDL2 -lSDL2_ttf -ljson-c
