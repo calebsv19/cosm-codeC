@@ -1,5 +1,4 @@
 # Ignore compiled output
-ide
 build/
 *.o
 *.d

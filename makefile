@@ -1,5 +1,4 @@
 # ===== CONFIGURATION =====
-#testing testing
 
 CC = cc
 CFLAGS = -g -Wall -I./src -std=c99 -MMD -MP

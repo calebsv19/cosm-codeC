@@ -8,7 +8,7 @@
   "render_mode": "throttled",
   "render_threshold": 0.503,
 
-  "hud_position": "bottom-right", 
+  "hud_position": "bottom-left", 
   "hud_offset_x": 10,               
   "hud_offset_y": 10                
 }
