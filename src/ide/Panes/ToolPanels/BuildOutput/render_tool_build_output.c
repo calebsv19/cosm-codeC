@@ -2,7 +2,7 @@
 
 #include "ide/Panes/ToolPanels/BuildOutput/render_tool_build_output.h"
 #include "ide/Panes/ToolPanels/BuildOutput/tool_build_output.h"
-#include "core/Build/build_system.h"   // for getBuildOutput()
+#include "core/BuildSystem/build_system.h"   // for getBuildOutput()
 #include <SDL2/SDL.h>
 #include <string.h>
 

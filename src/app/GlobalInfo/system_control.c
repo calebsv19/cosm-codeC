@@ -15,7 +15,7 @@
 
 
 #include "core/Watcher/file_watcher.h"
-#include "core/Build/build_system.h"
+#include "core/BuildSystem/build_system.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 
 #include "Parser/language_parser.h"

@@ -1,7 +1,7 @@
 #include "command_terminal.h"
 #include "ide/Panes/Terminal/terminal.h"
 
-#include "core/Build/run_build.h"
+#include "core/BuildSystem/run_build.h"
 
 #include "app/GlobalInfo/project.h"
 #include "core/CommandBus/command_metadata.h"

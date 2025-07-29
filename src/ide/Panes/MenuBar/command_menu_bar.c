@@ -2,8 +2,8 @@
 #include "core/CommandBus/command_metadata.h"
 #include "core/CommandBus/save_queue.h"
 
-#include "core/Build/build_system.h"
-#include "core/Build/run_build.h"
+#include "core/BuildSystem/build_system.h"
+#include "core/BuildSystem/run_build.h"
 
 #include "app/GlobalInfo/project.h" 
 #include "app/GlobalInfo/core_state.h"
