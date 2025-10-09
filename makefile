@@ -1,26 +1,59 @@
 # ===== CONFIGURATION =====
-CC = cc
+  CC = cc
 
-# Detect Homebrew prefix (works on Intel and Apple Silicon)
-BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
+  # Detect Homebrew prefix (works on Intel and Apple Silicon)
+  BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
 
-# Include dir should be the PARENT of SDL2, not the SDL2 folder itself
-INC_DIRS := -I./src -I$(BREW_PREFIX)/include
-LIB_DIRS := -L$(BREW_PREFIX)/lib
+  # Shared include/lib search paths
+  INC_DIRS := -I./src -I./include
+  LIB_DIRS :=
 
-CFLAGS  = -g -Wall -std=c99 -MMD -MP $(INC_DIRS)
-LDFLAGS = $(LIB_DIRS) -lSDL2 -lSDL2_ttf -lSDL2_image -lSDL2_mixer -ljson-c
+  ifneq ($(strip $(BREW_PREFIX)),)
+  INC_DIRS += -I$(BREW_PREFIX)/include
+  LIB_DIRS += -L$(BREW_PREFIX)/lib
+  endif
 
-SRC_DIR := src
-BUILD_DIR := build
-EXCLUDE_DIR := $(SRC_DIR)/Project
+  # Fallbacks for systems without Homebrew or with alternate prefixes
+  INC_DIRS += -I/usr/local/include
+  LIB_DIRS += -L/usr/local/lib
 
-SRC_FILES := $(shell find $(SRC_DIR) -type f -name '*.c' ! -path "$(EXCLUDE_DIR)/*")
-OBJ_FILES := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC_FILES))
-DEP_FILES := $(OBJ_FILES:.o=.d)
+  # Allow consuming an installed Vulkan SDK
+  ifneq ($(strip $(VULKAN_SDK)),)
+  INC_DIRS += -I$(VULKAN_SDK)/include
+  LIB_DIRS += -L$(VULKAN_SDK)/lib
+  endif
 
-OUT = ide
+  VULKAN_BREW_PREFIX := $(shell brew --prefix vulkan-loader 2>/dev/null)
+  ifneq ($(strip $(VULKAN_BREW_PREFIX)),)
+  INC_DIRS += -I$(VULKAN_BREW_PREFIX)/include
+  LIB_DIRS += -L$(VULKAN_BREW_PREFIX)/lib
+  endif
 
+  SDL_MIXER_SEARCH := $(foreach dir,$(BREW_PREFIX)/lib /usr/local/lib /opt/homebrew/lib,$(wildcard $(dir)/libSDL2_mixer*.dylib) $(wildcard  $(dir)/libSDL2_mixer*.a))
+  SDL_MIXER_LIB := $(firstword $(SDL_MIXER_SEARCH))
+
+  ifneq ($(strip $(SDL_MIXER_LIB)),)
+  SDL_MIXER_FLAGS := -lSDL2_mixer
+  else
+  SDL_MIXER_FLAGS :=
+  endif
+
+  VULKAN_LIBS := -lvulkan
+
+  CFLAGS  = -g -Wall -std=c99 -MMD -MP $(INC_DIRS)
+  LDFLAGS = $(LIB_DIRS) -lSDL2 -lSDL2_ttf -lSDL2_image -ljson-c $(VULKAN_LIBS) $(SDL_MIXER_FLAGS)
+
+  SRC_DIR := src
+  BUILD_DIR := build
+  EXCLUDE_DIRS := $(SRC_DIR)/Project
+  EXCLUDE_FILES := $(SRC_DIR)/engine/Render/vk_renderer_ref/main.c
+
+  SRC_FILES := $(shell find $(SRC_DIR) -type f -name '*.c' $(foreach dir,$(EXCLUDE_DIRS),! -path "$(dir)/*"))
+  SRC_FILES := $(filter-out $(EXCLUDE_FILES), $(SRC_FILES))
+  OBJ_FILES := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC_FILES))
+  DEP_FILES := $(OBJ_FILES:.o=.d)
+
+  OUT = ide
 # ===== RULES =====
 all: $(OUT)
 
