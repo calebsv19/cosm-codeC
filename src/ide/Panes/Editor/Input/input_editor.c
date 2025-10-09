@@ -83,7 +83,6 @@ void handleEditorMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !pane->editorView) return;
 
     IDECoreState* core = getCoreState();
-    EditorView* view = core->activeEditorView;
 
     switch (event->type) {
         case SDL_MOUSEBUTTONDOWN:
@@ -91,6 +90,8 @@ void handleEditorMouseInput(UIPane* pane, SDL_Event* event) {
                 int mx = event->button.x;
                 int my = event->button.y;
                 updateActiveEditorViewFromMouse(mx, my);
+                EditorView* view = core->activeEditorView;
+                if (!view) return;
                 if (handleEditorScrollbarEvent(pane, event)) return; // early out if scrollbar clicked
                 handleEditorMouseClick(pane, event, view);
             }
@@ -99,12 +100,16 @@ void handleEditorMouseInput(UIPane* pane, SDL_Event* event) {
         case SDL_MOUSEMOTION:
             if (event->motion.state & SDL_BUTTON_LMASK) {
                 if (handleEditorScrollbarEvent(pane, event)) return; // handle drag
+                EditorView* view = core->activeEditorView;
+                if (!view) return;
                 handleEditorMouseDrag(pane, event, view);
             }
             break;
 
         case SDL_MOUSEBUTTONUP:
             if (handleEditorScrollbarEvent(pane, event)) return;
+            EditorView* view = core->activeEditorView;
+            if (!view) return;
 	    handleEditorMouseButtonUp(pane, event, view);
             break;
 
@@ -135,4 +140,3 @@ UIPaneInputHandler editorInputHandler = {
     .onHover = handleEditorHoverInput,
     .onTextInput = handleEditorTextInput
 };
-

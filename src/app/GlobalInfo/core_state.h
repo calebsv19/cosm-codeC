@@ -31,6 +31,7 @@ typedef struct IDECoreState {
 
     bool initializePopup;
     bool popupPaneActive;
+    bool timerHudEnabled;
 
     // Modular subsystems
     UIState ui;
@@ -49,9 +50,11 @@ typedef struct IDECoreState {
 // Accessor to global state
 IDECoreState* getCoreState(void);
 
+void setTimerHudEnabled(bool enabled);
+bool isTimerHudEnabled(void);
+
 // Lifecycle (optional for future init/cleanup)
 void initCoreState(void);
 void shutdownCoreState(void);
 
 #endif // CORE_STATE_H
-

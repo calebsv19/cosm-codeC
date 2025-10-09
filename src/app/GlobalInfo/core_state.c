@@ -43,3 +43,10 @@ void shutdownCoreState(void) {
     }
 }
 
+void setTimerHudEnabled(bool enabled) {
+    coreState.timerHudEnabled = enabled;
+}
+
+bool isTimerHudEnabled(void) {
+    return coreState.timerHudEnabled;
+}

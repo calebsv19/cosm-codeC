@@ -16,10 +16,14 @@
 
 int STARTING_WIDTH = 1600, STARTING_HEIGHT = 860;
 
+static const bool ENABLE_TIMER_HUD = false;
+
 
 
 
 int main(int argc, char* argv[]){
+
+	setTimerHudEnabled(ENABLE_TIMER_HUD);
 
 	// 	====================================
 	//		INITS
@@ -93,4 +97,3 @@ int main(int argc, char* argv[]){
 	shutdownSystem(panes, paneCount);
 	return 0;
 }
-

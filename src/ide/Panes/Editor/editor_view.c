@@ -99,6 +99,8 @@ void addEditorView(EditorView* root, UIPane* pane) {
         return;
     }
 
+    bool activeWasTarget = (core->activeEditorView == leaf);
+
     // 2. Clone the leaf (original contents)
     EditorView* cloned = cloneLeafView(leaf, root->splitType);
     if (!cloned) {
@@ -170,6 +172,12 @@ void addEditorView(EditorView* root, UIPane* pane) {
     core->editorViewCount++;
 
     setParentPaneForView(root, leaf->parentPane);
+
+    rebuildLeafHitboxes(core->persistentEditorView);
+
+    if (activeWasTarget) {
+        setActiveEditorView(cloned);
+    }
 
     // printf("[Fix] Updated parentPane assignments after splitting editor tree.\n");
 
@@ -321,8 +329,6 @@ void updateActiveEditorViewFromMouse(int mouseX, int mouseY) {
     EditorView* root = core->persistentEditorView;
     if (!root) return;
     
-//    rebuildLeafHitboxes(root);
-    
     EditorViewState* vs = core->editorViewState;   
     for (int i = 0; i < vs->leafHitboxCount; i++) {
         LeafHitbox* hit = &vs->leafHitboxes[i];
@@ -333,6 +339,11 @@ void updateActiveEditorViewFromMouse(int mouseX, int mouseY) {
             setActiveEditorView((EditorView*)hit->view);
             return;
         }
+    }
+
+    EditorView* fallback = findLeafUnderCursor(root, mouseX, mouseY);
+    if (fallback) {
+        setActiveEditorView(fallback);
     }
 }   
 
@@ -516,7 +527,18 @@ void bindEditorViewToEditorPane(EditorView* savedView, UIPane** panes, int paneC
 	if (!core->persistentEditorView) {
             core->persistentEditorView = savedView;
         }
-        setActiveEditorView(savedView);
+
+        EditorView* focus = core->activeEditorView;
+        if (!focus || focus->type != VIEW_LEAF) {
+            focus = savedView;
+            if (focus && focus->type != VIEW_LEAF) {
+                focus = findNextLeaf(focus);
+            }
+
+            if (focus) {
+                setActiveEditorView(focus);
+            }
+        }
     }
 }
 
@@ -671,4 +693,3 @@ void reloadOpenFileFromDisk(OpenFile* file) {
 
     printf("[Watcher] Reloaded: %s\n", file->filePath);
 }
-

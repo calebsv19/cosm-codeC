@@ -57,7 +57,9 @@ void setRenderContext(SDL_Renderer* renderer, SDL_Window* window,
 
 
 bool initRenderPipeline() {
-    ts_init();
+    if (getCoreState()->timerHudEnabled) {
+        ts_init();
+    }
     return initFontSystem();
 }
 
@@ -155,8 +157,11 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
                               int* lastW, int* lastH, ResizeZone* resizeZones,
                               int* resizeZoneCount, IDECoreState* core){
 
-    ts_start_timer("Render");
+    const bool timerHudActive = (core && core->timerHudEnabled);
 
+    if (timerHudActive) {
+        ts_start_timer("Render");
+    }
 
     int winW, winH;
     RenderContext* ctx = getRenderContext();
@@ -190,15 +195,15 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     }
 
 
-    ts_stop_timer("Render");
+    if (timerHudActive) {
+        ts_stop_timer("Render");
 
-
-    if (ts_settings.hud_enabled) {
-        ts_render(ctx->renderer);
-    }    
+        if (ts_settings.hud_enabled) {
+            ts_render(ctx->renderer);
+        }
+    }
 
     SDL_RenderPresent(ctx->renderer);
 
 
 }
-

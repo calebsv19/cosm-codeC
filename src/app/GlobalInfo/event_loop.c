@@ -90,22 +90,25 @@ static void checkRenderFrame(FrameContext* ctx, Uint64 now) {
 
 
 void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
-    ts_start_timer("SystemLoop");
+    IDECoreState* core = getCoreState();
+    const bool timerHudActive = core->timerHudEnabled;
+
+    if (timerHudActive) ts_start_timer("SystemLoop");
 
     EditorView* savedView = saveEditorViewState();
 
-    ts_start_timer("Other");
+    if (timerHudActive) ts_start_timer("Other");
     layoutAndSyncPanes(ctx->panes, ctx->paneCount);
     bindEditorViewToEditorPane(savedView, ctx->panes, *ctx->paneCount);
-    ts_stop_timer("Other");    
+    if (timerHudActive) ts_stop_timer("Other");    
 
-    ts_start_timer("Input");
+    if (timerHudActive) ts_start_timer("Input");
     processInputEvents(ctx);
-    ts_stop_timer("Input");
+    if (timerHudActive) ts_stop_timer("Input");
 
-    ts_start_timer("BackgroundTick");
+    if (timerHudActive) ts_start_timer("BackgroundTick");
     tickBackgroundSystems();
-    ts_stop_timer("BackgroundTick");
+    if (timerHudActive) ts_stop_timer("BackgroundTick");
 
     
     checkRenderFrame(ctx, now);
@@ -115,6 +118,5 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
         pendingProjectRefresh = false;
     }
 
-    ts_stop_timer("SystemLoop");
+    if (timerHudActive) ts_stop_timer("SystemLoop");
 }
-
