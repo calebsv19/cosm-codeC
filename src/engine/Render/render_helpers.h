@@ -1,7 +1,7 @@
 #ifndef RENDER_HELPERS_H
 #define RENDER_HELPERS_H
 
-#include <SDL2/SDL.h>
+#include "engine/Render/renderer_backend.h"
 
 // Draw text with default styling
 void drawText(int x, int y, const char* text);
@@ -13,4 +13,3 @@ void drawClippedText(int x, int y, const char* text, int maxWidth);
 void renderButton(SDL_Rect rect, const char* label);
 
 #endif
-

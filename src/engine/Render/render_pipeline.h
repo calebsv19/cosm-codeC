@@ -2,7 +2,7 @@
 #define RENDER_PIPELINE_H
 
 #include "ide/UI/resize.h"
-#include <SDL2/SDL.h>
+#include "engine/Render/renderer_backend.h"
 
 
 // Global render context structure
@@ -50,4 +50,3 @@ void RenderPipeline_renderAll(
 
 
 #endif
-

@@ -21,16 +21,22 @@ void drawText(int x, int y, const char* text) {
     SDL_Surface* surface = TTF_RenderText_Blended(font, text, color);
     if (!surface) return;
 
-    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-    if (!texture) {
-        SDL_FreeSurface(surface);
-        return;
-    }
-
     SDL_Rect dst = {x, y, surface->w, surface->h};
-    SDL_RenderCopy(renderer, texture, NULL, &dst);
 
-    SDL_DestroyTexture(texture);
+#if USE_VULKAN
+    VkRendererTexture vkTexture = {0};
+    if (vk_renderer_upload_sdl_surface(renderer, surface, &vkTexture) == VK_SUCCESS) {
+        vk_renderer_draw_texture(renderer, &vkTexture, NULL, &dst);
+        vk_renderer_queue_texture_destroy(renderer, &vkTexture);
+    }
+#else
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if (texture) {
+        SDL_RenderCopy(renderer, texture, NULL, &dst);
+        SDL_DestroyTexture(texture);
+    }
+#endif
+
     SDL_FreeSurface(surface);
 }
 
@@ -73,4 +79,3 @@ void renderButton(SDL_Rect rect, const char* label) {
 
     drawText(rect.x + 6, rect.y + 4, label);
 }
-

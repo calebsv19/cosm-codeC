@@ -22,6 +22,9 @@ typedef struct VkRendererFrameState {
     VkSemaphore render_finished;
     VkAllocatedBuffer vertex_buffer;
     VkDeviceSize vertex_offset;
+    VkRendererTexture* transient_textures;
+    uint32_t transient_texture_count;
+    uint32_t transient_texture_capacity;
 } VkRendererFrameState;
 
 typedef struct VkRendererDrawState {
@@ -76,6 +79,8 @@ void vk_renderer_draw_texture(VkRenderer* renderer,
 VkResult vk_renderer_upload_sdl_surface(VkRenderer* renderer,
                                         SDL_Surface* surface,
                                         VkRendererTexture* out_texture);
+void vk_renderer_queue_texture_destroy(VkRenderer* renderer,
+                                       VkRendererTexture* texture);
 
 #ifdef __cplusplus
 }

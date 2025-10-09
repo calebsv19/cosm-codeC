@@ -1,3 +1,4 @@
+#include "build_config.h"
 #include "system_control.h"
 #include "core_state.h"
 
@@ -24,6 +25,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 
 
 
@@ -96,10 +98,15 @@ bool initializeSystem() {
         return false;
     }
 
+    Uint32 windowFlags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
+#if USE_VULKAN
+    windowFlags |= SDL_WINDOW_VULKAN;
+#endif
+
     SDL_Window* window = SDL_CreateWindow(
         "Caleb's IDE", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         1600, 860,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI
+        windowFlags
     );
     if (!window) {
         fprintf(stderr, " Window creation failed: %s\n", SDL_GetError());
@@ -107,7 +114,36 @@ bool initializeSystem() {
         return false;
     }
 
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1,
+    SDL_Renderer* renderer = NULL;
+#if USE_VULKAN
+    renderer = calloc(1, sizeof(*renderer));
+    if (!renderer) {
+        fprintf(stderr, " Failed to allocate Vulkan renderer.\n");
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return false;
+    }
+
+    VkRendererConfig rendererConfig;
+    vk_renderer_config_set_defaults(&rendererConfig);
+#ifdef ENABLE_VULKAN_VALIDATION
+    rendererConfig.enable_validation = ENABLE_VULKAN_VALIDATION ? VK_TRUE : VK_FALSE;
+#endif
+    rendererConfig.clear_color[0] = 30.0f / 255.0f;
+    rendererConfig.clear_color[1] = 30.0f / 255.0f;
+    rendererConfig.clear_color[2] = 30.0f / 255.0f;
+    rendererConfig.clear_color[3] = 1.0f;
+
+    VkResult vkInitResult = vk_renderer_init(renderer, window, &rendererConfig);
+    if (vkInitResult != VK_SUCCESS) {
+        fprintf(stderr, " Vulkan renderer initialization failed: %d\n", vkInitResult);
+        free(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return false;
+    }
+#else
+    renderer = SDL_CreateRenderer(window, -1,
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) {
         fprintf(stderr, " Renderer creation failed: %s\n", SDL_GetError());
@@ -115,6 +151,7 @@ bool initializeSystem() {
         SDL_Quit();
         return false;
     }
+#endif
 
     if (!SDL_GetKeyboardFocus()) {
         printf(" SDL window not focused!\n");
@@ -122,7 +159,12 @@ bool initializeSystem() {
 
     if (TTF_Init() == -1) {
         fprintf(stderr, " Failed to initialize SDL_ttf: %s\n", TTF_GetError());
+#if USE_VULKAN
+        vk_renderer_shutdown(renderer);
+        free(renderer);
+#else
         SDL_DestroyRenderer(renderer);
+#endif
         SDL_DestroyWindow(window);
         SDL_Quit();
         return false;
@@ -190,9 +232,15 @@ void shutdownSystem(UIPane** panes, int paneCount) {
     TTF_Quit();
 
     RenderContext* ctx = getRenderContext();
+#if USE_VULKAN
+    if (ctx->renderer) {
+        vk_renderer_shutdown(ctx->renderer);
+        free(ctx->renderer);
+    }
+#else
     if (ctx->renderer) SDL_DestroyRenderer(ctx->renderer);
+#endif
     if (ctx->window) SDL_DestroyWindow(ctx->window);
 
     SDL_Quit();
 }
-

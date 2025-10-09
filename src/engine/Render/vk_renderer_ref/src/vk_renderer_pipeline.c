@@ -4,9 +4,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
-static VkShaderModule load_shader_module(VkDevice device,
-                                         const char* path) {
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
+static VkShaderModule load_shader_module_from_path(VkDevice device, const char* path) {
     FILE* file = fopen(path, "rb");
     if (!file) return VK_NULL_HANDLE;
 
@@ -40,6 +44,64 @@ static VkShaderModule load_shader_module(VkDevice device,
 
     free(buffer);
     return module;
+}
+
+static const char* shader_fallback_root(void) {
+    static char cached[PATH_MAX];
+    static int initialized = 0;
+    if (initialized) return cached[0] ? cached : NULL;
+
+    const char* file_path = __FILE__;
+    const char* slash = strrchr(file_path, '/');
+#ifdef _WIN32
+    const char* backslash = strrchr(file_path, '\\');
+    if (!slash || (backslash && backslash > slash)) {
+        slash = backslash;
+    }
+#endif
+
+    if (!slash) {
+        cached[0] = '\0';
+        initialized = 1;
+        return NULL;
+    }
+
+    size_t length = (size_t)(slash - file_path);
+    if (length >= sizeof(cached)) {
+        length = sizeof(cached) - 1;
+    }
+
+    memcpy(cached, file_path, length);
+    cached[length] = '\0';
+    initialized = 1;
+    return cached;
+}
+
+static VkShaderModule load_shader_module(VkDevice device,
+                                         const char* path) {
+    VkShaderModule module = load_shader_module_from_path(device, path);
+    if (module != VK_NULL_HANDLE) {
+        return module;
+    }
+
+#ifdef VK_RENDERER_SHADER_ROOT
+    {
+        char combined[PATH_MAX];
+        snprintf(combined, sizeof(combined), "%s/%s", VK_RENDERER_SHADER_ROOT, path);
+        module = load_shader_module_from_path(device, combined);
+        if (module != VK_NULL_HANDLE) return module;
+    }
+#endif
+
+    const char* root = shader_fallback_root();
+    if (root && root[0]) {
+        char combined[PATH_MAX];
+        snprintf(combined, sizeof(combined), "%s/../%s", root, path);
+        module = load_shader_module_from_path(device, combined);
+        if (module != VK_NULL_HANDLE) return module;
+    }
+
+    return VK_NULL_HANDLE;
 }
 
 static void destroy_pipeline(VkDevice device, VkRendererPipeline* pipeline) {

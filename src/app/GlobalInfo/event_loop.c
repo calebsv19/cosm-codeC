@@ -71,7 +71,9 @@ static void checkRenderFrame(FrameContext* ctx, Uint64 now) {
 
         // Clear background color before drawing
         SDL_SetRenderDrawColor(rctx->renderer, 30, 30, 30, 255);
+#if !USE_VULKAN
         SDL_RenderClear(rctx->renderer);
+#endif
 
         // Render all UI
         RenderPipeline_renderAll(ctx->panes,

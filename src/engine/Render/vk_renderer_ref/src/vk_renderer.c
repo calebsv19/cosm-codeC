@@ -45,6 +45,17 @@ static VkResult create_descriptor_resources(VkRenderer* renderer) {
                                   &renderer->descriptor_pool);
 }
 
+static void flush_transient_textures(VkRenderer* renderer, VkRendererFrameState* frame) {
+    if (!frame || !frame->transient_textures) {
+        frame->transient_texture_count = 0;
+        return;
+    }
+    for (uint32_t i = 0; i < frame->transient_texture_count; ++i) {
+        vk_renderer_texture_destroy(renderer, &frame->transient_textures[i]);
+    }
+    frame->transient_texture_count = 0;
+}
+
 static VkResult create_render_pass(VkRenderer* renderer) {
     VkAttachmentDescription color_attachment = {
         .format = renderer->context.swapchain.image_format,
@@ -185,12 +196,7 @@ static void push_basic_constants(VkRenderer* renderer,
         0.0f,
     };
 
-    float color_data[4] = {
-        renderer->draw_state.current_color[0],
-        renderer->draw_state.current_color[1],
-        renderer->draw_state.current_color[2],
-        renderer->draw_state.current_color[3],
-    };
+    float color_data[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 
     vkCmdPushConstants(cmd, renderer->pipelines[kind].layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(viewport_data), viewport_data);
@@ -297,6 +303,7 @@ VkResult vk_renderer_begin_frame(VkRenderer* renderer,
 
     VkRendererFrameState* frame = active_frame(renderer);
     if (!frame) return VK_ERROR_INITIALIZATION_FAILED;
+    flush_transient_textures(renderer, frame);
     frame->vertex_offset = 0;
 
     VkClearValue clear = {
@@ -510,20 +517,13 @@ void vk_renderer_draw_texture(VkRenderer* renderer,
     float w = (float)dst->w;
     float h = (float)dst->h;
 
-    const float color[4] = {
-        renderer->draw_state.current_color[0],
-        renderer->draw_state.current_color[1],
-        renderer->draw_state.current_color[2],
-        renderer->draw_state.current_color[3],
-    };
-
     float textured_vertices[6][8] = {
-        {x, y, u0, v0, color[0], color[1], color[2], color[3]},
-        {x + w, y, u1, v0, color[0], color[1], color[2], color[3]},
-        {x + w, y + h, u1, v1, color[0], color[1], color[2], color[3]},
-        {x, y, u0, v0, color[0], color[1], color[2], color[3]},
-        {x + w, y + h, u1, v1, color[0], color[1], color[2], color[3]},
-        {x, y + h, u0, v1, color[0], color[1], color[2], color[3]},
+        {x, y, u0, v0, 1.0f, 1.0f, 1.0f, 1.0f},
+        {x + w, y, u1, v0, 1.0f, 1.0f, 1.0f, 1.0f},
+        {x + w, y + h, u1, v1, 1.0f, 1.0f, 1.0f, 1.0f},
+        {x, y, u0, v0, 1.0f, 1.0f, 1.0f, 1.0f},
+        {x + w, y + h, u1, v1, 1.0f, 1.0f, 1.0f, 1.0f},
+        {x, y + h, u0, v1, 1.0f, 1.0f, 1.0f, 1.0f},
     };
 
     VkDeviceSize bytes = sizeof(textured_vertices);
@@ -567,6 +567,41 @@ VkResult vk_renderer_upload_sdl_surface(VkRenderer* renderer,
     return result;
 }
 
+void vk_renderer_queue_texture_destroy(VkRenderer* renderer,
+                                       VkRendererTexture* texture) {
+    if (!renderer || !texture) return;
+    if (!texture->descriptor_set && !texture->sampler && !texture->image.image) {
+        return;
+    }
+
+    uint32_t frame_index = renderer->current_frame_index;
+    if (frame_index == UINT32_MAX) {
+        vk_renderer_texture_destroy(renderer, texture);
+        return;
+    }
+
+    VkRendererFrameState* frame = &renderer->frames[frame_index];
+    if (!frame) {
+        vk_renderer_texture_destroy(renderer, texture);
+        return;
+    }
+
+    if (frame->transient_texture_count >= frame->transient_texture_capacity) {
+        uint32_t new_capacity = frame->transient_texture_capacity ? frame->transient_texture_capacity * 2 : 8;
+        VkRendererTexture* resized = (VkRendererTexture*)realloc(frame->transient_textures,
+                                                                 sizeof(VkRendererTexture) * new_capacity);
+        if (!resized) {
+            vk_renderer_texture_destroy(renderer, texture);
+            return;
+        }
+        frame->transient_textures = resized;
+        frame->transient_texture_capacity = new_capacity;
+    }
+
+    frame->transient_textures[frame->transient_texture_count++] = *texture;
+    memset(texture, 0, sizeof(*texture));
+}
+
 void vk_renderer_shutdown(VkRenderer* renderer) {
     if (!renderer) return;
     VkDevice device = renderer->context.device;
@@ -576,7 +611,13 @@ void vk_renderer_shutdown(VkRenderer* renderer) {
 
     if (renderer->frames) {
         for (uint32_t i = 0; i < renderer->frame_count; ++i) {
-            vk_renderer_memory_destroy_buffer(&renderer->context, &renderer->frames[i].vertex_buffer);
+            VkRendererFrameState* frame = &renderer->frames[i];
+            flush_transient_textures(renderer, frame);
+            free(frame->transient_textures);
+            frame->transient_textures = NULL;
+            frame->transient_texture_capacity = 0;
+            frame->transient_texture_count = 0;
+            vk_renderer_memory_destroy_buffer(&renderer->context, &frame->vertex_buffer);
         }
     }
 

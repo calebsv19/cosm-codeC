@@ -3,11 +3,10 @@
 
 #include "../Popup/popup_system.h"
 #include "ide/Panes/PaneInfo/pane.h"
-#include <SDL2/SDL.h>
+#include "engine/Render/render_pipeline.h"
 
 void renderPopupQueueContents(void);
 void renderSinglePopup(Popup* popup, SDL_Renderer* renderer, int index);
 void renderRenamePopup(SDL_Renderer* renderer, int winW, int winH);
 
 #endif
-

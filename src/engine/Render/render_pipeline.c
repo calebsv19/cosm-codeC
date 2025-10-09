@@ -1,3 +1,4 @@
+#include "build_config.h"
 #include "engine/Render/render_pipeline.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"
@@ -165,16 +166,34 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
 
     int winW, winH;
     RenderContext* ctx = getRenderContext();
-    if (!ctx) return;
+    if (!ctx) {
+        if (timerHudActive) {
+            ts_stop_timer("Render");
+        }
+        return;
+    }
+
+#if USE_VULKAN
+    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+    VkFramebuffer framebuffer = VK_NULL_HANDLE;
+    VkExtent2D extent = {0, 0};
+#endif
 
     SDL_GetWindowSize(ctx->window, &winW, &winH);
 
-    int drawableW, drawableH;
+    int drawableW = winW;
+    int drawableH = winH;
+#if USE_VULKAN
+    SDL_Vulkan_GetDrawableSize(ctx->window, &drawableW, &drawableH);
+#else
     SDL_GL_GetDrawableSize(ctx->window, &drawableW, &drawableH);
 
     float scaleX = (float)drawableW / (float)winW;
     float scaleY = (float)drawableH / (float)winH;
     SDL_RenderSetScale(ctx->renderer, scaleX, scaleY);
+#endif
+    ctx->width = drawableW;
+    ctx->height = drawableH;
 
     if (winW != *lastW || winH != *lastH) {
         layout_static_panes(panes, &paneCount);
@@ -183,6 +202,25 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     }
 
     updateResizeZones(ctx->window, resizeZones, resizeZoneCount);
+
+#if USE_VULKAN
+    VkResult frameResult =
+        vk_renderer_begin_frame(ctx->renderer, &commandBuffer, &framebuffer, &extent);
+
+    if (frameResult == VK_ERROR_OUT_OF_DATE_KHR) {
+        vk_renderer_recreate_swapchain(ctx->renderer, ctx->window);
+        if (timerHudActive) {
+            ts_stop_timer("Render");
+        }
+        return;
+    } else if (frameResult != VK_SUCCESS) {
+        fprintf(stderr, "[Render] vk_renderer_begin_frame failed: %d\n", frameResult);
+        if (timerHudActive) {
+            ts_stop_timer("Render");
+        }
+        return;
+    }
+#endif
 
     for (int i = 0; i < paneCount; i++) {
         if (panes[i] && panes[i]->render) {
@@ -203,7 +241,16 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
         }
     }
 
+#if USE_VULKAN
+    VkResult endResult = vk_renderer_end_frame(ctx->renderer, commandBuffer);
+    if (endResult == VK_ERROR_OUT_OF_DATE_KHR || endResult == VK_SUBOPTIMAL_KHR) {
+        vk_renderer_recreate_swapchain(ctx->renderer, ctx->window);
+    } else if (endResult != VK_SUCCESS) {
+        fprintf(stderr, "[Render] vk_renderer_end_frame failed: %d\n", endResult);
+    }
+#else
     SDL_RenderPresent(ctx->renderer);
+#endif
 
 
 }

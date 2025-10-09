@@ -1,5 +1,6 @@
 #pragma once
-#include <SDL2/SDL.h>
+
+#include "engine/Render/renderer_backend.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -27,4 +28,3 @@ void Text_Draw(SDL_Renderer* renderer, const char* text, int x, int y, int align
 #ifdef __cplusplus
 }
 #endif
-

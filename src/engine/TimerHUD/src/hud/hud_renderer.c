@@ -107,7 +107,9 @@ void ts_render(SDL_Renderer* renderer) {
 
         // Background box
         SDL_Rect bg = { bgX, y, bgW, bgH };
+#if !USE_VULKAN
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+#endif
         SDL_SetRenderDrawColor(renderer, HUD_BG_COLOR.r, HUD_BG_COLOR.g, HUD_BG_COLOR.b, HUD_BG_COLOR.a);
         SDL_RenderFillRect(renderer, &bg);
 
@@ -117,4 +119,3 @@ void ts_render(SDL_Renderer* renderer) {
         y += bgH + HUD_SPACING;
     }
 }
-

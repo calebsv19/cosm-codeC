@@ -8,8 +8,6 @@
 #include "core/InputManager/UserInput/rename_access.h"
 
 #include "../Popup/popup_system.h"   // for renderPopup(), isPopupVisible()
-#include <SDL2/SDL.h>
-
 
 void renderPopupQueueContents() {
     RenderContext* ctx = getRenderContext();
@@ -72,13 +70,10 @@ void renderRenamePopup(SDL_Renderer* renderer, int winW, int winH) {
         if (now - renameErrorStart > 2000) {
             renameErrorVisible = false;
         } else {
-            SDL_Color old;
-            SDL_GetRenderDrawColor(renderer, &old.r, &old.g, &old.b, &old.a);
-
             SDL_SetRenderDrawColor(renderer, 255, 70, 70, 255);  // red
             drawClippedText(box.x + 150, box.y + 18, "(Name already exists)", box.w - 160);
 
-            SDL_SetRenderDrawColor(renderer, old.r, old.g, old.b, old.a);
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
         }
     }
 
