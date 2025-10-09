@@ -2,6 +2,7 @@
 #include "ide/Panes/Editor/undo_stack.h"
 #include "ide/Panes/Editor/Commands/editor_commands.h"
 #include "ide/Panes/Editor/editor_text_edit.h"
+#include "ide/Panes/Editor/editor_view.h"
 
 
 static void handleMoveCursorUp(EditorBuffer* buffer, EditorState* state) {
@@ -52,8 +53,7 @@ static void handleMoveCursorToEndOfLine(EditorBuffer* buffer, EditorState* state
 }         
 
 void handleArrowKeyPress(SDL_Keycode key, EditorBuffer* buffer, EditorState* state, int paneHeight) {
-    printf("Arrow key pressed: %d\n", key);  // <- TEMP DEBUG
-    
+
     switch (key) {
         case SDLK_UP:
             handleMoveCursorUp(buffer, state);
@@ -110,7 +110,7 @@ void handleCommandAltAction(SDL_Keycode key, EditorBuffer* buffer, EditorState* 
     EditorView* view = core->activeEditorView;
     
     if (!view || view->activeTab < 0 || view->activeTab >= view->fileCount) return;
-    OpenFile* file = view->openFiles[view->activeTab];
+    OpenFile* file = getActiveOpenFile(view);
     if (!file) return;
  
     switch (key) {
@@ -187,7 +187,7 @@ static void handleCommandMoveCursor(SDL_Keycode key, EditorBuffer* buffer,
 void handleEditorKeyDown(SDL_Event* event, EditorView* view, UIPane* pane) {
     if (!view || view->type != VIEW_LEAF || view->fileCount <= 0) return;
         
-    OpenFile* file = view->openFiles[view->activeTab];
+    OpenFile* file = getActiveOpenFile(view);
     if (!file || !file->buffer) return;
     
     EditorBuffer* buffer = file->buffer;
@@ -195,8 +195,6 @@ void handleEditorKeyDown(SDL_Event* event, EditorView* view, UIPane* pane) {
     
     SDL_Keymod mod = SDL_GetModState();
     SDL_Keycode key = event->key.keysym.sym;
-    
-    printf("Editor received key event: %d (%s)\n", key, SDL_GetKeyName(key));
     
     bool shiftHeld = (mod & KMOD_SHIFT);
     bool cmdHeld   = (mod & KMOD_GUI);
@@ -239,7 +237,4 @@ void handleEditorKeyDown(SDL_Event* event, EditorView* view, UIPane* pane) {
 
 //              TEXT EDITS
 //====================================================
-
-
-
 

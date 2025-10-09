@@ -25,6 +25,7 @@ typedef struct IDECoreState {
     struct EditorView* activeEditorView;
     struct EditorView* persistentEditorView;
     struct EditorViewState* editorViewState;
+    struct EditorView* hoveredEditorView;
 
     // Counters and toggles
     int editorViewCount;
@@ -52,6 +53,9 @@ IDECoreState* getCoreState(void);
 
 void setTimerHudEnabled(bool enabled);
 bool isTimerHudEnabled(void);
+
+void setHoveredEditorView(struct EditorView* view);
+struct EditorView* getHoveredEditorView(void);
 
 // Lifecycle (optional for future init/cleanup)
 void initCoreState(void);

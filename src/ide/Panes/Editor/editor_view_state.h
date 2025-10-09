@@ -55,6 +55,7 @@ void addScrollThumbHitbox(SDL_Rect rect, struct EditorView* view, struct UIPane*
 void addLeafHitbox(SDL_Rect rect, struct EditorView* view);
 void collectLeafHitboxes(struct EditorView* view);
 void rebuildLeafHitboxes(struct EditorView* root);
+struct EditorView* hitTestLeaf(struct EditorViewState* state, int mouseX, int mouseY);
 
 // === View Dragging State ===
 struct EditorView* getDraggingEditorView(void);
@@ -67,4 +68,3 @@ void beginEditorScrollbarDrag(struct UIPane* pane, struct EditorView* view);
 void endEditorScrollbarDrag(void);
 
 #endif // EDITOR_VIEW_STATE_H
-

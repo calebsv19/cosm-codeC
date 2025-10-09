@@ -103,6 +103,11 @@ void handleEditorMouseInput(UIPane* pane, SDL_Event* event) {
                 EditorView* view = core->activeEditorView;
                 if (!view) return;
                 handleEditorMouseDrag(pane, event, view);
+            } else {
+                EditorView* hover = getHoveredEditorView();
+                if (hover && hover->type == VIEW_LEAF) {
+                    setActiveEditorView(hover);
+                }
             }
             break;
 

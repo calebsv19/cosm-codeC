@@ -60,13 +60,7 @@ void handleInput(SDL_Event* event,
         event->type == SDL_MOUSEWHEEL) {
 
         handleMouseInput(event, panes, paneCount);
-
-        if (event->type != SDL_MOUSEMOTION) {
-            SDL_Event fakeMotion;
-            SDL_GetMouseState(&fakeMotion.motion.x, &fakeMotion.motion.y);
-            fakeMotion.type = SDL_MOUSEMOTION;
-            handleHoverUpdate(&fakeMotion, panes, paneCount);
-        }
+        handleHoverUpdate(event, panes, paneCount);
     }
 }
 

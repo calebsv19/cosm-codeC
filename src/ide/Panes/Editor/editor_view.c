@@ -329,23 +329,13 @@ void updateActiveEditorViewFromMouse(int mouseX, int mouseY) {
     EditorView* root = core->persistentEditorView;
     if (!root) return;
     
-    EditorViewState* vs = core->editorViewState;   
-    for (int i = 0; i < vs->leafHitboxCount; i++) {
-        LeafHitbox* hit = &vs->leafHitboxes[i];
-        SDL_Rect rect = hit->rect;
-        
-        if (mouseX >= rect.x && mouseX < rect.x + rect.w &&
-            mouseY >= rect.y && mouseY < rect.y + rect.h) {
-            setActiveEditorView((EditorView*)hit->view);
-            return;
-        }
-    }
+    EditorView* hovered = hitTestLeaf(core->editorViewState, mouseX, mouseY);
+    setHoveredEditorView(hovered);
 
-    EditorView* fallback = findLeafUnderCursor(root, mouseX, mouseY);
-    if (fallback) {
-        setActiveEditorView(fallback);
+    if (hovered && hovered->type == VIEW_LEAF) {
+        setActiveEditorView(hovered);
     }
-}   
+}
 
 
 void setActiveEditorView(EditorView* view) {
@@ -692,4 +682,10 @@ void reloadOpenFileFromDisk(OpenFile* file) {
     file->showSavedTag = false;
 
     printf("[Watcher] Reloaded: %s\n", file->filePath);
+}
+
+OpenFile* getActiveOpenFile(EditorView* view) {
+    if (!view || view->type != VIEW_LEAF) return NULL;
+    if (view->activeTab < 0 || view->activeTab >= view->fileCount) return NULL;
+    return view->openFiles[view->activeTab];
 }

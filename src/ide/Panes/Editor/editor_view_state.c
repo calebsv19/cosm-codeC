@@ -99,6 +99,22 @@ void rebuildLeafHitboxes(EditorView* root) {
     collectLeafHitboxes(root);       // repopulates them based on layout
 }
 
+EditorView* hitTestLeaf(EditorViewState* state, int mouseX, int mouseY) {
+    if (!state) return NULL;
+
+    for (int i = 0; i < state->leafHitboxCount; i++) {
+        LeafHitbox* hit = &state->leafHitboxes[i];
+        SDL_Rect rect = hit->rect;
+
+        if (mouseX >= rect.x && mouseX < rect.x + rect.w &&
+            mouseY >= rect.y && mouseY < rect.y + rect.h) {
+            return (EditorView*)hit->view;
+        }
+    }
+
+    return NULL;
+}
+
 EditorView* findLeafUnderCursor(EditorView* root, int mouseX, int mouseY) {
     if (!root) return NULL;
     

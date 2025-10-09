@@ -16,48 +16,55 @@ void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
 
     EditorView* view = pane->editorView;
 
-    printf("[EditorCommand] Handling: %s\n", getCommandName(meta.cmd));
+    OpenFile* activeFile = getActiveOpenFile(view);
+    EditorBuffer* buffer = activeFile ? activeFile->buffer : NULL;
+    EditorState* state = activeFile ? &activeFile->state : NULL;
 
     switch (meta.cmd) {
         // === Basic File Ops ===
         case COMMAND_SAVE_FILE:
-            if (view->fileCount > 0 && view->activeTab >= 0 && view->activeTab < view->fileCount) {
-                OpenFile* file = view->openFiles[view->activeTab];
-                if (file) enqueueSave(file);
+            if (activeFile) {
+                enqueueSave(activeFile);
             }
             break;
 
         // === Insert / Delete ===
         case COMMAND_INSERT_NEWLINE:
-	    handleReturnKey(editorBuffer, editorState);
+            if (buffer && state) {
+	        handleReturnKey(buffer, state);
+            }
             break;
 
         case COMMAND_DELETE:
-            deleteCharAtCursor();
+            if (buffer && state) {
+                deleteCharAtCursor();
+            }
             break;
 
         // === Clipboard Ops ===
         case COMMAND_CUT:
-            cutSelection(view);
+            if (view) cutSelection(view);
             break;
 
         case COMMAND_COPY:
-            copySelection(view);
+            if (view) copySelection(view);
             break;
 
         case COMMAND_PASTE:
-            pasteClipboard(view);
+            if (view) pasteClipboard(view);
             break;
 
         case COMMAND_SELECT_ALL:
-            selectAllText(view);
+            if (view) selectAllText(view);
             break;
 
         // === Undo / Redo ===
         case COMMAND_UNDO:
         case COMMAND_REDO:
-            handleCommandAltAction(meta.cmd == COMMAND_UNDO ? SDLK_MINUS : SDLK_EQUALS,
-                                   editorBuffer, editorState);
+            if (buffer && state) {
+                handleCommandAltAction(meta.cmd == COMMAND_UNDO ? SDLK_MINUS : SDLK_EQUALS,
+                                       buffer, state);
+            }
             break;
 
         // === Navigation ===
@@ -71,7 +78,6 @@ void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
             break;
 
         default:
-            printf("[EditorCommand] Unhandled command: %s\n", getCommandName(meta.cmd));
             break;
     }
 }
@@ -82,4 +88,3 @@ void initEditorCommandHandler(UIPane* pane) {
     if (!pane) return;
     pane->handleCommand = handleEditorCommand;
 }
-

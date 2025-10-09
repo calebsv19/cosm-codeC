@@ -1,6 +1,9 @@
 #include "editor_input_mouse.h"
 #include "ide/Panes/Editor/editor_view_state.h"
 #include "engine/Render/render_text_helpers.h"
+#include "app/GlobalInfo/core_state.h"
+
+#define CURSOR_EDGE_BIAS 2
 
 
 bool resetCursorPositionToMouse(UIPane* pane, int mouseX, int mouseY,
@@ -32,12 +35,25 @@ bool resetCursorPositionToMouse(UIPane* pane, int mouseX, int mouseY,
     if (!line) line = "";
 
     int newCol = 0;
-    int accumulatedWidth = textX;
+    if (mouseX < textX) mouseX = textX;
+
+    int leftEdge = textX;
 
     while (line[newCol]) {
-        int charWidth = getTextWidthN(line, newCol + 1) - getTextWidthN(line, newCol);
-        if (accumulatedWidth + charWidth / 2 >= mouseX) break;
-        accumulatedWidth += charWidth;
+        int rightEdge = getTextWidthN(line, newCol + 1) + textX;
+        int charWidth = rightEdge - leftEdge;
+        if (charWidth <= 0) charWidth = 1;
+
+        if (mouseX < rightEdge) {
+            int leftDist = mouseX - leftEdge;
+            int rightDist = rightEdge - mouseX;
+            if (leftDist > rightDist + CURSOR_EDGE_BIAS) {
+                newCol++;
+            }
+            break;
+        }
+
+        leftEdge = rightEdge;
         newCol++;
     }
 
@@ -99,9 +115,13 @@ static void handleCommandMouseDragInPane(UIPane* pane, EditorBuffer* buffer,
 }
 
 void handleEditorMouseDrag(UIPane* pane, SDL_Event* event, EditorView* view) {
+    if (!view || view->type != VIEW_LEAF) {
+        view = getHoveredEditorView();
+    }
+
     if (!view || view->type != VIEW_LEAF || view->fileCount <= 0) return;
 
-    OpenFile* file = view->openFiles[view->activeTab];
+    OpenFile* file = getActiveOpenFile(view);
     if (!file || !file->buffer) return;
 
     EditorBuffer* buffer = file->buffer;
@@ -176,12 +196,25 @@ static void getClickedEditorPosition(int mouseX, int mouseY, EditorView* view,
     if (!line) line = "";
 
     int col = 0;
-    int accumulatedX = textX;
+    if (mouseX < textX) mouseX = textX;
+
+    int leftEdge = textX;
 
     while (line[col]) {
-        int charWidth = getTextWidthN(line, col + 1) - getTextWidthN(line, col);
-        if (accumulatedX + charWidth / 2 >= mouseX) break;
-        accumulatedX += charWidth;
+        int rightEdge = getTextWidthN(line, col + 1) + textX;
+        int charWidth = rightEdge - leftEdge;
+        if (charWidth <= 0) charWidth = 1;
+
+        if (mouseX < rightEdge) {
+            int leftDist = mouseX - leftEdge;
+            int rightDist = rightEdge - mouseX;
+            if (rightDist < leftDist - 10) {
+                col++;
+            }
+            break;
+        }
+
+        leftEdge = rightEdge;
         col++;
     }
 
@@ -252,6 +285,8 @@ bool handleEditorScrollbarThumbClick(SDL_Event* event, int mx, int my) {
             EditorView* thumbView = vs->scrollThumbHitboxes[i].view;
 
             if (thumbView && thumbPane && thumbPane->role == PANE_ROLE_EDITOR) {
+                if (thumbView->activeTab < 0 || thumbView->activeTab >= thumbView->fileCount)
+                    continue;
                 OpenFile* file = thumbView->openFiles[thumbView->activeTab];
                 if (file && file->buffer) {
                     setActiveEditorView(thumbView);
@@ -269,8 +304,13 @@ bool handleEditorScrollbarThumbClick(SDL_Event* event, int mx, int my) {
 
 
 void handleEditorMouseClick(UIPane* pane, SDL_Event* event, EditorView* clickedView) {
-    if (!pane || !pane->editorView || !clickedView || clickedView->type != VIEW_LEAF)
+    if (!pane || !pane->editorView)
         return;
+
+    if (!clickedView || clickedView->type != VIEW_LEAF) {
+        clickedView = getHoveredEditorView();
+        if (!clickedView || clickedView->type != VIEW_LEAF) return;
+    }
 
     printf("[MouseClick] Click in view: %p | fileCount = %d | activeTab = %d\n",
            (void*)clickedView, clickedView->fileCount, clickedView->activeTab);
@@ -306,7 +346,7 @@ void handleEditorMouseClick(UIPane* pane, SDL_Event* event, EditorView* clickedV
     if (handleCommandClickOnScrollbar(mouseX, mouseY, event)) return;
     if (handleCommandClickOnTabBar(clickedView, mouseX, mouseY)) return;
 
-    OpenFile* file = clickedView->openFiles[clickedView->activeTab];
+    OpenFile* file = getActiveOpenFile(clickedView);
     if (!file || !file->buffer) return;
 
     EditorBuffer* buffer = file->buffer;
@@ -332,9 +372,13 @@ void handleEditorMouseClick(UIPane* pane, SDL_Event* event, EditorView* clickedV
 
 
 void handleEditorMouseButtonUp(UIPane* pane, SDL_Event* event, EditorView* view){
+    if (!view || view->type != VIEW_LEAF) {
+        view = getHoveredEditorView();
+    }
+
     if (!view || view->type != VIEW_LEAF || view->fileCount <= 0) return;
-     
-    OpenFile* file = view->openFiles[view->activeTab];
+
+    OpenFile* file = getActiveOpenFile(view);
     if (!file || !file->buffer) return;
     
     EditorState* state = &file->state;
@@ -387,14 +431,14 @@ bool handleEditorScrollWheel(UIPane* pane, SDL_Event* event) {
         
     IDECoreState* core = getCoreState();
     EditorView* view = core->activeEditorView;
-    
+    if (!view || view->type != VIEW_LEAF) {
+        view = getHoveredEditorView();
+    }
+
     if (!view || view->type != VIEW_LEAF || view->fileCount <= 0)
         return false;
         
-    if (view->activeTab < 0 || view->activeTab >= view->fileCount)
-        return false;
-        
-    OpenFile* file = view->openFiles[view->activeTab];
+    OpenFile* file = getActiveOpenFile(view);
     if (!file || !file->buffer)
         return false;
         

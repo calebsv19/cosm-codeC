@@ -24,6 +24,7 @@ static void routeMouseToTargetPane(SDL_Event* event, UIPane** panes, int paneCou
         UIPane* pane = panes[i];
         if (isPointInsidePane(pane, mx, my)) {
             activeMousePane = pane;
+            core->activeMousePane = pane;
 
             // Set focus on click
             if (event->type == SDL_MOUSEBUTTONDOWN) {
@@ -66,6 +67,7 @@ static void routeMouseReleaseToLastPane(SDL_Event* event) {
         activeMousePane->inputHandler->onMouse(activeMousePane, event);
     }
     activeMousePane = NULL;
+    getCoreState()->activeMousePane = NULL;
 }
 
 

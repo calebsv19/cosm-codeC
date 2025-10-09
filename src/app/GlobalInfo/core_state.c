@@ -18,6 +18,7 @@ void initCoreState(void) {
 
     coreState.activeEditorView = NULL;
     coreState.persistentEditorView = NULL;
+    coreState.hoveredEditorView = NULL;
 
     // Allocate and initialize global editor view interaction state
     coreState.editorViewState = malloc(sizeof(EditorViewState));
@@ -49,4 +50,12 @@ void setTimerHudEnabled(bool enabled) {
 
 bool isTimerHudEnabled(void) {
     return coreState.timerHudEnabled;
+}
+
+void setHoveredEditorView(struct EditorView* view) {
+    coreState.hoveredEditorView = view;
+}
+
+struct EditorView* getHoveredEditorView(void) {
+    return coreState.hoveredEditorView;
 }

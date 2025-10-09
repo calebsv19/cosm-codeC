@@ -129,6 +129,7 @@ void markFileAsModified(OpenFile* file);
 OpenFile* openFileInView(EditorView* view, const char* filePath);
 void reloadOpenFileFromDisk(OpenFile* file);  // Optional stub
 
+OpenFile* getActiveOpenFile(EditorView* view);
+
 
 #endif // EDITOR_VIEW_H
-
