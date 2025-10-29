@@ -3,6 +3,7 @@
 #include "ide/Panes/Editor/Input/editor_input_keyboard.h"
 #include "ide/Panes/Editor/Input/editor_input_mouse.h"
 #include "ide/Panes/Editor/editor_view.h"
+#include "ide/Panes/Editor/editor_text_edit.h"
 #include "app/GlobalInfo/core_state.h"
 #include "core/InputManager/input_macros.h"
 
@@ -39,6 +40,16 @@ void handleEditorKeyboardInput(UIPane* pane, SDL_Event* event) {
     switch (key) {
         case SDLK_RETURN:    CMD(COMMAND_INSERT_NEWLINE); return;
         case SDLK_BACKSPACE: CMD(COMMAND_DELETE); return;
+        case SDLK_DELETE: {
+            EditorView* view = getCoreState()->activeEditorView;
+            if (view && view->type == VIEW_LEAF && view->fileCount > 0) {
+                OpenFile* file = getActiveOpenFile(view);
+                if (file && file->buffer) {
+                    handleCommandDeleteForward(file, file->buffer, &file->state);
+                }
+            }
+            return;
+        }
 //        case SDLK_TAB:       insertCharAtCursor('\t'); return;
         case SDLK_a:
             if (mod & KMOD_CTRL) {

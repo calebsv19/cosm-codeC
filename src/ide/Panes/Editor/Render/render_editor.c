@@ -84,6 +84,9 @@ void renderLeafEditorView(EditorView* view) {
         vs->leafHitboxCount++;
     }
 
+    ProjectDragState* drag = &getCoreState()->projectDrag;
+    bool isDropTarget = drag->entry && drag->active && drag->validTarget && drag->targetView == view;
+
     // Highlight active view
     if (view == getCoreState()->activeEditorView) {
         SDL_SetRenderDrawColor(renderer, 30, 144, 255, 255); // Blue border
@@ -95,6 +98,14 @@ void renderLeafEditorView(EditorView* view) {
     SDL_SetRenderDrawColor(renderer, 90, 90, 90, 255);
     SDL_Rect outline = { boxX, boxY, boxW, boxH };
     SDL_RenderDrawRect(renderer, &outline);
+
+    if (isDropTarget) {
+        SDL_Rect dropRect = { boxX + 1, boxY + HEADER_HEIGHT + 1, boxW - 2, boxH - HEADER_HEIGHT - 2 };
+        if (dropRect.w > 0 && dropRect.h > 0) {
+            SDL_SetRenderDrawColor(renderer, 190, 220, 255, 15);
+            SDL_RenderFillRect(renderer, &dropRect);
+        }
+    }
 
     // Draw tab bar
     int tabX = boxX;
@@ -172,6 +183,7 @@ void renderLeafEditorView(EditorView* view) {
 
         renderEditorScrollbar(view, active);
     }
+
 }
 
 

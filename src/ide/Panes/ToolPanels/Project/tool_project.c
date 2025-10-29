@@ -8,6 +8,7 @@
 #include "ide/Panes/Editor/editor_view.h"
 
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -51,6 +52,8 @@ void resetProjectDragState(void) {
     drag->startX = drag->startY = 0;
     drag->currentX = drag->currentY = 0;
     drag->offsetX = drag->offsetY = 0;
+    drag->labelWidth = 0;
+    drag->cachedLabel[0] = '\0';
     drag->startTicks = 0;
     setHoveredEditorView(NULL);
 }
@@ -95,6 +98,8 @@ void beginProjectDrag(DirEntry* entry, const SDL_Rect* rect, int mouseX, int mou
     }
     drag->currentX = mouseX;
     drag->currentY = mouseY;
+    drag->cachedLabel[0] = '\0';
+    drag->labelWidth = 0;
     drag->startTicks = SDL_GetTicks();
 }
 
@@ -150,22 +155,32 @@ void renderProjectDragOverlay(void) {
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
 
-    const char* base = strrchr(drag->entry->path, '/');
-    base = base ? base + 1 : drag->entry->path;
-    int textWidth = getTextWidth(base);
+    if (!drag->cachedLabel[0]) {
+        const char* base = strrchr(drag->entry->path, '/');
+        base = base ? base + 1 : drag->entry->path;
+        strncpy(drag->cachedLabel, base, sizeof(drag->cachedLabel) - 1);
+        drag->cachedLabel[sizeof(drag->cachedLabel) - 1] = '\0';
+        drag->labelWidth = getTextWidth(drag->cachedLabel);
+    }
 
     SDL_Rect dragRect = {
         .x = drag->currentX - drag->offsetX,
         .y = drag->currentY - drag->offsetY,
-        .w = textWidth + 18,
-        .h = 26
+        .w = drag->labelWidth + 24,
+        .h = 28
     };
 
-    SDL_SetRenderDrawColor(renderer, 36, 36, 36, 245);
+    SDL_Rect shadowRect = dragRect;
+    shadowRect.x += 2;
+    shadowRect.y += 3;
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 110);
+    SDL_RenderFillRect(renderer, &shadowRect);
+
+    SDL_SetRenderDrawColor(renderer, 40, 40, 40, 235);
     SDL_RenderFillRect(renderer, &dragRect);
-    SDL_SetRenderDrawColor(renderer, 210, 210, 210, 255);
+    SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
     SDL_RenderDrawRect(renderer, &dragRect);
-    drawText(dragRect.x + 8, dragRect.y + 5, base);
+    drawText(dragRect.x + 10, dragRect.y + 6, drag->cachedLabel);
 }
 
 
@@ -190,10 +205,9 @@ static void handleCommandFolderClick(DirEntry* entry, bool clickedPrefix, bool i
 void handleCommandOpenFileInEditor(DirEntry* entry) {
     IDECoreState* core = getCoreState();
     if (core->activeEditorView) {
-        printf("[DoubleClick] Appending file: %s to view %p\n", entry->path, (void*)core->activeEditorView);
         openFileInView(core->activeEditorView, entry->path);
     } else {
-        fprintf(stderr, "[WARN] No activeEditorView set — cannot open %s.\n", entry->path);
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "[Project] No active editor view to open %s", entry->path);
     }
 }
 

@@ -26,6 +26,8 @@ typedef struct ProjectDragState {
     int offsetY;
     int currentX;
     int currentY;
+    int labelWidth;
+    char cachedLabel[256];
     Uint32 startTicks;
 } ProjectDragState;
 

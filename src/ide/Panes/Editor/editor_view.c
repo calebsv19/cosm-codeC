@@ -22,6 +22,23 @@
 
 static EditorState fallbackEditorState = {0};
 
+static void editor_release_open_file(OpenFile* file) {
+    if (!file) return;
+    if (file->refCount > 0) {
+        file->refCount--;
+        if (file->refCount > 0) return;
+    }
+
+    unwatchFile(file);
+    if (file->buffer) {
+        freeEditorBuffer(file->buffer);
+        file->buffer = NULL;
+    }
+    free(file->filePath);
+    file->filePath = NULL;
+    free(file);
+}
+
 
 
 // 		RENDER METHODS
@@ -253,15 +270,29 @@ EditorView* cloneLeafView(EditorView* src, SplitOrientation parentSplit){
     if (!view) return NULL;
 
     view->type = VIEW_LEAF;
-    view->openFiles = src->openFiles; // shallow copy
+    view->fileCapacity = src->fileCapacity > 0 ? src->fileCapacity : INITIAL_TAB_CAPACITY;
+    view->openFiles = calloc((size_t)view->fileCapacity, sizeof(OpenFile*));
+    if (!view->openFiles) {
+        free(view);
+        return NULL;
+    }
+
     view->fileCount = src->fileCount;
-    view->fileCapacity = src->fileCapacity;
     view->activeTab = src->activeTab;
     view->ownsFileData = false;
+
+    for (int i = 0; i < view->fileCount; i++) {
+        OpenFile* file = src->openFiles ? src->openFiles[i] : NULL;
+        view->openFiles[i] = file;
+        if (file) {
+            file->refCount++;
+        }
+    }
 
     view->childA = NULL;
     view->childB = NULL;
     view->splitType = (parentSplit == SPLIT_VERTICAL) ? SPLIT_HORIZONTAL : SPLIT_VERTICAL;
+    view->parentPane = src->parentPane;
     view->x = view->y = view->w = view->h = 0;
 
     return view;
@@ -407,11 +438,7 @@ void closeTab(EditorView* view, int index) {
 
     OpenFile* file = view->openFiles[index];
     if (file) {
-	unwatchFile(file);
-
-        freeEditorBuffer(file->buffer);
-        free(file->filePath);
-        free(file);
+        editor_release_open_file(file);
     }
 
     // Shift remaining tabs left
@@ -420,6 +447,9 @@ void closeTab(EditorView* view, int index) {
     }
 
     view->fileCount--;
+    if (view->fileCount >= 0) {
+        view->openFiles[view->fileCount] = NULL;
+    }
 
     // Clamp activeTab
     if (view->fileCount == 0) {
@@ -576,14 +606,10 @@ void destroyEditorView(EditorView* view) {
         if (view->childA) destroyEditorView(view->childA);
         if (view->childB) destroyEditorView(view->childB);
     } else if (view->type == VIEW_LEAF) {
-        if (view->ownsFileData && view->openFiles) {
+        if (view->openFiles) {
             for (int i = 0; i < view->fileCount; i++) {
                 if (view->openFiles[i]) {
-		    unwatchFile(view->openFiles[i]);
-
-                    freeEditorBuffer(view->openFiles[i]->buffer);
-                    free(view->openFiles[i]->filePath);
-                    free(view->openFiles[i]);
+                    editor_release_open_file(view->openFiles[i]);
                 }
             }
             free(view->openFiles);
@@ -615,12 +641,9 @@ void markFileAsModified(OpenFile* file) {
 OpenFile* openFileInView(EditorView* view, const char* filePath) {
     if (!view || !filePath) return NULL;
     
-    printf(" -> Opening %s into view %p\n", filePath, (void*)view);
-    
     // Prevent duplicate opens
     for (int i = 0; i < view->fileCount; i++) {
         if (strcmp(view->openFiles[i]->filePath, filePath) == 0) {
-            printf("[INFO] File already open in tab %d. Switching to it.\n", i);
             view->activeTab = i;
             setActiveEditorView(view);
             return view->openFiles[i];

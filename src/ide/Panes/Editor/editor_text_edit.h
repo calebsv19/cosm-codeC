@@ -9,6 +9,7 @@ void handleReturnKey(EditorBuffer* buffer, EditorState* state);
 void handleBackspaceKey(EditorBuffer* buffer, EditorState* state);
 void handleCommandInsertNewline(OpenFile* file, EditorBuffer* buffer, EditorState* state);
 void handleCommandDeleteCharacter(OpenFile* file, EditorBuffer* buffer, EditorState* state);
+void handleCommandDeleteForward(OpenFile* file, EditorBuffer* buffer, EditorState* state);
 void handleCommandInsertCharacter(OpenFile* file, EditorBuffer* buffer, EditorState* state, char ch);
 
 #endif

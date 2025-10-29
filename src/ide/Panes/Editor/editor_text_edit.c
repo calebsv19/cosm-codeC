@@ -2,6 +2,7 @@
 #include "ide/Panes/Editor/undo_stack.h"
 #include "ide/Panes/Editor/buffer_safety.h" 
 #include "ide/Panes/Editor/editor_clipboard.h"
+#include <string.h>
 
 void handleCommandInsertNewline(OpenFile* file, EditorBuffer* buffer, EditorState* state) {
     commitWordEdit(file);
@@ -16,6 +17,59 @@ void handleCommandDeleteCharacter(OpenFile* file, EditorBuffer* buffer, EditorSt
     enforceNonEmptyBuffer(buffer);
 }
     
+void handleCommandDeleteForward(OpenFile* file, EditorBuffer* buffer, EditorState* state) {
+    if (!file || !buffer || !state) return;
+
+    if (state->selecting) {
+        pushUndoState(file);
+        removeSelectedText(buffer, state);
+        markFileAsModified(file);
+        enforceNonEmptyBuffer(buffer);
+        return;
+    }
+
+    int row = state->cursorRow;
+    int col = state->cursorCol;
+    if (row < 0 || row >= buffer->lineCount) return;
+
+    char* line = buffer->lines[row];
+    if (!line) line = "";
+    int len = strlen(line);
+
+    if (col < len) {
+        pushUndoState(file);
+        memmove(line + col, line + col + 1, (size_t)(len - col));
+        markFileAsModified(file);
+        enforceNonEmptyBuffer(buffer);
+        return;
+    }
+
+    if (row < buffer->lineCount - 1) {
+        char* nextLine = buffer->lines[row + 1];
+        if (!nextLine) nextLine = "";
+        size_t nextLen = strlen(nextLine);
+        char* merged = malloc((size_t)len + nextLen + 1);
+        if (!merged) return;
+
+        strcpy(merged, line);
+        strcat(merged, nextLine);
+
+        pushUndoState(file);
+        free(buffer->lines[row]);
+        free(buffer->lines[row + 1]);
+        buffer->lines[row] = merged;
+        for (int i = row + 1; i < buffer->lineCount - 1; ++i) {
+            buffer->lines[i] = buffer->lines[i + 1];
+        }
+        buffer->lines[buffer->lineCount - 1] = NULL;
+        buffer->lineCount--;
+
+        markFileAsModified(file);
+        enforceNonEmptyBuffer(buffer);
+        return;
+    }
+}
+
 void handleCommandInsertCharacter(OpenFile* file, EditorBuffer* buffer,
                                          EditorState* state, char ch) {
     int row = state->cursorRow;
@@ -68,6 +122,9 @@ void handleCommandCharacterInput(SDL_Event* event, EditorBuffer* buffer, EditorS
             
         case SDLK_BACKSPACE:
             handleCommandDeleteCharacter(file, buffer, state);
+            return;
+        case SDLK_DELETE:
+            handleCommandDeleteForward(file, buffer, state);
             return;
             
         default:
@@ -197,5 +254,4 @@ void handleReturnKey(EditorBuffer* buffer, EditorState* state) {
         free(after);
     }
 }
-
 
