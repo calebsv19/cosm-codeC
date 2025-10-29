@@ -7,7 +7,7 @@
 
 // Global render context structure
 typedef struct {
-    SDL_Renderer* renderer;
+    VkRenderer* renderer;
     SDL_Window* window;
     int width, height;
 } RenderContext;

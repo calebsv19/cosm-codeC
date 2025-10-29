@@ -7,7 +7,6 @@
 extern "C" {
 #endif
 
-typedef struct VkRendererCtx VkRendererCtx;
 struct VkRenderer;
 
 typedef struct VkRendererCommandPool {

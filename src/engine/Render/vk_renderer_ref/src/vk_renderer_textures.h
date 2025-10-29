@@ -9,8 +9,7 @@
 extern "C" {
 #endif
 
-typedef struct VkRendererContext VkRendererContext;
-typedef struct VkRenderer VkRenderer;
+struct VkRenderer;
 
 typedef struct VkRendererTexture {
     VkAllocatedImage image;
@@ -21,12 +20,12 @@ typedef struct VkRendererTexture {
     uint32_t height;
 } VkRendererTexture;
 
-VkResult vk_renderer_texture_create_from_rgba(VkRenderer* renderer,
+VkResult vk_renderer_texture_create_from_rgba(struct VkRenderer* renderer,
                                               const void* pixels,
                                               uint32_t width,
                                               uint32_t height,
                                               VkRendererTexture* out_texture);
-void vk_renderer_texture_destroy(VkRenderer* renderer,
+void vk_renderer_texture_destroy(struct VkRenderer* renderer,
                                  VkRendererTexture* texture);
 
 #ifdef __cplusplus

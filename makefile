@@ -40,7 +40,19 @@
 
   VULKAN_LIBS := -lvulkan
 
-  CFLAGS  = -g -Wall -std=c99 -MMD -MP $(INC_DIRS)
+  ABS_VK_SHADER_ROOT := $(abspath src/engine/Render/vk_renderer_ref)
+
+  VULKAN_RENDER_DEBUG ?= 0
+  VULKAN_RENDER_DEBUG_FRAMES ?= 0
+
+  CFLAGS  = -g -Wall -std=c99 -MMD -MP $(INC_DIRS) -DVK_RENDERER_SHADER_ROOT=\"$(ABS_VK_SHADER_ROOT)\"
+
+  ifeq ($(strip $(VULKAN_RENDER_DEBUG)),1)
+  CFLAGS += -DVK_RENDERER_DEBUG=1
+  ifeq ($(strip $(VULKAN_RENDER_DEBUG_FRAMES)),1)
+  CFLAGS += -DVK_RENDERER_FRAME_DEBUG=1
+  endif
+  endif
   LDFLAGS = $(LIB_DIRS) -lSDL2 -lSDL2_ttf -lSDL2_image -ljson-c $(VULKAN_LIBS) $(SDL_MIXER_FLAGS)
 
   SRC_DIR := src
@@ -54,6 +66,8 @@
   DEP_FILES := $(OBJ_FILES:.o=.d)
 
   OUT = ide
+  TEST_BUILD_DIR := $(BUILD_DIR)/tests
+  VK_MACRO_TEST_OBJ := $(TEST_BUILD_DIR)/vk_renderer_macro_check.o
 # ===== RULES =====
 all: $(OUT)
 
@@ -74,5 +88,12 @@ run: $(OUT)
 clean:
 	@rm -rf $(BUILD_DIR) $(OUT)
 	@echo "Cleaned up build artifacts."
+
+.PHONY: test-vk-macros
+test-vk-macros:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling Vulkan SDL macro compatibility check..."
+	@$(CC) $(CFLAGS) -c tests/vk_renderer_macro_check.c -o $(VK_MACRO_TEST_OBJ) || (echo "Vulkan macro compatibility check failed."; exit 1)
+	@echo "Vulkan SDL macro compatibility check passed."
 
 -include $(DEP_FILES)

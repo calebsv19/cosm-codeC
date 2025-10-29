@@ -15,7 +15,6 @@ layout(location = 1) out vec4 fsColor;
 
 void main() {
     vec2 ndc = ((inPosition / pc.screenSize) * 2.0) - 1.0;
-    ndc.y = -ndc.y;
     gl_Position = vec4(ndc, 0.0, 1.0);
     fsUV = inUV;
     fsColor = inColor * pc.tint;

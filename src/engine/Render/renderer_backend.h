@@ -24,4 +24,11 @@
 #endif
 
 #include "engine/Render/vk_renderer_ref/src/vk_renderer_compat_sdl.h"
+
+#ifndef SDL_RenderFillRect
+#error "Vulkan SDL compatibility layer not active: SDL_RenderFillRect macro missing."
+#endif
+
+typedef char SDL_Vulkan_Renderer_Alias_Check[
+    (sizeof(VkRenderer*) == sizeof(SDL_Renderer*)) ? 1 : -1];
 #endif

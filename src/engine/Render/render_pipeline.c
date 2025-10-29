@@ -32,8 +32,52 @@
 #include <SDL2/SDL_ttf.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
 
+#define VK_RENDERER_ENABLE_SDL_COMPAT
+#include "engine/Render/vk_renderer_ref/src/vk_renderer_compat_sdl.h"
 
+#if !defined(VK_RENDERER_DEBUG_ENABLED)
+#if defined(VK_RENDERER_DEBUG) && VK_RENDERER_DEBUG
+#define VK_RENDERER_DEBUG_ENABLED 1
+#else
+#define VK_RENDERER_DEBUG_ENABLED 0
+#endif
+#endif
+
+#if !defined(VK_RENDERER_FRAME_DEBUG_ENABLED)
+#if defined(VK_RENDERER_FRAME_DEBUG) && VK_RENDERER_FRAME_DEBUG && VK_RENDERER_DEBUG_ENABLED
+#define VK_RENDERER_FRAME_DEBUG_ENABLED 1
+#else
+#define VK_RENDERER_FRAME_DEBUG_ENABLED 0
+#endif
+#endif
+
+#if !defined(VK_RENDERER_DEBUG_LOG)
+#if VK_RENDERER_DEBUG_ENABLED
+#define VK_RENDERER_DEBUG_LOG(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define VK_RENDERER_DEBUG_LOG(...)
+#endif
+#endif
+
+#if !defined(VK_RENDERER_FRAME_DEBUG_LOG)
+#if VK_RENDERER_FRAME_DEBUG_ENABLED
+#define VK_RENDERER_FRAME_DEBUG_LOG(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define VK_RENDERER_FRAME_DEBUG_LOG(...)
+#endif
+#endif
+
+#if USE_VULKAN
+static int s_logged_begin_out_of_date = 0;
+static int s_logged_begin_failure = 0;
+static int s_logged_end_failure = 0;
+static int s_logged_no_draw = 0;
+#if VK_RENDERER_FRAME_DEBUG_ENABLED
+static unsigned s_debug_frame_counter = 0;
+#endif
+#endif
 
 
 RenderContext globalRenderContext;
@@ -42,12 +86,27 @@ RenderContext* getRenderContext() {
     return &globalRenderContext;
 }
 
-void setRenderContext(SDL_Renderer* renderer, SDL_Window* window,
+void setRenderContext(VkRenderer* renderer, SDL_Window* window,
                       int width, int height) {
     globalRenderContext.renderer = renderer;
     globalRenderContext.window = window;
     globalRenderContext.width = width;
     globalRenderContext.height = height;
+
+#if USE_VULKAN && VK_RENDERER_DEBUG_ENABLED
+    if (renderer) {
+        SDL_Log("[RenderContext] Vulkan renderer set (renderer=%p stored=%p window=%p swapchain images=%u extent=%ux%u format=%u)",
+                (void*)renderer,
+                (void*)globalRenderContext.renderer,
+                (void*)window,
+                renderer->context.swapchain.image_count,
+                renderer->context.swapchain.extent.width,
+                renderer->context.swapchain.extent.height,
+                renderer->context.swapchain.image_format);
+    } else {
+        SDL_Log("[RenderContext] Vulkan renderer set to NULL");
+    }
+#endif
 }
 
 
@@ -185,6 +244,9 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     int drawableH = winH;
 #if USE_VULKAN
     SDL_Vulkan_GetDrawableSize(ctx->window, &drawableW, &drawableH);
+    /* Keep Vulkan logical coordinates aligned with window space; Vulkan backend
+       will handle scaling to the swapchain extent. */
+    vk_renderer_set_logical_size(ctx->renderer, (float)winW, (float)winH);
 #else
     SDL_GL_GetDrawableSize(ctx->window, &drawableW, &drawableH);
 
@@ -208,18 +270,32 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
         vk_renderer_begin_frame(ctx->renderer, &commandBuffer, &framebuffer, &extent);
 
     if (frameResult == VK_ERROR_OUT_OF_DATE_KHR) {
+        if (!s_logged_begin_out_of_date) {
+            fprintf(stderr,
+                    "[Render] vk_renderer_begin_frame reported OUT_OF_DATE (win=%dx%d drawable=%dx%d); "
+                    "triggering swapchain recreate.\n",
+                    winW, winH, drawableW, drawableH);
+            s_logged_begin_out_of_date = 1;
+        }
         vk_renderer_recreate_swapchain(ctx->renderer, ctx->window);
+        s_logged_begin_failure = 0;
+        s_logged_end_failure = 0;
         if (timerHudActive) {
             ts_stop_timer("Render");
         }
         return;
     } else if (frameResult != VK_SUCCESS) {
-        fprintf(stderr, "[Render] vk_renderer_begin_frame failed: %d\n", frameResult);
+        if (!s_logged_begin_failure) {
+            fprintf(stderr, "[Render] vk_renderer_begin_frame failed: %d\n", frameResult);
+            s_logged_begin_failure = 1;
+        }
         if (timerHudActive) {
             ts_stop_timer("Render");
         }
         return;
     }
+    s_logged_begin_out_of_date = 0;
+    s_logged_begin_failure = 0;
 #endif
 
     for (int i = 0; i < paneCount; i++) {
@@ -227,6 +303,17 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
             panes[i]->render(panes[i], panes[i] == getCoreState()->activeMousePane, core);
         }
     }
+#if USE_VULKAN && VK_RENDERER_FRAME_DEBUG_ENABLED
+    if (s_debug_frame_counter < 120 && ctx && ctx->renderer) {
+        VK_RENDERER_FRAME_DEBUG_LOG(
+            "[Render] Frame %u paneCount=%d drawCalls=%u window=%dx%d drawable=%dx%d\n",
+            s_debug_frame_counter,
+            paneCount,
+            (unsigned)ctx->renderer->draw_state.draw_call_count,
+            winW, winH,
+            drawableW, drawableH);
+    }
+#endif
 
     if (isRenaming()) {
         renderPopupQueueContents();  // This draws both popup messages and the rename UI
@@ -242,14 +329,43 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     }
 
 #if USE_VULKAN
+    if (ctx->renderer) {
+        uint32_t draw_calls = ctx->renderer->draw_state.draw_call_count;
+        if (draw_calls == 0) {
+            if (!s_logged_no_draw) {
+                VK_RENDERER_FRAME_DEBUG_LOG(
+                    "[Render] No Vulkan draw calls recorded this frame (paneCount=%d).\n",
+                    paneCount);
+                s_logged_no_draw = 1;
+            }
+        } else if (s_logged_no_draw) {
+            VK_RENDERER_FRAME_DEBUG_LOG(
+                "[Render] Vulkan draw calls resumed (%u calls this frame).\n",
+                (unsigned)draw_calls);
+            s_logged_no_draw = 0;
+        }
+    }
+
     VkResult endResult = vk_renderer_end_frame(ctx->renderer, commandBuffer);
     if (endResult == VK_ERROR_OUT_OF_DATE_KHR || endResult == VK_SUBOPTIMAL_KHR) {
         vk_renderer_recreate_swapchain(ctx->renderer, ctx->window);
+        s_logged_end_failure = 0;
     } else if (endResult != VK_SUCCESS) {
-        fprintf(stderr, "[Render] vk_renderer_end_frame failed: %d\n", endResult);
+        if (!s_logged_end_failure) {
+            fprintf(stderr, "[Render] vk_renderer_end_frame failed: %d\n", endResult);
+            s_logged_end_failure = 1;
+        }
+    } else {
+        s_logged_end_failure = 0;
     }
 #else
     SDL_RenderPresent(ctx->renderer);
+#endif
+
+#if USE_VULKAN && VK_RENDERER_FRAME_DEBUG_ENABLED
+    if (s_debug_frame_counter < 120) {
+        s_debug_frame_counter++;
+    }
 #endif
 
 

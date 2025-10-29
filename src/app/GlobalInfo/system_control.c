@@ -126,9 +126,7 @@ bool initializeSystem() {
 
     VkRendererConfig rendererConfig;
     vk_renderer_config_set_defaults(&rendererConfig);
-#ifdef ENABLE_VULKAN_VALIDATION
-    rendererConfig.enable_validation = ENABLE_VULKAN_VALIDATION ? VK_TRUE : VK_FALSE;
-#endif
+    rendererConfig.enable_validation = VK_FALSE;
     rendererConfig.clear_color[0] = 30.0f / 255.0f;
     rendererConfig.clear_color[1] = 30.0f / 255.0f;
     rendererConfig.clear_color[2] = 30.0f / 255.0f;

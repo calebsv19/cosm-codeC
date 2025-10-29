@@ -2,8 +2,14 @@
 #include "vk_renderer.h"
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static int s_logged_acquire_out_of_date = 0;
+static int s_logged_acquire_failure = 0;
+static int s_logged_submit_failure = 0;
+static int s_logged_present_failure = 0;
 
 VkResult vk_renderer_commands_init(VkRenderer* renderer,
                                    VkRendererCommandPool* out_pool,
@@ -154,10 +160,20 @@ VkResult vk_renderer_commands_begin_frame(VkRenderer* renderer,
                                             UINT64_MAX, frame->image_available,
                                             VK_NULL_HANDLE, &image_index);
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        if (!s_logged_acquire_out_of_date) {
+            fprintf(stderr, "[vulkan] vkAcquireNextImageKHR returned OUT_OF_DATE.\n");
+            s_logged_acquire_out_of_date = 1;
+        }
         return result;
     } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        if (!s_logged_acquire_failure) {
+            fprintf(stderr, "[vulkan] vkAcquireNextImageKHR failed: %d\n", result);
+            s_logged_acquire_failure = 1;
+        }
         return result;
     }
+    s_logged_acquire_out_of_date = 0;
+    s_logged_acquire_failure = 0;
 
     renderer->swapchain_image_index = image_index;
 
@@ -200,7 +216,14 @@ VkResult vk_renderer_commands_end_frame(VkRenderer* renderer,
 
     result = vkQueueSubmit(renderer->context.graphics_queue, 1, &submit_info,
                            frame->in_flight_fence);
-    if (result != VK_SUCCESS) return result;
+    if (result != VK_SUCCESS) {
+        if (!s_logged_submit_failure) {
+            fprintf(stderr, "[vulkan] vkQueueSubmit failed: %d\n", result);
+            s_logged_submit_failure = 1;
+        }
+        return result;
+    }
+    s_logged_submit_failure = 0;
 
     VkPresentInfoKHR present_info = {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -215,10 +238,21 @@ VkResult vk_renderer_commands_end_frame(VkRenderer* renderer,
 
     renderer->frame_index = (renderer->frame_index + 1) % renderer->frame_count;
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        if (!s_logged_present_failure) {
+            fprintf(stderr, "[vulkan] vkQueuePresentKHR returned OUT_OF_DATE.\n");
+            s_logged_present_failure = 1;
+        }
         return result;
     }
     if (result == VK_SUBOPTIMAL_KHR) {
+        s_logged_present_failure = 0;
         return VK_SUCCESS;
+    }
+    if (result != VK_SUCCESS && !s_logged_present_failure) {
+        fprintf(stderr, "[vulkan] vkQueuePresentKHR failed: %d\n", result);
+        s_logged_present_failure = 1;
+    } else if (result == VK_SUCCESS) {
+        s_logged_present_failure = 0;
     }
     return result;
 }

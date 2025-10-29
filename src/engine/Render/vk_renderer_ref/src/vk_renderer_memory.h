@@ -3,11 +3,11 @@
 
 #include <vulkan/vulkan.h>
 
+#include "vk_renderer_context.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef struct VkRendererContext VkRendererContext;
 
 typedef struct VkAllocatedBuffer {
     VkBuffer buffer;

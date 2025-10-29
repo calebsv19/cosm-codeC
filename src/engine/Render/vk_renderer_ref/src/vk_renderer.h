@@ -3,6 +3,7 @@
 
 #include <SDL2/SDL.h>
 #include <vulkan/vulkan.h>
+#include <stdint.h>
 
 #include "vk_renderer_config.h"
 #include "vk_renderer_context.h"
@@ -29,7 +30,19 @@ typedef struct VkRendererFrameState {
 
 typedef struct VkRendererDrawState {
     float current_color[4];
+    float logical_size[2];
+    uint32_t draw_call_count;
 } VkRendererDrawState;
+
+typedef struct VkRendererDebugCapture {
+    VkAllocatedBuffer buffer;
+    VkBool32 requested;
+    VkBool32 dumped;
+    uint32_t width;
+    uint32_t height;
+    uint32_t frame_counter;
+    uint32_t frame_trigger;
+} VkRendererDebugCapture;
 
 typedef struct VkRenderer {
     VkRendererConfig config;
@@ -52,6 +65,7 @@ typedef struct VkRenderer {
     uint32_t current_frame_index;
 
     VkRendererDrawState draw_state;
+    VkRendererDebugCapture debug_capture;
 } VkRenderer;
 
 VkResult vk_renderer_init(VkRenderer* renderer,
@@ -68,6 +82,7 @@ VkResult vk_renderer_end_frame(VkRenderer* renderer,
 VkResult vk_renderer_recreate_swapchain(VkRenderer* renderer, SDL_Window* window);
 
 void vk_renderer_set_draw_color(VkRenderer* renderer, float r, float g, float b, float a);
+void vk_renderer_set_logical_size(VkRenderer* renderer, float width, float height);
 void vk_renderer_draw_line(VkRenderer* renderer, float x0, float y0, float x1, float y1);
 void vk_renderer_draw_rect(VkRenderer* renderer, const SDL_Rect* rect);
 void vk_renderer_fill_rect(VkRenderer* renderer, const SDL_Rect* rect);

@@ -149,6 +149,49 @@ static VkPipelineShaderStageCreateInfo shader_stage(VkShaderModule module,
     return info;
 }
 
+typedef struct VkRendererVertexLayout {
+    VkVertexInputBindingDescription binding;
+    VkVertexInputAttributeDescription attributes[3];
+    uint32_t attribute_count;
+} VkRendererVertexLayout;
+
+static VkRendererVertexLayout vertex_layout_solid(void) {
+    VkRendererVertexLayout layout = {
+        .binding = {
+            .binding = 0,
+            .stride = sizeof(float) * 6,
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+        },
+        .attributes = {
+            {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = 0},
+            {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = sizeof(float) * 2},
+        },
+        .attribute_count = 2,
+    };
+    return layout;
+}
+
+static VkRendererVertexLayout vertex_layout_textured(void) {
+    VkRendererVertexLayout layout = {
+        .binding = {
+            .binding = 0,
+            .stride = sizeof(float) * 8,
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+        },
+        .attributes = {
+            {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = 0},
+            {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = sizeof(float) * 2},
+            {.location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = sizeof(float) * 4},
+        },
+        .attribute_count = 3,
+    };
+    return layout;
+}
+
+static VkRendererVertexLayout vertex_layout_lines(void) {
+    return vertex_layout_solid();
+}
+
 static VkResult create_graphics_pipeline(VkDevice device,
                                          VkRenderPass render_pass,
                                          VkExtent2D extent,
@@ -156,7 +199,7 @@ static VkResult create_graphics_pipeline(VkDevice device,
                                          VkPipelineCache pipeline_cache,
                                          const char* vert_path,
                                          const char* frag_path,
-                                         VkPipelineVertexInputStateCreateInfo vertex_input,
+                                         const VkRendererVertexLayout* layout,
                                          VkPrimitiveTopology topology,
                                          VkPipelineLayout* out_layout,
                                          VkPipeline* out_pipeline,
@@ -222,6 +265,14 @@ static VkResult create_graphics_pipeline(VkDevice device,
 
     VkPipelineColorBlendStateCreateInfo color_blend = color_blend_state_single();
 
+    VkPipelineVertexInputStateCreateInfo vertex_input = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &layout->binding,
+        .vertexAttributeDescriptionCount = layout->attribute_count,
+        .pVertexAttributeDescriptions = layout->attributes,
+    };
+
     VkPipelineLayoutCreateInfo layout_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = sampler_layout ? 1u : 0u,
@@ -269,21 +320,7 @@ VkResult vk_renderer_pipeline_create_all(VkRendererContext* ctx,
                                          VkRendererPipeline pipelines[VK_RENDERER_PIPELINE_COUNT]) {
     VkExtent2D extent = ctx->swapchain.extent;
 
-    const VkVertexInputAttributeDescription line_attributes[] = {
-        {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = 0},
-        {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = sizeof(float) * 2},
-    };
-
-    VkPipelineVertexInputStateCreateInfo line_vertex_input = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = 1,
-        .pVertexBindingDescriptions =
-            &(VkVertexInputBindingDescription){.binding = 0,
-                                               .stride = sizeof(float) * 6,
-                                               .inputRate = VK_VERTEX_INPUT_RATE_VERTEX},
-        .vertexAttributeDescriptionCount = 2,
-        .pVertexAttributeDescriptions = line_attributes,
-    };
+    VkRendererVertexLayout line_layout = vertex_layout_lines();
 
     VkPushConstantRange basic_push[2] = {
         {
@@ -300,51 +337,22 @@ VkResult vk_renderer_pipeline_create_all(VkRendererContext* ctx,
 
     VkResult result = create_graphics_pipeline(
         ctx->device, render_pass, extent, VK_NULL_HANDLE, pipeline_cache, "shaders/line.vert.spv",
-        "shaders/line.frag.spv", line_vertex_input, VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
+        "shaders/line.frag.spv", &line_layout, VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
         &pipelines[VK_RENDERER_PIPELINE_LINES].layout,
         &pipelines[VK_RENDERER_PIPELINE_LINES].pipeline, basic_push, 2);
     if (result != VK_SUCCESS) return result;
 
-    const VkVertexInputAttributeDescription solid_attributes[] = {
-        {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = 0},
-        {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = sizeof(float) * 2},
-    };
-
-    VkPipelineVertexInputStateCreateInfo solid_vertex_input = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = 1,
-        .pVertexBindingDescriptions =
-            &(VkVertexInputBindingDescription){.binding = 0,
-                                               .stride = sizeof(float) * 6,
-                                               .inputRate = VK_VERTEX_INPUT_RATE_VERTEX},
-        .vertexAttributeDescriptionCount = 2,
-        .pVertexAttributeDescriptions = solid_attributes,
-    };
+    VkRendererVertexLayout solid_layout = vertex_layout_solid();
 
     result = create_graphics_pipeline(ctx->device, render_pass, extent, VK_NULL_HANDLE,
                                       pipeline_cache, "shaders/fill.vert.spv",
-                                      "shaders/fill.frag.spv", solid_vertex_input,
+                                      "shaders/fill.frag.spv", &solid_layout,
                                       VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
                                       &pipelines[VK_RENDERER_PIPELINE_SOLID].layout,
                                       &pipelines[VK_RENDERER_PIPELINE_SOLID].pipeline, basic_push, 2);
     if (result != VK_SUCCESS) return result;
 
-    const VkVertexInputAttributeDescription textured_attributes[] = {
-        {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = 0},
-        {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = sizeof(float) * 2},
-        {.location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = sizeof(float) * 4},
-    };
-
-    VkPipelineVertexInputStateCreateInfo textured_vertex_input = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = 1,
-        .pVertexBindingDescriptions =
-            &(VkVertexInputBindingDescription){.binding = 0,
-                                               .stride = sizeof(float) * 8,
-                                               .inputRate = VK_VERTEX_INPUT_RATE_VERTEX},
-        .vertexAttributeDescriptionCount = 3,
-        .pVertexAttributeDescriptions = textured_attributes,
-    };
+    VkRendererVertexLayout textured_layout = vertex_layout_textured();
 
     VkPushConstantRange textured_push[2] = {
         {
@@ -361,7 +369,7 @@ VkResult vk_renderer_pipeline_create_all(VkRendererContext* ctx,
 
     result = create_graphics_pipeline(ctx->device, render_pass, extent, sampler_layout,
                                       pipeline_cache, "shaders/textured.vert.spv",
-                                      "shaders/textured.frag.spv", textured_vertex_input,
+                                      "shaders/textured.frag.spv", &textured_layout,
                                       VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
                                       &pipelines[VK_RENDERER_PIPELINE_TEXTURED].layout,
                                       &pipelines[VK_RENDERER_PIPELINE_TEXTURED].pipeline, textured_push, 2);
