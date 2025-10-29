@@ -2,6 +2,7 @@
 #define CORE_STATE_H
 
 #include <stdbool.h>
+#include <SDL2/SDL.h>
 
 #include "ide/UI/ui_state.h"
 #include "ide/UI/layout_config.h"
@@ -12,6 +13,21 @@
 struct EditorView;
 struct EditorViewState;
 struct UIPane;
+struct DirEntry;
+
+typedef struct ProjectDragState {
+    struct DirEntry* entry;
+    bool active;
+    bool validTarget;
+    struct EditorView* targetView;
+    int startX;
+    int startY;
+    int offsetX;
+    int offsetY;
+    int currentX;
+    int currentY;
+    Uint32 startTicks;
+} ProjectDragState;
 
 // All core state lives here
 typedef struct IDECoreState {
@@ -41,6 +57,8 @@ typedef struct IDECoreState {
 
     int mouseX;
     int mouseY;
+
+    ProjectDragState projectDrag;
 
     // Track rename flow globally
     RenameRequest renameFlow;

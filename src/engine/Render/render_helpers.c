@@ -25,7 +25,8 @@ void drawText(int x, int y, const char* text) {
 
 #if USE_VULKAN
     VkRendererTexture vkTexture = {0};
-    if (vk_renderer_upload_sdl_surface(renderer, surface, &vkTexture) == VK_SUCCESS) {
+    if (vk_renderer_upload_sdl_surface_with_filter(renderer, surface, &vkTexture,
+                                                   VK_FILTER_NEAREST) == VK_SUCCESS) {
         vk_renderer_draw_texture(renderer, &vkTexture, NULL, &dst);
         vk_renderer_queue_texture_destroy(renderer, &vkTexture);
     }

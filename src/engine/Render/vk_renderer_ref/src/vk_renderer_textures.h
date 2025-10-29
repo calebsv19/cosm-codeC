@@ -24,6 +24,7 @@ VkResult vk_renderer_texture_create_from_rgba(struct VkRenderer* renderer,
                                               const void* pixels,
                                               uint32_t width,
                                               uint32_t height,
+                                              VkFilter filter,
                                               VkRendererTexture* out_texture);
 void vk_renderer_texture_destroy(struct VkRenderer* renderer,
                                  VkRendererTexture* texture);

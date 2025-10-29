@@ -12,6 +12,7 @@
 #include "ide/Panes/ToolPanels/render_tool_panel.h"
 #include "ide/Panes/ControlPanel/render_control_panel.h"
 #include "ide/Panes/Popup/render_popup.h"
+#include "ide/Panes/ToolPanels/Project/tool_project.h"
 
 
 // External dependencies
@@ -303,6 +304,10 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
             panes[i]->render(panes[i], panes[i] == getCoreState()->activeMousePane, core);
         }
     }
+    if (isRenaming()) {
+        renderPopupQueueContents();  // This draws both popup messages and the rename UI
+    }
+    renderProjectDragOverlay();
 #if USE_VULKAN && VK_RENDERER_FRAME_DEBUG_ENABLED
     if (s_debug_frame_counter < 120 && ctx && ctx->renderer) {
         VK_RENDERER_FRAME_DEBUG_LOG(
@@ -315,12 +320,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     }
 #endif
 
-    if (isRenaming()) {
-        renderPopupQueueContents();  // This draws both popup messages and the rename UI
-    }
-
-
-    if (timerHudActive) {
+        if (timerHudActive) {
         ts_stop_timer("Render");
 
         if (ts_settings.hud_enabled) {

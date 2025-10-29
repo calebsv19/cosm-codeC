@@ -94,6 +94,10 @@ void vk_renderer_draw_texture(VkRenderer* renderer,
 VkResult vk_renderer_upload_sdl_surface(VkRenderer* renderer,
                                         SDL_Surface* surface,
                                         VkRendererTexture* out_texture);
+VkResult vk_renderer_upload_sdl_surface_with_filter(VkRenderer* renderer,
+                                                    SDL_Surface* surface,
+                                                    VkRendererTexture* out_texture,
+                                                    VkFilter filter);
 void vk_renderer_queue_texture_destroy(VkRenderer* renderer,
                                        VkRendererTexture* texture);
 

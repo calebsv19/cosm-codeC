@@ -12,6 +12,7 @@ extern int mouseY;
 extern int hoveredEntryDepth; 
 extern struct DirEntry* hoveredEntry; 
 extern struct DirEntry* selectedEntry;
+extern SDL_Rect hoveredEntryRect;
 
 extern SDL_Rect projectBtnAddFile;
 extern SDL_Rect projectBtnAddFolder;
@@ -25,6 +26,13 @@ extern char newlyCreatedPath[1024];
 
 void updateHoveredMousePosition(int x, int y);
 void handleProjectFilesClick(UIPane* pane, int clickX);
+void handleCommandOpenFileInEditor(struct DirEntry* entry);
+void updateHoveredEditorDropTarget(int mouseX, int mouseY);
+void resetProjectDragState(void);
+void beginProjectDrag(struct DirEntry* entry, const SDL_Rect* rect, int mouseX, int mouseY);
+void updateProjectDrag(int mouseX, int mouseY);
+void finalizeProjectDrag(int mouseX, int mouseY);
+void renderProjectDragOverlay(void);
 
 
 DirEntry* getCurrentTargetDirectory(void);
@@ -34,4 +42,3 @@ void deleteSelectedEntry(void);
 void refreshProjectDirectory(void);
 
 #endif
-

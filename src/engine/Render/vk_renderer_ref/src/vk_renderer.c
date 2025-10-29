@@ -65,12 +65,13 @@ static VkResult create_descriptor_resources(VkRenderer* renderer) {
 
     VkDescriptorPoolSize pool_size = {
         .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .descriptorCount = 128,
+        .descriptorCount = 4096,
     };
 
     VkDescriptorPoolCreateInfo pool_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .maxSets = 128,
+        .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+        .maxSets = 4096,
         .poolSizeCount = 1,
         .pPoolSizes = &pool_size,
     };
@@ -1008,9 +1009,10 @@ void vk_renderer_draw_texture(VkRenderer* renderer,
     }
 }
 
-VkResult vk_renderer_upload_sdl_surface(VkRenderer* renderer,
-                                        SDL_Surface* surface,
-                                        VkRendererTexture* out_texture) {
+VkResult vk_renderer_upload_sdl_surface_with_filter(VkRenderer* renderer,
+                                                    SDL_Surface* surface,
+                                                    VkRendererTexture* out_texture,
+                                                    VkFilter filter) {
     if (!renderer || !surface || !out_texture) return VK_ERROR_INITIALIZATION_FAILED;
 
     SDL_Surface* converted = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_ABGR8888, 0);
@@ -1018,10 +1020,17 @@ VkResult vk_renderer_upload_sdl_surface(VkRenderer* renderer,
 
     VkResult result = vk_renderer_texture_create_from_rgba(
         renderer, used_surface->pixels, (uint32_t)used_surface->w, (uint32_t)used_surface->h,
-        out_texture);
+        filter, out_texture);
 
     if (converted) SDL_FreeSurface(converted);
     return result;
+}
+
+VkResult vk_renderer_upload_sdl_surface(VkRenderer* renderer,
+                                        SDL_Surface* surface,
+                                        VkRendererTexture* out_texture) {
+    return vk_renderer_upload_sdl_surface_with_filter(
+        renderer, surface, out_texture, VK_FILTER_LINEAR);
 }
 
 void vk_renderer_queue_texture_destroy(VkRenderer* renderer,

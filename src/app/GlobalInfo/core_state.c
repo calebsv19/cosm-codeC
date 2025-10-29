@@ -35,6 +35,8 @@ void initCoreState(void) {
 
     // Optionally clear rename flow
     memset(&coreState.renameFlow, 0, sizeof(RenameRequest));
+
+    memset(&coreState.projectDrag, 0, sizeof(ProjectDragState));
 }
 
 void shutdownCoreState(void) {

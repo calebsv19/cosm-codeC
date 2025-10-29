@@ -3,6 +3,7 @@
 #include "engine/Render/render_pipeline.h"      // drawText, getTextWidth, getRenderContext
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"
+#include "app/GlobalInfo/core_state.h"
 
 #include "app/GlobalInfo/project.h"          // projectRoot
 
@@ -75,6 +76,7 @@ static void renderTreeRecursive(DirEntry* entry, int x, int* y, int depth, int m
         hoveredEntryDepth = depth;
         SDL_SetRenderDrawColor(renderer, 180, 180, 180, 100);
         SDL_RenderDrawRect(renderer, &box);
+        hoveredEntryRect = box;
     }
 
     if (entry == selectedEntry) {
@@ -98,6 +100,7 @@ void renderProjectFilesPanel(UIPane* pane) {
     int y = pane->y + 30;
     int maxY = pane->y + pane->h;
     hoveredEntry = NULL;
+    hoveredEntryRect = (SDL_Rect){0};
 
     const int iconBtnSize = 24;
     const int spacing = 8;
@@ -126,5 +129,5 @@ void renderProjectFilesPanel(UIPane* pane) {
     } else {
         drawText(x, y, "(No project loaded)");
     }
-}
 
+}

@@ -111,6 +111,7 @@ VkResult vk_renderer_texture_create_from_rgba(VkRenderer* renderer,
                                               const void* pixels,
                                               uint32_t width,
                                               uint32_t height,
+                                              VkFilter filter,
                                               VkRendererTexture* out_texture) {
     if (!renderer || !pixels || !out_texture) return VK_ERROR_INITIALIZATION_FAILED;
     memset(out_texture, 0, sizeof(*out_texture));
@@ -151,8 +152,8 @@ VkResult vk_renderer_texture_create_from_rgba(VkRenderer* renderer,
 
     VkSamplerCreateInfo sampler_info = {
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .magFilter = VK_FILTER_LINEAR,
-        .minFilter = VK_FILTER_LINEAR,
+        .magFilter = filter,
+        .minFilter = filter,
         .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
         .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
         .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,

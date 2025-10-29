@@ -8,3 +8,4 @@ build/
 # Ignore system files
 .DS_Store
 
+src/Project/

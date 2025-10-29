@@ -2,9 +2,13 @@
 #include "ide/Panes/ToolPanels/Project/input_tool_project.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
 #include "ide/Panes/ToolPanels/Project/rename_callbacks.h"
+#include "app/GlobalInfo/core_state.h"
+#include "ide/Panes/Editor/editor_view.h"
 #include "core/CommandBus/command_bus.h"
 #include "core/InputManager/input_macros.h"
 #include "core/InputManager/UserInput/rename_flow.h"
+
+#include <stdlib.h>
 
 static bool pointInRect(int x, int y, SDL_Rect r) {
     return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
@@ -63,8 +67,15 @@ void handleProjectFilesKeyboardInput(UIPane* pane, SDL_Event* event) {
 void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane) return;
 
-    int mx = event->button.x;
-    int my = event->button.y;
+    int mx = 0;
+    int my = 0;
+    if (event->type == SDL_MOUSEMOTION) {
+        mx = event->motion.x;
+        my = event->motion.y;
+    } else {
+        mx = event->button.x;
+        my = event->button.y;
+    }
 
     // ⏱ Right-click triggers rename
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_RIGHT) {
@@ -99,6 +110,9 @@ void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
             return;
         }
 
+        if (hoveredEntry && hoveredEntry->type == ENTRY_FILE) {
+            beginProjectDrag(hoveredEntry, &hoveredEntryRect, mx, my);
+        }
         handleProjectFilesClick(pane, mx);
     }
 }
@@ -111,4 +125,3 @@ void handleProjectFilesScrollInput(UIPane* pane, SDL_Event* event) {
 void handleProjectFilesHoverInput(UIPane* pane, int x, int y) {
     updateHoveredMousePosition(x, y);
 }
-

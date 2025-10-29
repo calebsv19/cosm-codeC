@@ -4,6 +4,7 @@
 #include "ide/Panes/Editor/Input/editor_input_mouse.h"
 #include "ide/UI/ui_state.h"
 #include "app/GlobalInfo/core_state.h"  // Add this to top of input_mouse.c
+#include "ide/Panes/ToolPanels/Project/tool_project.h"
 
 #include <stdio.h>
 
@@ -86,6 +87,20 @@ void handleMouseInput(SDL_Event* event, UIPane** panes, int paneCount) {
         case SDL_MOUSEBUTTONUP:       mx = event->button.x; my = event->button.y; break;
         case SDL_MOUSEWHEEL:          SDL_GetMouseState(&mx, &my); break;
         default:                      return;
+    }
+
+    ProjectDragState* drag = &getCoreState()->projectDrag;
+    bool projectDragActive = (drag->entry != NULL);
+
+    if (projectDragActive) {
+        if (event->type == SDL_MOUSEMOTION) {
+            updateProjectDrag(mx, my);
+            return;
+        } else if (event->type == SDL_MOUSEBUTTONUP && event->button.button == SDL_BUTTON_LEFT) {
+            finalizeProjectDrag(event->button.x, event->button.y);
+            return;
+        }
+        return;
     }
 
     if (handleEditorScrollbarThumbClick(event, mx, my)) return;

@@ -45,7 +45,8 @@ void Text_Draw(SDL_Renderer* renderer, const char* text, int x, int y, int align
 
 #if USE_VULKAN
     VkRendererTexture texture = {0};
-    VkResult uploadResult = vk_renderer_upload_sdl_surface(renderer, surface, &texture);
+    VkResult uploadResult = vk_renderer_upload_sdl_surface_with_filter(
+        renderer, surface, &texture, VK_FILTER_NEAREST);
     if (uploadResult == VK_SUCCESS) {
         vk_renderer_draw_texture(renderer, &texture, NULL, &dst);
         vk_renderer_queue_texture_destroy(renderer, &texture);
