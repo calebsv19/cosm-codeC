@@ -84,7 +84,10 @@ DirEntry* loadProjectDirectory(const char* path) {
         return NULL;
     }
 
-    DirEntry* root = createDirEntry(path, path, ENTRY_FOLDER);
+    const char* baseName = strrchr(path, '/');
+    baseName = (baseName && *(baseName + 1)) ? baseName + 1 : path;
+
+    DirEntry* root = createDirEntry(baseName, path, ENTRY_FOLDER);
     if (!root) {
         closedir(dir);
         return NULL;
@@ -153,4 +156,3 @@ void handleProjectTreeClick(int mouseX, int mouseY) {
     // Detect if the user clicked on a file entry
     // Then open file into EditorView
 }
-

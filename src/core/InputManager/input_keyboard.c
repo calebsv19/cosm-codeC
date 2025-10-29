@@ -1,30 +1,33 @@
 #include "input_keyboard.h"
-#include "core/InputManager/input_macros.h"
 #include "core/InputManager/UserInput/rename_flow.h"
-#include "core/CommandBus/command_bus.h"
 #include "core/InputManager/UserInput/rename_access.h"
-
-#include "ide/UI/layout.h"
-
-
-
-
-// This file handles SDL_KEYDOWN input → dispatchInputCommand()
-// It does NOT handle behavior — that's routed by the pane’s inputHandler
-
-
-
 #include "core/CommandBus/command_bus.h"
+#include "core/CommandBus/command_metadata.h"
 #include "app/GlobalInfo/core_state.h"
 #include "ide/UI/layout.h"
 #include "ide/UI/ui_state.h"
 
-#define CMD(cmd) enqueueCommandSimple(cmd)
+// This file handles SDL_KEYDOWN input → dispatchInputCommand()
+// It does NOT handle behavior — that's routed by the pane’s inputHandler
+
+static void enqueueTargetedCommand(UIPane* target, InputCommand cmd, SDL_Keymod mod) {
+    InputCommandMetadata meta = {
+        .cmd = cmd,
+        .originRole = target ? target->role : PANE_ROLE_UNKNOWN,
+        .mouseX = -1,
+        .mouseY = -1,
+        .keyMod = mod,
+        .targetPane = target,
+        .payload = NULL
+    };
+    enqueueCommand(meta);
+}
 
 void handleKeyboardInput(SDL_Event* event,
                          UIPane** panes, int* paneCount, bool* running) {
     if (!event || event->type != SDL_KEYDOWN) return;
 
+    IDECoreState* core = getCoreState();
     UIState* uiState = getUIState();
     SDL_Keycode key = event->key.keysym.sym;
     Uint16 mod = event->key.keysym.mod;
@@ -64,30 +67,27 @@ void handleKeyboardInput(SDL_Event* event,
     }
 */
     // Ctrl+1 or Tab → Switch tab globally
-    if ((mod & KMOD_CTRL && key == SDLK_1)) {
-        CMD(COMMAND_SWITCH_TAB);
+    if ((mod & KMOD_CTRL) && key == SDLK_1) {
+        enqueueTargetedCommand(core ? core->editorPane : NULL, COMMAND_SWITCH_TAB, (SDL_Keymod)mod);
         return;
     }
 
     // Ctrl+R or TAB → Toggle control/tool panel visibility
     if (mod & KMOD_CTRL && key == SDLK_r) {
-        uiState->controlPanelVisible = !uiState->controlPanelVisible;
-        layout_static_panes(panes, paneCount);
+        enqueueTargetedCommand(uiState ? uiState->menuBar : NULL, COMMAND_TOGGLE_CONTROL_PANEL, (SDL_Keymod)mod);
         return;
     }
 
     if (mod & KMOD_CTRL && key == SDLK_t) {
-        uiState->toolPanelVisible = !uiState->toolPanelVisible;
-        layout_static_panes(panes, paneCount);
+        enqueueTargetedCommand(uiState ? uiState->menuBar : NULL, COMMAND_TOGGLE_TOOL_PANEL, (SDL_Keymod)mod);
         return;
     }
 
     // === FALLBACK: Send key to currently focused pane ===
-    UIPane* focused = getCoreState()->focusedPane;
+    UIPane* focused = core ? core->focusedPane : NULL;
     if (focused && focused->inputHandler && focused->inputHandler->onKeyboard) {
         focused->inputHandler->onKeyboard(focused, event);
     } else {
         printf("[Keyboard] Unhandled or no focused pane: key=%d\n", key);
     }
 }
-

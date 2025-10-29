@@ -6,12 +6,9 @@
 #include "ide/Panes/Editor/editor_state.h"
 #include "ide/Panes/PaneInfo/pane.h"
 #include "ide/Panes/Editor/editor_view.h"
+#include "ide/Panes/Editor/Commands/editor_command_payloads.h"
 
-void handleEditorKeyDown(SDL_Event* event, struct EditorView* view, struct UIPane* pane);
-void handleArrowKeyPress(SDL_Keycode key, EditorBuffer* buffer, EditorState* state, int paneHeight);
-void handleCommandShiftAction(SDL_Keycode key, EditorBuffer* buffer, EditorState* state);
-bool isSpecialShiftAction(SDL_Keycode key);
-void handleCommandAltAction(SDL_Keycode key, EditorBuffer* buffer, EditorState* state);
-void handleCommandCharacterInput(SDL_Event* event, EditorBuffer* buffer, EditorState* state);
+void editorProcessKeyCommand(struct UIPane* pane, EditorKeyCommandPayload* payload);
+void editorProcessTextInput(struct UIPane* pane, const EditorTextInputPayload* payload);
 
 #endif

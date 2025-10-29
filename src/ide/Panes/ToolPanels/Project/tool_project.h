@@ -12,11 +12,14 @@ extern int mouseY;
 extern int hoveredEntryDepth; 
 extern struct DirEntry* hoveredEntry; 
 extern struct DirEntry* selectedEntry;
+extern struct DirEntry* selectedFile;
+extern struct DirEntry* selectedDirectory;
 extern SDL_Rect hoveredEntryRect;
 
 extern SDL_Rect projectBtnAddFile;
 extern SDL_Rect projectBtnAddFolder;
-extern SDL_Rect projectBtnDelete;
+extern SDL_Rect projectBtnDeleteFile;
+extern SDL_Rect projectBtnDeleteFolder;
 
 extern DirEntry* renamingEntry;
 extern char renameBuffer[256];
@@ -38,7 +41,10 @@ void renderProjectDragOverlay(void);
 DirEntry* getCurrentTargetDirectory(void);
 void createFileInProject(DirEntry* parent, const char* name);
 void createFolderInProject(DirEntry* parent, const char* name);
-void deleteSelectedEntry(void);
+void deleteSelectedFile(void);
+void deleteSelectedDirectory(void);
 void refreshProjectDirectory(void);
+void selectDirectoryEntry(struct DirEntry* entry);
+void selectFileEntry(struct DirEntry* entry);
 
 #endif

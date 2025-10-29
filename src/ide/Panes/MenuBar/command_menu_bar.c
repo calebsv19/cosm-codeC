@@ -39,6 +39,14 @@ void handleMenuBarCommand(UIPane* pane, InputCommandMetadata meta) {
 	           ui->controlPanelVisible ? "VISIBLE" : "HIDDEN");
 	    break;
 	}
+
+	case COMMAND_TOGGLE_TOOL_PANEL: {
+	    UIState* ui = getUIState();
+	    ui->toolPanelVisible = !ui->toolPanelVisible;
+	    printf("[MenuBarCommand] Toggle Tool Panel: %s\n",
+	           ui->toolPanelVisible ? "VISIBLE" : "HIDDEN");
+	    break;
+	}
 	    	    
 
         case COMMAND_OPEN_BUILD_LOG:     // or new Command
@@ -81,4 +89,3 @@ void initMenuBarCommandHandler(UIPane* pane) {
         pane->handleCommand = handleMenuBarCommand;
     }
 }
-

@@ -1,8 +1,12 @@
 #include "editor_input_keyboard.h"
+#include "app/GlobalInfo/core_state.h"
+#include "ide/Panes/Editor/editor.h"
 #include "ide/Panes/Editor/undo_stack.h"
 #include "ide/Panes/Editor/Commands/editor_commands.h"
 #include "ide/Panes/Editor/editor_text_edit.h"
 #include "ide/Panes/Editor/editor_view.h"
+
+#include <string.h>
 
 
 static void handleMoveCursorUp(EditorBuffer* buffer, EditorState* state) {
@@ -105,11 +109,10 @@ static void handleCommandRedo(OpenFile* file) {
     
     
 
-void handleCommandAltAction(SDL_Keycode key, EditorBuffer* buffer, EditorState* state) {
-    IDECoreState* core = getCoreState();
-    EditorView* view = core->activeEditorView;
-    
-    if (!view || view->activeTab < 0 || view->activeTab >= view->fileCount) return;
+static void handleCommandAltAction(SDL_Keycode key, EditorView* view) {
+    if (!view || view->type != VIEW_LEAF ||
+        view->activeTab < 0 || view->activeTab >= view->fileCount) return;
+
     OpenFile* file = getActiveOpenFile(view);
     if (!file) return;
  
@@ -179,62 +182,82 @@ static void handleCommandSwitchTab(int direction) {
 }
 
 static void handleCommandMoveCursor(SDL_Keycode key, EditorBuffer* buffer,
-					EditorState* state, int paneHeight) {
-    handleArrowKeyPress(key, buffer, state, paneHeight);  // existing function
+                                    EditorState* state, int paneHeight) {
+    handleArrowKeyPress(key, buffer, state, paneHeight);
 }
 
 
-void handleEditorKeyDown(SDL_Event* event, EditorView* view, UIPane* pane) {
+void editorProcessKeyCommand(UIPane* pane, EditorKeyCommandPayload* payload) {
+    if (!payload) return;
+
+    IDECoreState* core = getCoreState();
+    EditorView* view = core ? core->activeEditorView : NULL;
     if (!view || view->type != VIEW_LEAF || view->fileCount <= 0) return;
-        
+
     OpenFile* file = getActiveOpenFile(view);
     if (!file || !file->buffer) return;
-    
+
     EditorBuffer* buffer = file->buffer;
     EditorState* state = &file->state;
-    
-    SDL_Keymod mod = SDL_GetModState();
-    SDL_Keycode key = event->key.keysym.sym;
-    
-    bool shiftHeld = (mod & KMOD_SHIFT);
-    bool cmdHeld   = (mod & KMOD_GUI);
-    bool altHeld   = (mod & KMOD_ALT);
+
+    SDL_Keycode key = payload->key;
+    SDL_Keymod mod = payload->mod;
+
+    bool shiftHeld = (mod & KMOD_SHIFT) != 0;
+    bool cmdHeld   = (mod & KMOD_GUI) != 0;
+    bool altHeld   = (mod & KMOD_ALT) != 0;
 
     if ((shiftHeld || cmdHeld) &&
         (key == SDLK_LEFT || key == SDLK_RIGHT || key == SDLK_UP || key == SDLK_DOWN)) {
         beginTextSelectionIfNeeded(state);
     }
-            
+
+    int paneHeight = pane ? pane->h : 0;
+
     if (isArrowKey(key) || key == SDLK_HOME || key == SDLK_END) {
-        handleCommandMoveCursor(key, buffer, state, pane->h);
+        handleCommandMoveCursor(key, buffer, state, paneHeight);
         if (!shiftHeld) state->selecting = false;
         return;
     }
 
-    if (key == SDLK_TAB) {
-	for (int i = 0; i < 4; i++) {
-            insertCharAtCursor(' ');
-        }
-        return;
-    }
-        
     if (cmdHeld) {
         if (key == SDLK_1) {
-            handleCommandSwitchTab(+1);   
-            return; 
+            handleCommandSwitchTab(+1);
+            return;
         }
-        handleCommandMovement(key, buffer, state, getCoreState()->activeEditorView, pane->h);
-        handleCommandAction(key, buffer, state, view, pane);
-    } else if (shiftHeld && isSpecialShiftAction(key)) {
+        handleCommandMovement(key, buffer, state, paneHeight, mod);
+        handleCommandAction(key, buffer, state, view, pane, mod);
+        return;
+    }
+
+    if (shiftHeld && isSpecialShiftAction(key)) {
         handleCommandShiftAction(key, buffer, state);
-    } else if (altHeld) {
-        handleCommandAltAction(key, buffer, state);
-    } 
-}   
+        return;
+    }
+
+    if (altHeld) {
+        handleCommandAltAction(key, view);
+        return;
+    }
+}
+
+
+void editorProcessTextInput(UIPane* pane, const EditorTextInputPayload* payload) {
+    (void)pane;
+    if (!payload) return;
+
+    IDECoreState* core = getCoreState();
+    EditorView* view = core ? core->activeEditorView : NULL;
+    if (!view || view->type != VIEW_LEAF || view->fileCount <= 0) return;
+
+    const char* text = payload->text;
+    for (int i = 0; text[i] != '\0'; ++i) {
+        insertCharAtCursor(text[i]);
+    }
+}
 
 
 
 
 //              TEXT EDITS
 //====================================================
-

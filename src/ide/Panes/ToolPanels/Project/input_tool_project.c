@@ -50,12 +50,25 @@ void handleProjectFilesKeyboardInput(UIPane* pane, SDL_Event* event) {
             case SDLK_n: CMD(COMMAND_NEW_FILE); return;
             case SDLK_r: CMD(COMMAND_RENAME_FILE); return;
             case SDLK_o: CMD(COMMAND_OPEN_FILE); return;
+            case SDLK_d:
+                if (selectedFile) { CMD(COMMAND_DELETE_FILE); }
+                else if (selectedDirectory && selectedDirectory != projectRoot) { CMD(COMMAND_DELETE_FOLDER); }
+                return;
         }
     }
 
     // === Return Key opens file ===
     if (key == SDLK_RETURN) {
         CMD(COMMAND_OPEN_FILE);
+        return;
+    }
+
+    if (key == SDLK_DELETE) {
+        if (selectedFile) {
+            CMD(COMMAND_DELETE_FILE);
+        } else if (selectedDirectory && selectedDirectory != projectRoot) {
+            CMD(COMMAND_DELETE_FOLDER);
+        }
         return;
     }
 
@@ -80,7 +93,11 @@ void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
     // ⏱ Right-click triggers rename
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_RIGHT) {
         if (hoveredEntry) {
-            selectedEntry = hoveredEntry;
+            if (hoveredEntry->type == ENTRY_FOLDER) {
+                selectDirectoryEntry(hoveredEntry);
+            } else {
+                selectFileEntry(hoveredEntry);
+            }
             printf("starting rename\n");
 	    beginRename(
 		    hoveredEntry->name,
@@ -100,13 +117,18 @@ void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
             return;
         }
 
+        if (pointInRect(mx, my, projectBtnDeleteFile)) {
+            CMD(COMMAND_DELETE_FILE);
+            return;
+        }
+
         if (pointInRect(mx, my, projectBtnAddFolder)) {
             CMD(COMMAND_NEW_FOLDER);
             return;
         }
 
-        if (pointInRect(mx, my, projectBtnDelete)) {
-            CMD(COMMAND_DELETE_ENTRY);
+        if (pointInRect(mx, my, projectBtnDeleteFolder)) {
+            CMD(COMMAND_DELETE_FOLDER);
             return;
         }
 

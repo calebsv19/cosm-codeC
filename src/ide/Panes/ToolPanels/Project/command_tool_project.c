@@ -18,9 +18,9 @@ void handleProjectFilesCommand(UIPane* pane, InputCommandMetadata meta) {
 
     switch (meta.cmd) {
 	case COMMAND_OPEN_FILE:
-	    if (selectedEntry && selectedEntry->type == ENTRY_FILE && selectedEntry->path) {
-	        printf("[ProjectPanelCommand] Opening: %s\n", selectedEntry->path);
-	        openFileInView(core->activeEditorView, selectedEntry->path);
+	    if (selectedFile && selectedFile->path) {
+	        printf("[ProjectPanelCommand] Opening: %s\n", selectedFile->path);
+	        openFileInView(core->activeEditorView, selectedFile->path);
 	    } else {
 	        printf("[ProjectPanelCommand] No valid file selected.\n");
 	    }
@@ -28,9 +28,16 @@ void handleProjectFilesCommand(UIPane* pane, InputCommandMetadata meta) {
 
 
         case COMMAND_RENAME_FILE:
-            if (selectedEntry && selectedEntry->type == ENTRY_FILE) {
-                renamingEntry = selectedEntry;
-                strncpy(renameBuffer, selectedEntry->name, sizeof(renameBuffer));
+            if (selectedFile) {
+                renamingEntry = selectedFile;
+            } else if (selectedDirectory && selectedDirectory != projectRoot) {
+                renamingEntry = selectedDirectory;
+            } else {
+                renamingEntry = NULL;
+            }
+
+            if (renamingEntry) {
+                strncpy(renameBuffer, renamingEntry->name, sizeof(renameBuffer));
                 renameBuffer[sizeof(renameBuffer) - 1] = '\0';
                 printf("[ProjectPanelCommand] Entering rename mode: %s\n", renameBuffer);
             }
@@ -60,7 +67,7 @@ void handleProjectFilesCommand(UIPane* pane, InputCommandMetadata meta) {
         case COMMAND_NEW_FILE: {
             DirEntry* target = getCurrentTargetDirectory();
             createFileInProject(target, "new_file.c");
- 	    pendingProjectRefresh = true;
+  	    pendingProjectRefresh = true;
             break;
         }
 
@@ -71,9 +78,20 @@ void handleProjectFilesCommand(UIPane* pane, InputCommandMetadata meta) {
             break;
         }
 
+        case COMMAND_DELETE_FILE:
+            deleteSelectedFile();
+	    break;
+
+        case COMMAND_DELETE_FOLDER:
+            deleteSelectedDirectory();
+            break;
+
         case COMMAND_DELETE_ENTRY:
-            deleteSelectedEntry();
-	    pendingProjectRefresh = true;
+            if (selectedFile) {
+                deleteSelectedFile();
+            } else {
+                deleteSelectedDirectory();
+            }
             break;
 
         default:
@@ -81,4 +99,3 @@ void handleProjectFilesCommand(UIPane* pane, InputCommandMetadata meta) {
             break;
     }
 }
-

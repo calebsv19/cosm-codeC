@@ -116,6 +116,7 @@ void enqueueCommandSimple(InputCommand cmd) {
         .mouseX = -1,
         .mouseY = -1,
         .keyMod = SDL_GetModState(),
+        .targetPane = target,
         .payload = NULL
     };
 
@@ -128,7 +129,8 @@ void enqueueCommandSimple(InputCommand cmd) {
 
 void dispatchInputCommandWithMetadata(InputCommandMetadata meta) {
     IDECoreState* core = getCoreState();
-    UIPane* target = core ? core->focusedPane : NULL;
+    UIPane* target = meta.targetPane ? meta.targetPane
+                                     : (core ? core->focusedPane : NULL);
 
     if (!target || !target->handleCommand) {
         printf("[CommandBus] No focused pane to dispatch command: %s\n",

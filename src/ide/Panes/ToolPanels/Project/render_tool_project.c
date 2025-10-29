@@ -15,6 +15,8 @@
 extern int mouseX, mouseY;               // from tool_project.c
 extern DirEntry* hoveredEntry;
 extern DirEntry* selectedEntry;
+extern DirEntry* selectedFile;
+extern DirEntry* selectedDirectory;
 extern int hoveredEntryDepth;
 
 
@@ -56,20 +58,27 @@ static void renderTreeRecursive(DirEntry* entry, int x, int* y, int depth, int m
         prefix = entry->isExpanded ? "[-] " : "[+] ";
     }
 
-    SDL_Rect box;
+    char line[1024];
     if (entry == renamingEntry) {
-        char line[1024];
         snprintf(line, sizeof(line), "%s%s_", prefix, renameBuffer);
-        int textWidth = getTextWidth(line);
-        box = (SDL_Rect){ drawX - 6, drawY - 1, textWidth + 12, lineHeight };
-        drawText(drawX, drawY, line);
     } else {
-        char line[1024];
         snprintf(line, sizeof(line), "%s%s", prefix, displayName);
-        int textWidth = getTextWidth(line);
-        box = (SDL_Rect){ drawX - 6, drawY - 1, textWidth + 12, lineHeight };
-        drawText(drawX, drawY, line);
     }
+
+    int textWidth = getTextWidth(line);
+    SDL_Rect box = (SDL_Rect){ drawX - 6, drawY - 1, textWidth + 12, lineHeight };
+
+    if (entry == selectedDirectory) {
+        SDL_SetRenderDrawColor(renderer, 80, 160, 90, 120);
+        SDL_RenderFillRect(renderer, &box);
+    }
+
+    if (entry == selectedFile) {
+        SDL_SetRenderDrawColor(renderer, 70, 120, 200, 140);
+        SDL_RenderFillRect(renderer, &box);
+    }
+
+    drawText(drawX, drawY, line);
 
     if (mouseY >= drawY && mouseY < drawY + lineHeight) {
         hoveredEntry = entry;
@@ -80,7 +89,7 @@ static void renderTreeRecursive(DirEntry* entry, int x, int* y, int depth, int m
     }
 
     if (entry == selectedEntry) {
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 180);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 200);
         SDL_RenderDrawRect(renderer, &box);
     }
 
@@ -111,16 +120,22 @@ void renderProjectFilesPanel(UIPane* pane) {
     drawText(x + iconBtnSize + 6, y + 4, "Add File");
     y += iconBtnSize + spacing;
 
+    // --- [-] Delete File ---
+    projectBtnDeleteFile = (SDL_Rect){ x, y, iconBtnSize, iconBtnSize };
+    renderButton(projectBtnDeleteFile, "-");
+    drawText(x + iconBtnSize + 6, y + 4, "Delete File");
+    y += iconBtnSize + spacing;
+
     // --- [+] Add Folder ---
     projectBtnAddFolder = (SDL_Rect){ x, y, iconBtnSize, iconBtnSize };
     renderButton(projectBtnAddFolder, "+");
     drawText(x + iconBtnSize + 6, y + 4, "Add Folder");
     y += iconBtnSize + spacing;
 
-    // --- [-] Delete Entry ---
-    projectBtnDelete = (SDL_Rect){ x, y, iconBtnSize, iconBtnSize };
-    renderButton(projectBtnDelete, "-");
-    drawText(x + iconBtnSize + 6, y + 4, "Delete");
+    // --- [-] Delete Folder ---
+    projectBtnDeleteFolder = (SDL_Rect){ x, y, iconBtnSize, iconBtnSize };
+    renderButton(projectBtnDeleteFolder, "-");
+    drawText(x + iconBtnSize + 6, y + 4, "Delete Folder");
     y += iconBtnSize + spacing;
 
     // --- Render File Tree ---

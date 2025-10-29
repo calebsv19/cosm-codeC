@@ -7,12 +7,8 @@
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/PaneInfo/pane.h"
 
-void handleCommandMovement(SDL_Keycode key, EditorBuffer* buffer, EditorState* state, struct 
-EditorView* view, int paneHeight);
-void handleCommandAction(SDL_Keycode key, EditorBuffer* buffer, EditorState* state, struct EditorView* 
-view, struct UIPane* pane);
-bool handleCommandNavigation(SDL_Keycode key, EditorBuffer* buffer, EditorState* state, int paneHeight, 
-bool shiftHeld);
+void handleCommandMovement(SDL_Keycode key, EditorBuffer* buffer, EditorState* state, int paneHeight, SDL_Keymod mod);
+void handleCommandAction(SDL_Keycode key, EditorBuffer* buffer, EditorState* state, struct EditorView* view, struct UIPane* pane, SDL_Keymod mod);
+bool handleCommandNavigation(SDL_Keycode key, EditorBuffer* buffer, EditorState* state, int paneHeight, bool shiftHeld);
 
 #endif
-

@@ -3,6 +3,15 @@
 **TimerHUD** is a real-time profiling and HUD system designed to track code block durations, visualize performance, and edit 
 configuration settings interactively.
 
+## Directory Summary
+
+| Path | Purpose |
+| --- | --- |
+| `src/` | Core implementation split into submodules (timers, HUD renderer, config, logging, etc.). Each subdirectory has its own README with file-level details. |
+| `external/` | Third-party dependencies bundled with the HUD (e.g. JSON parser). |
+| `assets/`, `TextRender/`, `SDLApp/`, etc. | Supporting assets and helper modules documented inline below. |
+
+
 It is part of the broader **TimeScope system**, and is built for maximum modularity — allowing you to inject it into any C/SDL-based 
 project with minimal integration effort.
 
@@ -158,4 +167,3 @@ This is a solo project — but ideas, bug reports, and contributions are welcome
 ## License
 
 MIT-compatible license planned. Currently private, but moving toward public dev tool release.
-

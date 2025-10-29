@@ -13,6 +13,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h> // for remove()
+#include <dirent.h>
+#include <errno.h>
 
 
 static Uint32 lastClickTime = 0;
@@ -21,6 +23,8 @@ int hoveredEntryDepth = 0;     // remove 'static'!
 
 DirEntry* hoveredEntry = NULL;
 DirEntry* selectedEntry = NULL;
+DirEntry* selectedFile = NULL;
+DirEntry* selectedDirectory = NULL;
 SDL_Rect hoveredEntryRect = {0};
 
 int mouseX = 0;
@@ -28,8 +32,9 @@ int mouseY = 0;
 
 // --- Global Button Hitboxes for Project Panel ---
 SDL_Rect projectBtnAddFile = {0};
+SDL_Rect projectBtnDeleteFile = {0};
 SDL_Rect projectBtnAddFolder = {0};
-SDL_Rect projectBtnDelete = {0};
+SDL_Rect projectBtnDeleteFolder = {0};
 
 
 typedef struct {
@@ -41,6 +46,44 @@ DirEntry* renamingEntry = NULL;
 char renameBuffer[256] = "";
 
 char newlyCreatedPath[1024] = "";
+static char selectedFilePath[1024] = "";
+static char selectedDirectoryPath[1024] = "";
+
+static void setSelectedDirectory(DirEntry* entry) {
+    selectedDirectory = entry;
+    if (entry && entry->path) {
+        strncpy(selectedDirectoryPath, entry->path, sizeof(selectedDirectoryPath));
+        selectedDirectoryPath[sizeof(selectedDirectoryPath) - 1] = '\0';
+    } else {
+        selectedDirectoryPath[0] = '\0';
+    }
+}
+
+static void setSelectedFile(DirEntry* entry) {
+    selectedFile = entry;
+    if (entry && entry->path) {
+        strncpy(selectedFilePath, entry->path, sizeof(selectedFilePath));
+        selectedFilePath[sizeof(selectedFilePath) - 1] = '\0';
+    } else {
+        selectedFilePath[0] = '\0';
+    }
+}
+
+void selectDirectoryEntry(DirEntry* entry) {
+    setSelectedDirectory(entry);
+    selectedEntry = entry;
+    setSelectedFile(NULL);
+}
+
+void selectFileEntry(DirEntry* entry) {
+    setSelectedFile(entry);
+    if (entry) {
+        selectedEntry = entry;
+        if ((!selectedDirectory || selectedDirectory == projectRoot) && entry->parent) {
+            setSelectedDirectory(entry->parent);
+        }
+    }
+}
 
 void resetProjectDragState(void) {
     IDECoreState* core = getCoreState();
@@ -219,21 +262,25 @@ void handleProjectFilesClick(UIPane* pane, int clickX) {
     lastClickedEntry = hoveredEntry;
     lastClickTime = now;
 
-    selectedEntry = hoveredEntry;
-
     int indent = hoveredEntryDepth * 20;
     int drawX = pane->x + 12 + indent;
     int prefixWidth = getTextWidth("[-] ");
     bool clickedPrefix = (clickX >= drawX && clickX <= drawX + prefixWidth);
 
     if (hoveredEntry->type == ENTRY_FOLDER) {
+        selectDirectoryEntry(hoveredEntry);
+        strncpy(renameBuffer, hoveredEntry->name, sizeof(renameBuffer));
+        renameBuffer[sizeof(renameBuffer) - 1] = '\0';
         handleCommandFolderClick(hoveredEntry, clickedPrefix, isDoubleClick);
     } else if (hoveredEntry->type == ENTRY_FILE && isDoubleClick) {
+        selectFileEntry(hoveredEntry);
         if (hoveredEntry->path) {
             handleCommandOpenFileInEditor(hoveredEntry);
         } else {
             fprintf(stderr, "[WARN] hoveredEntry has null path!\n");
         }
+    } else if (hoveredEntry->type == ENTRY_FILE) {
+        selectFileEntry(hoveredEntry);
     }
 }
 
@@ -293,56 +340,124 @@ void createFolderInProject(DirEntry* parent, const char* name) {
 
 
 
-void deleteSelectedEntry(void) {
-    if (!selectedEntry) return;
+static bool deletePathRecursive(const char* path) {
+    if (!path) return false;
 
-    DirEntry* parent = selectedEntry->parent;
-    if (!parent) {
-        fprintf(stderr, "[Delete] Refusing to delete root.\n");
+    struct stat st;
+    if (lstat(path, &st) != 0) {
+        fprintf(stderr, "[Delete] Failed to stat %s: %s\n", path, strerror(errno));
+        return false;
+    }
+
+    if (S_ISDIR(st.st_mode)) {
+        DIR* dir = opendir(path);
+        if (!dir) {
+            fprintf(stderr, "[Delete] Failed to open dir %s: %s\n", path, strerror(errno));
+            return false;
+        }
+
+        struct dirent* entry;
+        while ((entry = readdir(dir)) != NULL) {
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                continue;
+            }
+
+            char childPath[1024];
+            snprintf(childPath, sizeof(childPath), "%s/%s", path, entry->d_name);
+            if (!deletePathRecursive(childPath)) {
+                closedir(dir);
+                return false;
+            }
+        }
+
+        closedir(dir);
+        if (rmdir(path) != 0) {
+            fprintf(stderr, "[Delete] Failed to remove dir %s: %s\n", path, strerror(errno));
+            return false;
+        }
+        return true;
+    }
+
+    if (remove(path) != 0) {
+        fprintf(stderr, "[Delete] Failed to delete %s: %s\n", path, strerror(errno));
+        return false;
+    }
+    return true;
+}
+
+static void closeFilesRecursive(EditorView* view, DirEntry* entry) {
+    if (!view || !entry) return;
+
+    if (entry->type == ENTRY_FILE) {
+        if (entry->path) {
+            closeFileInAllViews(view, entry->path);
+        }
         return;
     }
 
-    int deletedIndex = -1;
-    for (int i = 0; i < parent->childCount; i++) {
-        if (parent->children[i] == selectedEntry) {
-            deletedIndex = i;
-            break;
-        }
+    for (int i = 0; i < entry->childCount; ++i) {
+        closeFilesRecursive(view, entry->children[i]);
     }
+}
 
-    if (deletedIndex == -1) return;
+void deleteSelectedFile(void) {
+    if (!selectedFile || !selectedFile->path) return;
 
-    // Select next logical entry before deletion
-    DirEntry* nextSelection = NULL;
-    if (parent->childCount > 1) {
-        int newIndex = (deletedIndex < parent->childCount - 1) ? deletedIndex : deletedIndex - 1;
-        nextSelection = parent->children[newIndex];
-    } else {
-        nextSelection = parent;
-    }
+    DirEntry* fileEntry = selectedFile;
+    DirEntry* parent = fileEntry->parent;
 
-    // Save its path for post-refresh selection
-    if (nextSelection) {
-        strncpy(newlyCreatedPath, nextSelection->path, sizeof(newlyCreatedPath));
-        newlyCreatedPath[sizeof(newlyCreatedPath) - 1] = '\0';
-    }
-
-    // === Remove file/folder from disk ===
-    if (selectedEntry->type == ENTRY_FILE) {
-        if (remove(selectedEntry->path) != 0) {
-            fprintf(stderr, "[Delete] Failed to delete file: %s\n", selectedEntry->path);
-        }
-    } else if (selectedEntry->type == ENTRY_FOLDER) {
-        fprintf(stderr, "[Delete] Folder deletion not supported yet.\n");
+    if (remove(fileEntry->path) != 0) {
+        fprintf(stderr, "[Delete] Failed to delete file: %s (%s)\n", fileEntry->path, strerror(errno));
         return;
     }
 
     IDECoreState* core = getCoreState();
-    if (selectedEntry->path && core->persistentEditorView) {
-       closeFileInAllViews(core->persistentEditorView, selectedEntry->path);
+    if (core->persistentEditorView) {
+        closeFileInAllViews(core->persistentEditorView, fileEntry->path);
     }
 
-    // Clean up in-memory node if needed — optional
+    setSelectedFile(NULL);
+    if (parent) {
+        selectDirectoryEntry(parent);
+        selectedDirectory = parent;
+        if (parent->path) {
+            strncpy(selectedDirectoryPath, parent->path, sizeof(selectedDirectoryPath));
+            selectedDirectoryPath[sizeof(selectedDirectoryPath) - 1] = '\0';
+        }
+    } else {
+        selectedEntry = NULL;
+    }
+
+    pendingProjectRefresh = true;
+}
+
+void deleteSelectedDirectory(void) {
+    if (!selectedDirectory || selectedDirectory == projectRoot || !selectedDirectory->path) {
+        fprintf(stderr, "[Delete] No deletable directory selected.\n");
+        return;
+    }
+
+    DirEntry* dirEntry = selectedDirectory;
+    DirEntry* parent = dirEntry->parent;
+
+    IDECoreState* core = getCoreState();
+    if (core->persistentEditorView) {
+        closeFilesRecursive(core->persistentEditorView, dirEntry);
+    }
+
+    if (!deletePathRecursive(dirEntry->path)) {
+        fprintf(stderr, "[Delete] Failed to remove directory tree: %s\n", dirEntry->path);
+        return;
+    }
+
+    setSelectedFile(NULL);
+    if (parent) {
+        selectDirectoryEntry(parent);
+    } else {
+        selectDirectoryEntry(projectRoot);
+    }
+
+    pendingProjectRefresh = true;
 }
 
 
@@ -423,6 +538,8 @@ void refreshProjectDirectory(void) {
 
     // Invalidate all UI pointers before refreshing
     selectedEntry = NULL;
+    selectedFile = NULL;
+    selectedDirectory = NULL;
     hoveredEntry = NULL;
     renamingEntry = NULL;
 
@@ -434,15 +551,49 @@ void refreshProjectDirectory(void) {
     projectRoot = loadProjectDirectory(projectPath);
     restoreExpandedStateRecursive(projectRoot);
 
-    // === NEW: try to restore selection safely
+    // === Restore selections ===
     if (newlyCreatedPath[0] != '\0') {
         DirEntry* restored = findEntryByPath(projectRoot, newlyCreatedPath);
         if (restored) {
+            if (restored->type == ENTRY_FOLDER) {
+                setSelectedDirectory(restored);
+            } else {
+                setSelectedFile(restored);
+                if (restored->parent) setSelectedDirectory(restored->parent);
+            }
             selectedEntry = restored;
         } else {
-            fprintf(stderr, "[WARN] Could not restore selected entry: %s\n", newlyCreatedPath);
+            fprintf(stderr, "[WARN] Could not restore created entry: %s\n", newlyCreatedPath);
         }
-        newlyCreatedPath[0] = '\0';  // clear
+        newlyCreatedPath[0] = '\0';
+    } else {
+        if (selectedFilePath[0] != '\0') {
+            DirEntry* restoredFile = findEntryByPath(projectRoot, selectedFilePath);
+            if (restoredFile && restoredFile->type == ENTRY_FILE) {
+                setSelectedFile(restoredFile);
+            } else {
+                selectedFilePath[0] = '\0';
+            }
+        }
+
+        if (selectedDirectoryPath[0] != '\0') {
+            DirEntry* restoredDir = findEntryByPath(projectRoot, selectedDirectoryPath);
+            if (restoredDir && restoredDir->type == ENTRY_FOLDER) {
+                setSelectedDirectory(restoredDir);
+            } else {
+                selectedDirectoryPath[0] = '\0';
+            }
+        }
+
+        if (!selectedDirectory && projectRoot) {
+            setSelectedDirectory(projectRoot);
+        }
+
+        if (selectedFile) {
+            selectedEntry = selectedFile;
+        } else {
+            selectedEntry = selectedDirectory;
+        }
     }
 }
 
@@ -467,12 +618,12 @@ void updateHoveredMousePosition(int x, int y) {
 
 
 DirEntry* getCurrentTargetDirectory(void) {
-    if (selectedEntry) {
-        if (selectedEntry->type == ENTRY_FOLDER) {
-            return selectedEntry;
-        } else if (selectedEntry->type == ENTRY_FILE && selectedEntry->parent) {
-            return selectedEntry->parent;
-        }
+    if (selectedDirectory) {
+        return selectedDirectory;
+    }
+
+    if (selectedFile && selectedFile->parent) {
+        return selectedFile->parent;
     }
 
     return projectRoot;

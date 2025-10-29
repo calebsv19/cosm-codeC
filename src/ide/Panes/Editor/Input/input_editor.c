@@ -1,11 +1,26 @@
 #include "input_editor.h"
-#include "ide/Panes/Editor/editor.h"
 #include "ide/Panes/Editor/Input/editor_input_keyboard.h"
 #include "ide/Panes/Editor/Input/editor_input_mouse.h"
 #include "ide/Panes/Editor/editor_view.h"
-#include "ide/Panes/Editor/editor_text_edit.h"
 #include "app/GlobalInfo/core_state.h"
-#include "core/InputManager/input_macros.h"
+#include "core/CommandBus/command_bus.h"
+#include "core/CommandBus/command_metadata.h"
+
+#include <stdlib.h>
+#include <string.h>
+
+static void enqueueEditorCommand(UIPane* pane, InputCommand cmd, SDL_Keymod keyMod, void* payload) {
+    InputCommandMetadata meta = {
+        .cmd = cmd,
+        .originRole = pane ? pane->role : PANE_ROLE_UNKNOWN,
+        .mouseX = -1,
+        .mouseY = -1,
+        .keyMod = keyMod,
+        .targetPane = pane,
+        .payload = payload
+    };
+    enqueueCommand(meta);
+}
 
 
 
@@ -14,78 +29,66 @@ void handleEditorKeyboardInput(UIPane* pane, SDL_Event* event) {
     if (!pane || event->type != SDL_KEYDOWN) return;
 
     SDL_Keycode key = event->key.keysym.sym;
-    Uint16 mod = event->key.keysym.mod;
+    SDL_Keymod mod = (SDL_Keymod)event->key.keysym.mod;
 
     // === CTRL shortcuts ===
     if (mod & KMOD_CTRL) {
         switch (key) {
-            case SDLK_s: CMD(COMMAND_SAVE_FILE); return;
-            case SDLK_c: CMD(COMMAND_COPY); return;
-            case SDLK_x: CMD(COMMAND_CUT); return;
-            case SDLK_v: CMD(COMMAND_PASTE); return;
-            case SDLK_k: CMD(COMMAND_CUT); return;
-            case SDLK_u: CMD(COMMAND_PASTE); return;
-            case SDLK_o: CMD(COMMAND_SAVE_FILE); return;
-            case SDLK_i: CMD(COMMAND_DELETE); return;
+            case SDLK_s: enqueueEditorCommand(pane, COMMAND_SAVE_FILE, mod, NULL); return;
+            case SDLK_c: enqueueEditorCommand(pane, COMMAND_COPY, mod, NULL); return;
+            case SDLK_x: enqueueEditorCommand(pane, COMMAND_CUT, mod, NULL); return;
+            case SDLK_v: enqueueEditorCommand(pane, COMMAND_PASTE, mod, NULL); return;
+            case SDLK_k: enqueueEditorCommand(pane, COMMAND_CUT, mod, NULL); return;
+            case SDLK_u: enqueueEditorCommand(pane, COMMAND_PASTE, mod, NULL); return;
+            case SDLK_o: enqueueEditorCommand(pane, COMMAND_SAVE_FILE, mod, NULL); return;
+            case SDLK_i: enqueueEditorCommand(pane, COMMAND_DELETE, mod, NULL); return;
+            case SDLK_a: enqueueEditorCommand(pane, COMMAND_SELECT_ALL, mod, NULL); return;
         }
     }
-
     // === ALT shortcuts ===
     if (mod & KMOD_ALT) {
-        if (key == SDLK_MINUS)   { CMD(COMMAND_UNDO); return; }
-        if (key == SDLK_EQUALS)  { CMD(COMMAND_REDO); return; }
+        if (key == SDLK_MINUS)   { enqueueEditorCommand(pane, COMMAND_UNDO, mod, NULL); return; }
+        if (key == SDLK_EQUALS)  { enqueueEditorCommand(pane, COMMAND_REDO, mod, NULL); return; }
     }
 
     // === Raw key behavior ===
     switch (key) {
-        case SDLK_RETURN:    CMD(COMMAND_INSERT_NEWLINE); return;
-        case SDLK_BACKSPACE: CMD(COMMAND_DELETE); return;
-        case SDLK_DELETE: {
-            EditorView* view = getCoreState()->activeEditorView;
-            if (view && view->type == VIEW_LEAF && view->fileCount > 0) {
-                OpenFile* file = getActiveOpenFile(view);
-                if (file && file->buffer) {
-                    handleCommandDeleteForward(file, file->buffer, &file->state);
-                }
-            }
+        case SDLK_RETURN:
+            enqueueEditorCommand(pane, COMMAND_INSERT_NEWLINE, mod, NULL);
             return;
-        }
-//        case SDLK_TAB:       insertCharAtCursor('\t'); return;
-        case SDLK_a:
-            if (mod & KMOD_CTRL) {
-                CMD(COMMAND_SELECT_ALL);
-                return;
-            }
+        case SDLK_BACKSPACE:
+            enqueueEditorCommand(pane, COMMAND_DELETE, mod, NULL);
+            return;
+        case SDLK_DELETE:
+            enqueueEditorCommand(pane, COMMAND_DELETE_FORWARD, mod, NULL);
+            return;
+        case SDLK_TAB:
+            enqueueEditorCommand(pane, COMMAND_INSERT_TAB, mod, NULL);
+            return;
+        default:
             break;
-        default: break;
     }
 
-    // Pass raw input to editor immediately (for characters, arrows, shift actions)
-    // NOTE: We intentionally bypass the command queue for low-latency typing
-    IDECoreState* core = getCoreState();
-    EditorView* view = core->activeEditorView;
-    if (view) {
-        handleEditorKeyDown(event, view, pane);
-    }
+    EditorKeyCommandPayload* payload = malloc(sizeof(*payload));
+    if (!payload) return;
+    payload->key = key;
+    payload->mod = mod;
+    payload->repeat = event->key.repeat;
+
+    enqueueEditorCommand(pane, COMMAND_EDITOR_KEYDOWN, mod, payload);
 }
 
 
 void handleEditorTextInput(UIPane* pane, SDL_Event* event) {
     if (!pane || event->type != SDL_TEXTINPUT) return;
 
-    EditorView* view = getCoreState()->activeEditorView;
-    if (!view || view->type != VIEW_LEAF || view->fileCount <= 0) return;
+    EditorTextInputPayload* payload = malloc(sizeof(*payload));
+    if (!payload) return;
 
-    OpenFile* file = view->openFiles[view->activeTab];
-    if (!file || !file->buffer) return;
+    memset(payload->text, 0, sizeof(payload->text));
+    strncpy(payload->text, event->text.text, SDL_TEXTINPUTEVENT_TEXT_SIZE - 1);
 
-//    EditorBuffer* buffer = file->buffer;
-//    EditorState* state = &file->state;
-
-    const char* text = event->text.text;
-    for (int i = 0; text[i] != '\0'; i++) {
-        insertCharAtCursor(text[i]);  // implement this insert
-    }
+    enqueueEditorCommand(pane, COMMAND_EDITOR_TEXT_INPUT, 0, payload);
 }
 
 

@@ -11,20 +11,19 @@ static void handleCommandAddEditorView(UIPane* pane) {
     addEditorView(root, pane);  // Always split from root
 }
      
-static void handleCommandSwitchTabWithMod(void) {
-    SDL_Keymod mod = SDL_GetModState();
+static void handleCommandSwitchTabWithMod(SDL_Keymod mod) {
     int direction = (mod & KMOD_SHIFT) ? -1 : 1;
     switchTab(getCoreState()->activeEditorView, direction);
 }
  
 void handleCommandAction(SDL_Keycode key, EditorBuffer* buffer, EditorState* state,
-                         EditorView* view, UIPane* pane) {
+                         EditorView* view, UIPane* pane, SDL_Keymod mod) {
     if (key == SDLK_e) {
         handleCommandAddEditorView(pane);
     }
     
     if (key == SDLK_TAB) {
-        handleCommandSwitchTabWithMod();
+        handleCommandSwitchTabWithMod(mod);
     }
  
     // More command key mappings will be added here
@@ -152,11 +151,10 @@ bool handleCommandNavigation(SDL_Keycode key, EditorBuffer* buffer, EditorState*
 
 
 void handleCommandMovement(SDL_Keycode key, EditorBuffer* buffer, EditorState* state,
-                                EditorView* view, int paneHeight) {
+                           int paneHeight, SDL_Keymod mod) {
     
     if (!buffer || buffer->lineCount == 0) return;
-     
-    SDL_Keymod mod = SDL_GetModState();
+
     bool shiftHeld = mod & KMOD_SHIFT;
  
     if (handleCommandNavigation(key, buffer, state, paneHeight, shiftHeld)) return;
