@@ -27,9 +27,12 @@ void renderToolPanelContents(UIPane* pane,bool hovered, struct IDECoreState* cor
 
     renderUIPane(pane, hovered);
 
-    // Draw the dynamic title for the selected icon/tool
+    // Draw the dynamic title for the selected icon/tool (skip for project workspace header)
+    IconTool currentIcon = getActiveIcon();
     const char* label = getToolPanelLabel();
-    drawText(pane->x + 8, pane->y + 6, label);
+    if (currentIcon != ICON_PROJECT_FILES && label) {
+        drawText(pane->x + 8, pane->y + 6, label);
+    }
 
     // Optional clipping here for future
     // SDL_RenderSetClipRect(renderer, &contentArea);
@@ -72,4 +75,3 @@ void renderToolPanelView(UIPane* pane) {
             break;
     }
 }
-

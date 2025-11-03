@@ -25,6 +25,9 @@ extern DirEntry* renamingEntry;
 extern char renameBuffer[256];
 
 extern char newlyCreatedPath[1024];
+extern char runTargetPath[1024];
+
+void restoreRunTargetSelection(void);
 
 
 void updateHoveredMousePosition(int x, int y);

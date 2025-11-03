@@ -26,19 +26,30 @@ typedef struct {
     void* context;
     bool active;
     int cursorPosition;
+    char promptLabel[128];
+    char defaultError[128];
+    char lastError[128];
+    bool acceptUnchanged;
 } RenameRequest;
 
 // Core interface
 
 
 void beginRename(const char* oldName, RenameCallback callback, RenameValidateFn validate, void* context);
+void beginRenameWithPrompt(const char* promptLabel,
+                           const char* defaultErrorMessage,
+                           const char* oldName,
+                           RenameCallback callback,
+                           RenameValidateFn validate,
+                           void* context,
+                           bool acceptUnchanged);
 void cancelRename(void);
 void submitRename(void);
 void handleRenameTextInput(char ch);
 bool isRenaming(void);
+void setRenameErrorMessage(const char* message);
 
 // UI
 void renderRenameOverlay(void);
 
 #endif // RENAME_FLOW_H
-

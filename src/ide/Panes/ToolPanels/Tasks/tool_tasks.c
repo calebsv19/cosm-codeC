@@ -587,12 +587,15 @@ void taskPanelDeleteTask(UIPane* pane) {
 void taskPanelRenameTask(UIPane* pane) {
     (void)pane;
     if (selectedTask) {
-	beginRename(
-	    selectedTask->label,
-	    handleTaskRenameCallback,
-	    isTaskNameValid,
-	    selectedTask
-	);
+        beginRenameWithPrompt(
+            "Rename Task:",
+            "Name already exists",
+            selectedTask->label,
+            handleTaskRenameCallback,
+            isTaskNameValid,
+            selectedTask,
+            false
+        );
 
     }
 }
@@ -618,4 +621,3 @@ void taskPanelMoveTaskDown(UIPane* pane) {
 
 //              APIS
 // ==================================
-

@@ -4,6 +4,7 @@
 #include "engine/Render/render_helpers.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
+#include "app/GlobalInfo/workspace_prefs.h"
 #include "ide/Panes/PaneInfo/pane.h"
 #include "ide/Panes/Editor/editor_view.h"
 
@@ -46,8 +47,14 @@ DirEntry* renamingEntry = NULL;
 char renameBuffer[256] = "";
 
 char newlyCreatedPath[1024] = "";
+char runTargetPath[1024] = "";
 static char selectedFilePath[1024] = "";
 static char selectedDirectoryPath[1024] = "";
+
+static bool entryIsInBuildOutputs(const DirEntry* entry);
+static void clearRunTargetSelection(void);
+static void updateRunTargetSelection(DirEntry* entry);
+static DirEntry* findEntryByPath(DirEntry* root, const char* targetPath);
 
 static void setSelectedDirectory(DirEntry* entry) {
     selectedDirectory = entry;
@@ -57,6 +64,12 @@ static void setSelectedDirectory(DirEntry* entry) {
     } else {
         selectedDirectoryPath[0] = '\0';
     }
+}
+
+static void clearRunTargetSelection(void) {
+    runTargetPath[0] = '\0';
+    setRunTargetPath(NULL);
+    saveRunTargetPreference(NULL);
 }
 
 static void setSelectedFile(DirEntry* entry) {
@@ -73,6 +86,9 @@ void selectDirectoryEntry(DirEntry* entry) {
     setSelectedDirectory(entry);
     selectedEntry = entry;
     setSelectedFile(NULL);
+    if (entry) {
+        updateRunTargetSelection(entry);
+    }
 }
 
 void selectFileEntry(DirEntry* entry) {
@@ -82,6 +98,83 @@ void selectFileEntry(DirEntry* entry) {
         if ((!selectedDirectory || selectedDirectory == projectRoot) && entry->parent) {
             setSelectedDirectory(entry->parent);
         }
+        updateRunTargetSelection(entry);
+    }
+}
+
+static bool entryIsInBuildOutputs(const DirEntry* entry) {
+    if (!entry || !entry->path) return false;
+    const char* workspace = getWorkspacePath();
+    if (!workspace || workspace[0] == '\0') return false;
+
+    size_t workspaceLen = strlen(workspace);
+    if (strncmp(entry->path, workspace, workspaceLen) != 0) return false;
+
+    const char* relative = entry->path + workspaceLen;
+    if (*relative == '/' || *relative == '\\') relative++;
+    return strncmp(relative, "BuildOutputs", strlen("BuildOutputs")) == 0;
+}
+
+static void updateRunTargetSelection(DirEntry* entry) {
+    if (!entry) {
+        clearRunTargetSelection();
+        return;
+    }
+
+    if (!entryIsInBuildOutputs(entry)) {
+        return;
+    }
+
+    if (entry->type == ENTRY_FILE) {
+        if (strcmp(runTargetPath, entry->path) != 0) {
+            snprintf(runTargetPath, sizeof(runTargetPath), "%s", entry->path);
+            setRunTargetPath(runTargetPath);
+            saveRunTargetPreference(runTargetPath);
+        }
+    } else {
+        DirEntry* newest = NULL;
+        time_t newestTime = 0;
+
+        for (int i = 0; i < entry->childCount; ++i) {
+            DirEntry* child = entry->children[i];
+            if (!child || child->type != ENTRY_FILE || !child->path) continue;
+
+            struct stat st;
+            if (stat(child->path, &st) == 0) {
+                if (st.st_mtime >= newestTime) {
+                    newestTime = st.st_mtime;
+                    newest = child;
+                }
+            }
+        }
+
+        if (newest && newest->path) {
+            if (strcmp(runTargetPath, newest->path) != 0) {
+                snprintf(runTargetPath, sizeof(runTargetPath), "%s", newest->path);
+                setRunTargetPath(runTargetPath);
+                saveRunTargetPreference(runTargetPath);
+            }
+        } else {
+            clearRunTargetSelection();
+        }
+    }
+}
+
+void restoreRunTargetSelection(void) {
+    const char* saved = getRunTargetPath();
+    if (!saved || !saved[0]) {
+        runTargetPath[0] = '\0';
+        return;
+    }
+
+    DirEntry* entry = findEntryByPath(projectRoot, saved);
+    if (entry) {
+        snprintf(runTargetPath, sizeof(runTargetPath), "%s", entry->path);
+        if (!entryIsInBuildOutputs(entry)) {
+            clearRunTargetSelection();
+        }
+    } else {
+        clearRunTargetSelection();
     }
 }
 
@@ -411,6 +504,10 @@ void deleteSelectedFile(void) {
         return;
     }
 
+    if (runTargetPath[0] && strcmp(runTargetPath, fileEntry->path) == 0) {
+        clearRunTargetSelection();
+    }
+
     IDECoreState* core = getCoreState();
     if (core->persistentEditorView) {
         closeFileInAllViews(core->persistentEditorView, fileEntry->path);
@@ -448,6 +545,16 @@ void deleteSelectedDirectory(void) {
     if (!deletePathRecursive(dirEntry->path)) {
         fprintf(stderr, "[Delete] Failed to remove directory tree: %s\n", dirEntry->path);
         return;
+    }
+
+    if (runTargetPath[0]) {
+        size_t dirLen = strlen(dirEntry->path);
+        if (strncmp(runTargetPath, dirEntry->path, dirLen) == 0) {
+            char next = runTargetPath[dirLen];
+            if (next == '\0' || next == '/' || next == '\\') {
+                clearRunTargetSelection();
+            }
+        }
     }
 
     setSelectedFile(NULL);
@@ -595,6 +702,8 @@ void refreshProjectDirectory(void) {
             selectedEntry = selectedDirectory;
         }
     }
+
+    restoreRunTargetSelection();
 }
 
 

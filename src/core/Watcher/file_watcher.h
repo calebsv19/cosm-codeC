@@ -13,6 +13,6 @@ void pollFileWatcher();
 
 void watchFile(OpenFile* file);
 void unwatchFile(OpenFile* file);
+void setWorkspaceWatchPath(const char* path);
 
 #endif
-

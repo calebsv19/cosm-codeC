@@ -22,7 +22,7 @@ void handleMenuBarKeyboardInput(UIPane* pane, SDL_Event* event) {
             case SDLK_r: CMD(COMMAND_RUN_EXECUTABLE); break;
             case SDLK_d: CMD(COMMAND_DEBUG_EXECUTABLE); break;
             case SDLK_s: CMD(COMMAND_SAVE_FILE); break;
-            case SDLK_l: CMD(COMMAND_OPEN_FILE); break;
+            case SDLK_l: CMD(COMMAND_CHOOSE_WORKSPACE); break;
         }
     }
 }
@@ -69,7 +69,7 @@ void handleMenuBarMouseInput(UIPane* pane, SDL_Event* event) {
 
 	if (isPointInRect(mx, my, rect)) {
             switch ((MenuButtonLeft)i) {
-                case MENU_BUTTON_LOAD: CMD(COMMAND_OPEN_FILE); break;
+                case MENU_BUTTON_LOAD: CMD(COMMAND_CHOOSE_WORKSPACE); break;
                 case MENU_BUTTON_SAVE: CMD(COMMAND_SAVE_FILE); break;
                 default: break;
             }
@@ -98,4 +98,3 @@ UIPaneInputHandler menuBarInputHandler = {
     .onScroll = handleMenuBarScrollInput,
     .onHover = handleMenuBarHoverInput
 };
-

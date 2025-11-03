@@ -1,4 +1,7 @@
 #include "project.h"
+#include "core_state.h"
+#include "workspace_prefs.h"
+#include "core/Watcher/file_watcher.h"
 #include "ide/Panes/PaneInfo/pane.h" // for UIPane
 #include <SDL2/SDL.h>
 #include <stdio.h>
@@ -20,7 +23,19 @@ void initProjectPaths(void) {
 
     // Set test project to ~/Desktop/Project
     const char* defaultProjectPath = "/Users/calebsv16/Desktop/Project";
-    snprintf(projectPath, sizeof(projectPath), "%s", defaultProjectPath);
+    const char* persistedPath = loadWorkspacePreference();
+    if (persistedPath && persistedPath[0] != '\0') {
+        setWorkspacePath(persistedPath);
+    }
+
+    const char* chosenPath = getWorkspacePath();
+    if (!chosenPath || chosenPath[0] == '\0') {
+        chosenPath = defaultProjectPath;
+    }
+
+    snprintf(projectPath, sizeof(projectPath), "%s", chosenPath);
+    setWorkspacePath(projectPath);
+    setWorkspaceWatchPath(projectPath);
 
 }
 
@@ -77,7 +92,7 @@ void freeDirectory(DirEntry* root) {
 
 
 
-DirEntry* loadProjectDirectory(const char* path) {
+static DirEntry* loadProjectDirectoryInternal(const char* path, DirEntry* parent) {
     DIR* dir = opendir(path);
     if (!dir) {
         printf("Failed to open directory: %s\n", path);
@@ -91,6 +106,21 @@ DirEntry* loadProjectDirectory(const char* path) {
     if (!root) {
         closedir(dir);
         return NULL;
+    }
+
+    root->parent = parent;
+    if (parent == NULL) {
+        root->isExpanded = true;
+    } else {
+        const char* parentPath = parent->path;
+        const char* workspace = getWorkspacePath();
+        if (workspace && strncmp(path, workspace, strlen(workspace)) == 0) {
+            const char* relative = path + strlen(workspace);
+            if (relative[0] == '/' || relative[0] == '\\') relative++;
+            if (strncmp(relative, "BuildOutputs", strlen("BuildOutputs")) == 0) {
+                root->isExpanded = true;
+            }
+        }
     }
 
     struct dirent* entry;
@@ -109,9 +139,8 @@ DirEntry* loadProjectDirectory(const char* path) {
         }
 
         if (S_ISDIR(st.st_mode)) {
-            DirEntry* childFolder = loadProjectDirectory(fullPath);
+            DirEntry* childFolder = loadProjectDirectoryInternal(fullPath, root);
             if (childFolder) {
-                childFolder->parent = root;
                 addChildEntry(root, childFolder);
             }
         } else if (S_ISREG(st.st_mode)) {
@@ -125,6 +154,13 @@ DirEntry* loadProjectDirectory(const char* path) {
 
     closedir(dir);
     return root;
+}
+
+
+
+
+DirEntry* loadProjectDirectory(const char* path) {
+    return loadProjectDirectoryInternal(path, NULL);
 }
 
 

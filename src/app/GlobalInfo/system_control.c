@@ -4,6 +4,7 @@
 
 #include "project.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
+#include "ide/Panes/ToolPanels/Project/tool_project.h"
 
 
 #include "engine/Render/render_pipeline.h"
@@ -14,7 +15,7 @@
 #include "ide/Plugin/plugin_interface.h"
 #include "ide/UI/ui_state.h"
 
-
+#include "workspace_prefs.h"
 #include "core/Watcher/file_watcher.h"
 #include "core/BuildSystem/build_system.h"
 #include "core/Diagnostics/diagnostics_engine.h"
@@ -26,6 +27,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <stdbool.h>
 
 
 
@@ -48,16 +51,73 @@ static void printTaskNode(TaskNode* node, int depth) {
     }
 }
 
-static void loadTestProject() {
-    const char* testPath = "/Users/calebsv16/Desktop/Project";
-    printf("[Project] Loading test project from: %s\n", testPath);
-        
-    strncpy(projectPath, testPath, sizeof(projectPath));
-    projectPath[sizeof(projectPath) - 1] = '\0';
-    
+static bool pathIsDirectory(const char* path) {
+    if (!path || path[0] == '\0') {
+        return false;
+    }
+
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return false;
+    }
+
+    return S_ISDIR(st.st_mode);
+}
+
+static const char* getDefaultWorkspacePath(void) {
+    return "/Users/calebsv16/Desktop/Project";
+}
+
+static void loadInitialWorkspace(void) {
+    const char* requestedPath = getWorkspacePath();
+    const char* defaultPath = getDefaultWorkspacePath();
+    const char* finalPath = NULL;
+    bool pathChanged = false;
+
+    if (pathIsDirectory(requestedPath)) {
+        finalPath = requestedPath;
+    } else {
+        if (requestedPath && requestedPath[0]) {
+            fprintf(stderr, "[Workspace] Stored workspace unavailable: %s\n", requestedPath);
+        }
+
+        if (pathIsDirectory(defaultPath)) {
+            finalPath = defaultPath;
+            pathChanged = true;
+        }
+    }
+
+    if (!finalPath) {
+        fprintf(stderr, "[Workspace] No valid workspace directory available.\n");
+        projectRoot = NULL;
+        return;
+    }
+
+    snprintf(projectPath, sizeof(projectPath), "%s", finalPath);
+    setWorkspacePath(projectPath);
+    setWorkspaceWatchPath(projectPath);
+
+    const char* savedRunTarget = loadRunTargetPreference();
+    if (savedRunTarget && savedRunTarget[0]) {
+        setRunTargetPath(savedRunTarget);
+    } else {
+        setRunTargetPath(NULL);
+    }
+
+    if (pathChanged) {
+        saveWorkspacePreference(projectPath);
+        if (savedRunTarget && savedRunTarget[0]) {
+            saveRunTargetPreference(savedRunTarget);
+        } else {
+            saveRunTargetPreference(NULL);
+        }
+    }
+
+    printf("[Project] Loading workspace from: %s\n", projectPath);
     projectRoot = loadProjectDirectory(projectPath);
     if (projectRoot) {
         printf("[Project] Project loaded successfully.\n");
+        restoreRunTargetSelection();
     } else {
         fprintf(stderr, "[Project] Failed to load project.\n");
     }
@@ -190,7 +250,7 @@ bool initializeSystem() {
     initFileWatcher();
 
     initProjectPaths();
-    loadTestProject();
+    loadInitialWorkspace();
 
     initLibrariesPanel();
 

@@ -162,4 +162,3 @@ void layout_static_panes(UIPane* panes[], int* paneCount) {
         panes[(*paneCount)++] = ui->popup;
     }
 }
-

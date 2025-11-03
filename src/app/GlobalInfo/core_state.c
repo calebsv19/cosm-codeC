@@ -36,6 +36,9 @@ void initCoreState(void) {
     // Optionally clear rename flow
     memset(&coreState.renameFlow, 0, sizeof(RenameRequest));
 
+    coreState.workspacePath[0] = '\0';
+    coreState.runTargetPath[0] = '\0';
+
     memset(&coreState.projectDrag, 0, sizeof(ProjectDragState));
 }
 
@@ -60,4 +63,30 @@ void setHoveredEditorView(struct EditorView* view) {
 
 struct EditorView* getHoveredEditorView(void) {
     return coreState.hoveredEditorView;
+}
+
+void setWorkspacePath(const char* path) {
+    if (!path) {
+        coreState.workspacePath[0] = '\0';
+        return;
+    }
+    strncpy(coreState.workspacePath, path, sizeof(coreState.workspacePath) - 1);
+    coreState.workspacePath[sizeof(coreState.workspacePath) - 1] = '\0';
+}
+
+const char* getWorkspacePath(void) {
+    return coreState.workspacePath;
+}
+
+void setRunTargetPath(const char* path) {
+    if (!path || !*path) {
+        coreState.runTargetPath[0] = '\0';
+        return;
+    }
+    strncpy(coreState.runTargetPath, path, sizeof(coreState.runTargetPath) - 1);
+    coreState.runTargetPath[sizeof(coreState.runTargetPath) - 1] = '\0';
+}
+
+const char* getRunTargetPath(void) {
+    return coreState.runTargetPath;
 }

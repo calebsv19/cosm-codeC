@@ -13,3 +13,13 @@ drag-and-drop into editor views, and rename workflows.
 
 This pane coordinates closely with `app/GlobalInfo/project.c` (which scans the
 filesystem) and `core/CommandBus` for command dispatch.
+
+## Build output integration
+
+The BuildOutputs directory for the active workspace is rendered directly in the
+tree so users can treat build artefacts like any other file. Selecting a file
+inside `BuildOutputs/` marks it as the run target (entries are tinted red) and
+the choice is persisted in `~/.custom_c_ide/config.ini` alongside the workspace.
+If a folder inside `BuildOutputs/` is selected instead, the newest executable in
+that folder is used. Builds automatically refresh the tree and, when no explicit
+target has been chosen yet, the most recent artefact becomes the new run target.*** End Patch

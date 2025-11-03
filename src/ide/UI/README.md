@@ -5,7 +5,7 @@ handling layout math, resize hit-testing, and global UI state.
 
 | File | Responsibility |
 | --- | --- |
-| `layout.h/c` | Calculates pane rectangles based on window size and which optional panes are visible. |
+| `layout.h/c` | Calculates pane rectangles based on the current renderer output size and which optional panes are visible (handles HiDPI scaling). |
 | `layout_config.h/c` | Stores configuration (default panel sizes, margins) and helper accessors used by `layout.c`. |
 | `resize.h/c` | Tracks resize zones and pointer interaction so panes can be resized with the mouse. |
 | `ui_state.h/c` | Global UI toggles: panel visibility, cached pointers to shared panes, theme flags, etc. |

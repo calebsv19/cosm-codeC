@@ -48,11 +48,37 @@ void renderSinglePopup(Popup* popup, SDL_Renderer* renderer, int index) {
 
 
 void renderRenamePopup(SDL_Renderer* renderer, int winW, int winH) {
+    RenameRequest* req = RENAME;
+    const char* prompt = (req && req->promptLabel[0]) ? req->promptLabel : "Rename:";
+    const char* buffer = req ? req->inputBuffer : "";
+    const char* errorText = (req && req->lastError[0]) ? req->lastError : "";
+
+    int minWidth = 400;
+    int margin = 80;
+    int promptWidth = getTextWidth(prompt) + 24;
+    int inputWidth = getTextWidth(buffer) + 24;
+    int errorWidth = (renameErrorVisible && errorText[0]) ? getTextWidth(errorText) + 24 : 0;
+
+    int maxContentWidth = promptWidth;
+    if (inputWidth > maxContentWidth) maxContentWidth = inputWidth;
+    if (errorWidth > maxContentWidth) maxContentWidth = errorWidth;
+
+    if (maxContentWidth < minWidth) maxContentWidth = minWidth;
+
+    int maxAllowed = winW - margin;
+    if (maxAllowed < minWidth) maxAllowed = minWidth;
+    if (maxContentWidth > maxAllowed) maxContentWidth = maxAllowed;
+
+    int boxWidth = maxContentWidth;
+
+    bool hasError = renameErrorVisible && errorText[0];
+    int boxHeight = hasError ? 150 : 120;
+
     SDL_Rect box = {
-        .x = winW / 2 - 200,
-        .y = winH / 2 - 60,
-        .w = 400,
-        .h = 120
+        .x = (winW - boxWidth) / 2,
+        .y = winH / 2 - boxHeight / 2,
+        .w = boxWidth,
+        .h = boxHeight
     };
 
     SDL_SetRenderDrawColor(renderer, 30, 30, 30, 240);
@@ -62,25 +88,24 @@ void renderRenamePopup(SDL_Renderer* renderer, int winW, int winH) {
     SDL_RenderDrawRect(renderer, &box);
 
     // Base label
-    drawClippedText(box.x + 12, box.y + 18, "Rename File:", box.w - 24);
+    drawClippedText(box.x + 12, box.y + 18, prompt, box.w - 24);
 
-    // Error text (if applicable)
-    if (renameErrorVisible) {
+    int textY = box.y + 48;
+
+    if (hasError) {
         Uint32 now = SDL_GetTicks();
         if (now - renameErrorStart > 2000) {
             renameErrorVisible = false;
         } else {
-            SDL_SetRenderDrawColor(renderer, 255, 70, 70, 255);  // red
-            drawClippedText(box.x + 150, box.y + 18, "(Name already exists)", box.w - 160);
-
+            SDL_SetRenderDrawColor(renderer, 255, 70, 70, 255);
+            drawClippedText(box.x + 12, box.y + 42, errorText, box.w - 24);
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+            textY = box.y + 66;
         }
     }
 
     // Input buffer
-    const char* buffer = getCoreState()->renameFlow.inputBuffer;
     int textX = box.x + 12;
-    int textY = box.y + 48;
     drawClippedText(textX, textY, buffer, box.w - 24);
 
     // Caret blinking

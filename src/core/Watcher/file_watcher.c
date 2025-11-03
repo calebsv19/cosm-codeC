@@ -1,9 +1,11 @@
 
 #include "file_watcher.h"
+#include "app/GlobalInfo/project.h"
 #include <sys/stat.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <limits.h>
 
 typedef struct WatchedFile {
     OpenFile* file;
@@ -12,9 +14,13 @@ typedef struct WatchedFile {
 } WatchedFile;
 
 static WatchedFile* head = NULL;
+static char watchedWorkspacePath[PATH_MAX];
+static time_t workspaceLastModified = 0;
 
 void initFileWatcher() {
     head = NULL;
+    watchedWorkspacePath[0] = '\0';
+    workspaceLastModified = 0;
 }
 
 void shutdownFileWatcher() {
@@ -23,6 +29,8 @@ void shutdownFileWatcher() {
         free(head);
         head = next;
     }
+    watchedWorkspacePath[0] = '\0';
+    workspaceLastModified = 0;
 }
 
 void watchFile(OpenFile* file) {
@@ -49,6 +57,18 @@ void unwatchFile(OpenFile* file) {
     }
 }
 
+void setWorkspaceWatchPath(const char* path) {
+    if (!path || path[0] == '\0') {
+        watchedWorkspacePath[0] = '\0';
+        workspaceLastModified = 0;
+        return;
+    }
+
+    strncpy(watchedWorkspacePath, path, sizeof(watchedWorkspacePath) - 1);
+    watchedWorkspacePath[sizeof(watchedWorkspacePath) - 1] = '\0';
+    workspaceLastModified = 0;
+}
+
 void pollFileWatcher() {
     WatchedFile* current = head;
     while (current) {
@@ -67,5 +87,16 @@ void pollFileWatcher() {
         }
         current = current->next;
     }
-}
 
+    if (watchedWorkspacePath[0] != '\0') {
+        struct stat dirStat;
+        if (stat(watchedWorkspacePath, &dirStat) == 0) {
+            if (workspaceLastModified == 0) {
+                workspaceLastModified = dirStat.st_mtime;
+            } else if (dirStat.st_mtime != workspaceLastModified) {
+                workspaceLastModified = dirStat.st_mtime;
+                pendingProjectRefresh = true;
+            }
+        }
+    }
+}

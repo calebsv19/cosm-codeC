@@ -18,6 +18,7 @@ extern DirEntry* selectedEntry;
 extern DirEntry* selectedFile;
 extern DirEntry* selectedDirectory;
 extern int hoveredEntryDepth;
+extern char runTargetPath[1024];
 
 
 static void renderTreeRecursive(DirEntry* entry, int x, int* y, int depth, int maxY) {
@@ -40,9 +41,6 @@ static void renderTreeRecursive(DirEntry* entry, int x, int* y, int depth, int m
 
         if (strcmp(displayName, "last_build") == 0) return;
     }
-
-    // === Skip build folders entirely ===
-    if (entry->type == ENTRY_FOLDER && strcmp(displayName, "BuildOutputs") == 0) return;
 
     RenderContext* ctx = getRenderContext();
     if (!ctx || !ctx->renderer) return;
@@ -78,6 +76,39 @@ static void renderTreeRecursive(DirEntry* entry, int x, int* y, int depth, int m
         SDL_RenderFillRect(renderer, &box);
     }
 
+    const char* workspace = getWorkspacePath();
+    bool entryInBuildOutputs = false;
+    if (workspace && workspace[0]) {
+        size_t workspaceLen = strlen(workspace);
+        if (strncmp(entry->path, workspace, workspaceLen) == 0) {
+            const char* relative = entry->path + workspaceLen;
+            if (*relative == '/' || *relative == '\\') relative++;
+            if (strncmp(relative, "BuildOutputs", strlen("BuildOutputs")) == 0) {
+                entryInBuildOutputs = true;
+            }
+        }
+    }
+
+    bool isRunTarget = (entryInBuildOutputs && runTargetPath[0] != '\0' && strcmp(entry->path, runTargetPath) == 0);
+    bool isRunAncestor = false;
+    if (!isRunTarget && entryInBuildOutputs && runTargetPath[0] != '\0') {
+        size_t len = strlen(entry->path);
+        if (strncmp(runTargetPath, entry->path, len) == 0) {
+            char next = runTargetPath[len];
+            if (next == '/' || next == '\\') {
+                isRunAncestor = true;
+            }
+        }
+    }
+
+    if (isRunTarget) {
+        SDL_SetRenderDrawColor(renderer, 200, 60, 60, 120);
+        SDL_RenderFillRect(renderer, &box);
+    } else if (isRunAncestor) {
+        SDL_SetRenderDrawColor(renderer, 200, 60, 60, 80);
+        SDL_RenderDrawRect(renderer, &box);
+    }
+
     drawText(drawX, drawY, line);
 
     if (mouseY >= drawY && mouseY < drawY + lineHeight) {
@@ -106,7 +137,26 @@ static void renderTreeRecursive(DirEntry* entry, int x, int* y, int depth, int m
 
 void renderProjectFilesPanel(UIPane* pane) {
     int x = pane->x + 12;
-    int y = pane->y + 30;
+    const char* workspace = getWorkspacePath();
+    char workspaceLabel[512];
+    if (workspace && workspace[0]) {
+        snprintf(workspaceLabel, sizeof(workspaceLabel), "Workspace: %s", workspace);
+    } else {
+        snprintf(workspaceLabel, sizeof(workspaceLabel), "Workspace: (sample project)");
+    }
+
+    drawClippedText(x, pane->y + 8, workspaceLabel, pane->w - 24);
+
+    const char* runTarget = getRunTargetPath();
+    char runLabel[512];
+    if (runTarget && runTarget[0]) {
+        snprintf(runLabel, sizeof(runLabel), "Run target: %s", runTarget);
+    } else {
+        snprintf(runLabel, sizeof(runLabel), "Run target: (auto-select on build)");
+    }
+    drawClippedText(x, pane->y + 22, runLabel, pane->w - 24);
+
+    int y = pane->y + 42;
     int maxY = pane->y + pane->h;
     hoveredEntry = NULL;
     hoveredEntryRect = (SDL_Rect){0};

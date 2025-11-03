@@ -18,3 +18,9 @@ README files for deeper context.
 
 Every subdirectory under `src/` has its own `README.md` with details about the
 files it contains and how that module interacts with the rest of the system.
+
+### Workspace persistence
+
+User state (active workspace and the current run target under `BuildOutputs/`)
+is stored in `~/.custom_c_ide/config.ini`. The IDE restores these selections on
+startup so builds and runs continue where you left off.*** End Patch

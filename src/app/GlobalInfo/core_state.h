@@ -66,6 +66,9 @@ typedef struct IDECoreState {
     RenameRequest renameFlow;
 
     // Add more as needed (e.g., diagnostics, plugin state, build info...)
+
+    char workspacePath[1024];
+    char runTargetPath[1024];
 } IDECoreState;
 
 // Accessor to global state
@@ -80,5 +83,10 @@ struct EditorView* getHoveredEditorView(void);
 // Lifecycle (optional for future init/cleanup)
 void initCoreState(void);
 void shutdownCoreState(void);
+
+void setWorkspacePath(const char* path);
+const char* getWorkspacePath(void);
+void setRunTargetPath(const char* path);
+const char* getRunTargetPath(void);
 
 #endif // CORE_STATE_H

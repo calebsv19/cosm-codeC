@@ -16,6 +16,6 @@ void updateBuildSystem();  // For async polling, if needed
 BuildStatus getBuildStatus();
 const char* getBuildOutput();  // Log output from build
 void clearBuildOutput();
+const char* getLastBuiltExecutablePath(void);
 
 #endif
-

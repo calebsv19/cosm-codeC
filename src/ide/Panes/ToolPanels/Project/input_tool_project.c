@@ -99,12 +99,15 @@ void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
                 selectFileEntry(hoveredEntry);
             }
             printf("starting rename\n");
-	    beginRename(
-		    hoveredEntry->name,
-		    handleProjectFileRenameCallback,
-		    (RenameValidateFn)isRenameValid,
-		    hoveredEntry
-	    );
+            beginRenameWithPrompt(
+                "Rename Entry:",
+                "Name already exists",
+                hoveredEntry->name,
+                handleProjectFileRenameCallback,
+                (RenameValidateFn)isRenameValid,
+                hoveredEntry,
+                false
+            );
 
             return;
         }
