@@ -55,17 +55,6 @@ static bool project_should_skip_entry(DirEntry* entry, const char** outName) {
     return false;
 }
 
-static bool project_entry_in_build_outputs(const DirEntry* entry) {
-    if (!entry || !entry->path) return false;
-    const char* workspace = getWorkspacePath();
-    if (!workspace || !workspace[0]) return false;
-    size_t workspaceLen = strlen(workspace);
-    if (strncmp(entry->path, workspace, workspaceLen) != 0) return false;
-    const char* relative = entry->path + workspaceLen;
-    if (*relative == '/' || *relative == '\\') relative++;
-    return strncmp(relative, "BuildOutputs", strlen("BuildOutputs")) == 0;
-}
-
 static int project_count_visible_entries(DirEntry* entry) {
     if (!entry) return 0;
     const char* displayName = NULL;
@@ -136,11 +125,9 @@ static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int
         }
     }
 
-    bool entryInBuildOutputs = project_entry_in_build_outputs(entry);
-    bool isRunTarget = (entryInBuildOutputs && runTargetPath[0] != '\0' &&
-                        strcmp(entry->path, runTargetPath) == 0);
+    bool isRunTarget = (runTargetPath[0] != '\0' && strcmp(entry->path, runTargetPath) == 0);
     bool isRunAncestor = false;
-    if (!isRunTarget && entryInBuildOutputs && runTargetPath[0] != '\0') {
+    if (!isRunTarget && runTargetPath[0] != '\0' && entry->type == ENTRY_FOLDER) {
         size_t len = strlen(entry->path);
         if (strncmp(runTargetPath, entry->path, len) == 0) {
             char next = runTargetPath[len];

@@ -51,7 +51,6 @@ char runTargetPath[1024] = "";
 static char selectedFilePath[1024] = "";
 static char selectedDirectoryPath[1024] = "";
 
-static bool entryIsInBuildOutputs(const DirEntry* entry);
 static void clearRunTargetSelection(void);
 static void updateRunTargetSelection(DirEntry* entry);
 static DirEntry* findEntryByPath(DirEntry* root, const char* targetPath);
@@ -102,26 +101,37 @@ void selectFileEntry(DirEntry* entry) {
     }
 }
 
-static bool entryIsInBuildOutputs(const DirEntry* entry) {
-    if (!entry || !entry->path) return false;
-    const char* workspace = getWorkspacePath();
-    if (!workspace || workspace[0] == '\0') return false;
+static DirEntry* findNewestExecutableRecursive(DirEntry* entry, time_t* newestTime) {
+    if (!entry) return NULL;
+    DirEntry* best = NULL;
 
-    size_t workspaceLen = strlen(workspace);
-    if (strncmp(entry->path, workspace, workspaceLen) != 0) return false;
+    if (entry->type == ENTRY_FILE && entry->path) {
+        struct stat st;
+        if (stat(entry->path, &st) == 0) {
+            if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) {
+                if (st.st_mtime >= *newestTime) {
+                    *newestTime = st.st_mtime;
+                    best = entry;
+                }
+            }
+        }
+    }
 
-    const char* relative = entry->path + workspaceLen;
-    if (*relative == '/' || *relative == '\\') relative++;
-    return strncmp(relative, "BuildOutputs", strlen("BuildOutputs")) == 0;
+    if (entry->type == ENTRY_FOLDER) {
+        for (int i = 0; i < entry->childCount; ++i) {
+            DirEntry* candidate = findNewestExecutableRecursive(entry->children[i], newestTime);
+            if (candidate) {
+                best = candidate;
+            }
+        }
+    }
+
+    return best;
 }
 
 static void updateRunTargetSelection(DirEntry* entry) {
     if (!entry) {
         clearRunTargetSelection();
-        return;
-    }
-
-    if (!entryIsInBuildOutputs(entry)) {
         return;
     }
 
@@ -132,21 +142,8 @@ static void updateRunTargetSelection(DirEntry* entry) {
             saveRunTargetPreference(runTargetPath);
         }
     } else {
-        DirEntry* newest = NULL;
         time_t newestTime = 0;
-
-        for (int i = 0; i < entry->childCount; ++i) {
-            DirEntry* child = entry->children[i];
-            if (!child || child->type != ENTRY_FILE || !child->path) continue;
-
-            struct stat st;
-            if (stat(child->path, &st) == 0) {
-                if (st.st_mtime >= newestTime) {
-                    newestTime = st.st_mtime;
-                    newest = child;
-                }
-            }
-        }
+        DirEntry* newest = findNewestExecutableRecursive(entry, &newestTime);
 
         if (newest && newest->path) {
             if (strcmp(runTargetPath, newest->path) != 0) {
@@ -170,9 +167,6 @@ void restoreRunTargetSelection(void) {
     DirEntry* entry = findEntryByPath(projectRoot, saved);
     if (entry) {
         snprintf(runTargetPath, sizeof(runTargetPath), "%s", entry->path);
-        if (!entryIsInBuildOutputs(entry)) {
-            clearRunTargetSelection();
-        }
     } else {
         clearRunTargetSelection();
     }

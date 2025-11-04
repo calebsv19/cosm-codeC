@@ -1,19 +1,17 @@
-#include "app/GlobalInfo/core_state.h"
 #include "workspace_prefs.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <errno.h>
 #include <unistd.h>
-#include <limits.h>
-
-#include "core_state.h"
 
 static char cachedWorkspacePath[PATH_MAX];
 static char cachedRunTargetPath[PATH_MAX];
+static WorkspaceBuildConfig cachedBuildConfig;
+static int configLoaded = 0;
 
 static int buildConfigPath(char* outPath, size_t pathSize, int includeFile) {
     if (!outPath || pathSize == 0) return 0;
@@ -38,13 +36,17 @@ static void ensureConfigDirectory(void) {
 
     struct stat st = {0};
     if (stat(dirPath, &st) == 0) {
-        return; // exists already
+        return;
     }
 
     if (mkdir(dirPath, 0700) != 0 && errno != EEXIST) {
         fprintf(stderr, "[WorkspacePrefs] Failed to create config directory: %s (%s)\n",
                 dirPath, strerror(errno));
     }
+}
+
+void resetWorkspaceBuildConfigDefaults(void) {
+    memset(&cachedBuildConfig, 0, sizeof(cachedBuildConfig));
 }
 
 static void trimTrailingWhitespace(char* str) {
@@ -62,54 +64,71 @@ static void trimTrailingWhitespace(char* str) {
     }
 }
 
-const char* loadWorkspacePreference(void) {
-    if (cachedWorkspacePath[0] != '\0') {
-        return cachedWorkspacePath;
+static void loadConfigFile(void) {
+    if (configLoaded) {
+        return;
     }
+    configLoaded = 1;
+
+    cachedWorkspacePath[0] = '\0';
+    cachedRunTargetPath[0] = '\0';
+    resetWorkspaceBuildConfigDefaults();
 
     char configPath[PATH_MAX];
     if (!buildConfigPath(configPath, sizeof(configPath), 1)) {
-        return NULL;
+        return;
     }
 
     FILE* file = fopen(configPath, "r");
     if (!file) {
-        return NULL;
+        return;
     }
 
-    char line[PATH_MAX + 32];
+    char line[PATH_MAX + 512];
     while (fgets(line, sizeof(line), file)) {
         trimTrailingWhitespace(line);
+        if (line[0] == '\0') continue;
 
-        const char* prefixWorkspace = "workspace=";
-        const char* prefixRun = "run_target=";
-        size_t workspaceLen = strlen(prefixWorkspace);
-        size_t runLen = strlen(prefixRun);
+        const char* equals = strchr(line, '=');
+        if (!equals) continue;
 
-        if (strncmp(line, prefixWorkspace, workspaceLen) == 0) {
-            const char* value = line + workspaceLen;
-            if (*value != '\0') {
-                strncpy(cachedWorkspacePath, value, sizeof(cachedWorkspacePath) - 1);
-                cachedWorkspacePath[sizeof(cachedWorkspacePath) - 1] = '\0';
-            }
-        } else if (strncmp(line, prefixRun, runLen) == 0) {
-            const char* value = line + runLen;
-            if (*value != '\0') {
-                strncpy(cachedRunTargetPath, value, sizeof(cachedRunTargetPath) - 1);
-                cachedRunTargetPath[sizeof(cachedRunTargetPath) - 1] = '\0';
-            }
+        size_t keyLen = (size_t)(equals - line);
+        const char* value = equals + 1;
+
+        if (strncmp(line, "workspace", keyLen) == 0) {
+            strncpy(cachedWorkspacePath, value, sizeof(cachedWorkspacePath) - 1);
+            cachedWorkspacePath[sizeof(cachedWorkspacePath) - 1] = '\0';
+        } else if (strncmp(line, "run_target", keyLen) == 0) {
+            strncpy(cachedRunTargetPath, value, sizeof(cachedRunTargetPath) - 1);
+            cachedRunTargetPath[sizeof(cachedRunTargetPath) - 1] = '\0';
+        } else if (strncmp(line, "build_command", keyLen) == 0) {
+            strncpy(cachedBuildConfig.build_command, value, sizeof(cachedBuildConfig.build_command) - 1);
+            cachedBuildConfig.build_command[sizeof(cachedBuildConfig.build_command) - 1] = '\0';
+        } else if (strncmp(line, "build_args", keyLen) == 0) {
+            strncpy(cachedBuildConfig.build_args, value, sizeof(cachedBuildConfig.build_args) - 1);
+            cachedBuildConfig.build_args[sizeof(cachedBuildConfig.build_args) - 1] = '\0';
+        } else if (strncmp(line, "build_workdir", keyLen) == 0) {
+            strncpy(cachedBuildConfig.build_working_dir, value, sizeof(cachedBuildConfig.build_working_dir) - 1);
+            cachedBuildConfig.build_working_dir[sizeof(cachedBuildConfig.build_working_dir) - 1] = '\0';
+        } else if (strncmp(line, "build_output_dir", keyLen) == 0) {
+            strncpy(cachedBuildConfig.build_output_dir, value, sizeof(cachedBuildConfig.build_output_dir) - 1);
+            cachedBuildConfig.build_output_dir[sizeof(cachedBuildConfig.build_output_dir) - 1] = '\0';
+        } else if (strncmp(line, "run_command", keyLen) == 0) {
+            strncpy(cachedBuildConfig.run_command, value, sizeof(cachedBuildConfig.run_command) - 1);
+            cachedBuildConfig.run_command[sizeof(cachedBuildConfig.run_command) - 1] = '\0';
+        } else if (strncmp(line, "run_args", keyLen) == 0) {
+            strncpy(cachedBuildConfig.run_args, value, sizeof(cachedBuildConfig.run_args) - 1);
+            cachedBuildConfig.run_args[sizeof(cachedBuildConfig.run_args) - 1] = '\0';
+        } else if (strncmp(line, "run_workdir", keyLen) == 0) {
+            strncpy(cachedBuildConfig.run_working_dir, value, sizeof(cachedBuildConfig.run_working_dir) - 1);
+            cachedBuildConfig.run_working_dir[sizeof(cachedBuildConfig.run_working_dir) - 1] = '\0';
         }
     }
 
     fclose(file);
-    return (cachedWorkspacePath[0] != '\0') ? cachedWorkspacePath : NULL;
 }
 
-void saveWorkspacePreference(const char* path) {
-    if (!path || path[0] == '\0') {
-        return;
-    }
-
+static void writeConfigFile(void) {
     ensureConfigDirectory();
 
     char configPath[PATH_MAX];
@@ -124,84 +143,60 @@ void saveWorkspacePreference(const char* path) {
         return;
     }
 
-    fprintf(file, "workspace=%s\n", path);
-    if (cachedRunTargetPath[0]) {
-        fprintf(file, "run_target=%s\n", cachedRunTargetPath);
-    }
-    fclose(file);
+    fprintf(file, "workspace=%s\n", cachedWorkspacePath);
+    fprintf(file, "run_target=%s\n", cachedRunTargetPath);
+    fprintf(file, "build_command=%s\n", cachedBuildConfig.build_command);
+    fprintf(file, "build_args=%s\n", cachedBuildConfig.build_args);
+    fprintf(file, "build_workdir=%s\n", cachedBuildConfig.build_working_dir);
+    fprintf(file, "build_output_dir=%s\n", cachedBuildConfig.build_output_dir);
+    fprintf(file, "run_command=%s\n", cachedBuildConfig.run_command);
+    fprintf(file, "run_args=%s\n", cachedBuildConfig.run_args);
+    fprintf(file, "run_workdir=%s\n", cachedBuildConfig.run_working_dir);
 
-    strncpy(cachedWorkspacePath, path, sizeof(cachedWorkspacePath) - 1);
-    cachedWorkspacePath[sizeof(cachedWorkspacePath) - 1] = '\0';
+    fclose(file);
+}
+
+const char* loadWorkspacePreference(void) {
+    loadConfigFile();
+    return (cachedWorkspacePath[0] != '\0') ? cachedWorkspacePath : NULL;
+}
+
+void saveWorkspacePreference(const char* path) {
+    loadConfigFile();
+    if (path && *path) {
+        strncpy(cachedWorkspacePath, path, sizeof(cachedWorkspacePath) - 1);
+        cachedWorkspacePath[sizeof(cachedWorkspacePath) - 1] = '\0';
+    } else {
+        cachedWorkspacePath[0] = '\0';
+    }
+    writeConfigFile();
 }
 
 const char* loadRunTargetPreference(void) {
-    if (cachedRunTargetPath[0] != '\0') {
-        return cachedRunTargetPath;
-    }
-
-    char configPath[PATH_MAX];
-    if (!buildConfigPath(configPath, sizeof(configPath), 1)) {
-        return NULL;
-    }
-
-    FILE* file = fopen(configPath, "r");
-    if (!file) {
-        return NULL;
-    }
-
-    char line[PATH_MAX + 32];
-    const char* prefix = "run_target=";
-    size_t prefixLen = strlen(prefix);
-
-    while (fgets(line, sizeof(line), file)) {
-        trimTrailingWhitespace(line);
-        if (strncmp(line, prefix, prefixLen) == 0) {
-            const char* value = line + prefixLen;
-            if (*value != '\0') {
-                strncpy(cachedRunTargetPath, value, sizeof(cachedRunTargetPath) - 1);
-                cachedRunTargetPath[sizeof(cachedRunTargetPath) - 1] = '\0';
-            }
-        }
-    }
-
-    fclose(file);
+    loadConfigFile();
     return (cachedRunTargetPath[0] != '\0') ? cachedRunTargetPath : NULL;
 }
 
 void saveRunTargetPreference(const char* path) {
+    loadConfigFile();
     if (path && *path) {
         strncpy(cachedRunTargetPath, path, sizeof(cachedRunTargetPath) - 1);
         cachedRunTargetPath[sizeof(cachedRunTargetPath) - 1] = '\0';
     } else {
         cachedRunTargetPath[0] = '\0';
     }
+    writeConfigFile();
+}
 
-    if (!cachedWorkspacePath[0]) {
-        const char* workspace = getWorkspacePath();
-        if (workspace && workspace[0]) {
-            strncpy(cachedWorkspacePath, workspace, sizeof(cachedWorkspacePath) - 1);
-            cachedWorkspacePath[sizeof(cachedWorkspacePath) - 1] = '\0';
-        }
-    }
+const WorkspaceBuildConfig* getWorkspaceBuildConfig(void) {
+    loadConfigFile();
+    return &cachedBuildConfig;
+}
 
-    ensureConfigDirectory();
+void saveWorkspaceBuildConfig(const WorkspaceBuildConfig* config) {
+    loadConfigFile();
+    if (!config) return;
 
-    char configPath[PATH_MAX];
-    if (!buildConfigPath(configPath, sizeof(configPath), 1)) {
-        return;
-    }
-
-    FILE* file = fopen(configPath, "w");
-    if (!file) {
-        fprintf(stderr, "[WorkspacePrefs] Failed to write config file: %s (%s)\n",
-                configPath, strerror(errno));
-        return;
-    }
-
-    fprintf(file, "workspace=%s\n", cachedWorkspacePath[0] ? cachedWorkspacePath : "");
-    if (cachedRunTargetPath[0]) {
-        fprintf(file, "run_target=%s\n", cachedRunTargetPath);
-    }
-
-    fclose(file);
+    memcpy(&cachedBuildConfig, config, sizeof(cachedBuildConfig));
+    writeConfigFile();
 }

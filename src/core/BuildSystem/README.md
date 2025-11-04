@@ -13,11 +13,17 @@ and render whatever status they need.
 
 ## Current behaviour
 
-- Builds are executed from the active workspace root. Artifacts land in
-  `<workspace>/BuildOutputs/<target>/` and the module records the newest
-  executable produced during the run.
-- If the user has not picked a run target yet, the latest built executable is
-  automatically registered and persisted so the Run command can execute it
-  immediately. Selections made in the project pane override this.
-- Build success/failure output, including the resolved executable path, is
-  streamed to the terminal pane for transparency.*** End Patch
+- By default the IDE simply runs `make` in the workspace root and looks for the
+  newest executable under `<workspace>/build/`. You can still pick a different
+  target by selecting it in the project tree.
+- Build and run commands can be customised via
+  `~/.custom_c_ide/config.ini`. Supported keys:
+  - `build_command`, `build_args`, `build_workdir`, `build_output_dir`
+  - `run_command`, `run_args`, `run_workdir`
+  Blank values fall back to the default behaviour above.
+- When a custom run command is provided you can reference the active run target
+  using `{TARGET}` inside `run_args`. If the token is absent the path is appended
+  automatically as the final argument so existing workflows continue to work.
+- Build success/failure output, including the resolved working directory,
+  command, and any configured artifact directory, is streamed to the terminal
+  pane for transparency.

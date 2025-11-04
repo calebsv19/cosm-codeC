@@ -8,11 +8,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>  // mkdir
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
 #include <dirent.h>
 #include <time.h>
+#include <limits.h>
 
 static BuildStatus currentStatus = BUILD_STATUS_IDLE;
 static char buildLog[8192];  // Optional buffer for saving logs
@@ -31,34 +32,46 @@ void clearBuildOutput() {
     buildLog[0] = '\0';
 }
 
+static void searchNewestExecutable(const char* dir,
+                                   char* bestPath,
+                                   size_t bestPathSize,
+                                   time_t* newestTime) {
+    DIR* dirp = opendir(dir);
+    if (!dirp) return;
+
+    struct dirent* entry;
+    char candidate[PATH_MAX];
+
+    while ((entry = readdir(dirp)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+
+        snprintf(candidate, sizeof(candidate), "%s/%s", dir, entry->d_name);
+
+        struct stat st = {0};
+        if (stat(candidate, &st) != 0) continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            searchNewestExecutable(candidate, bestPath, bestPathSize, newestTime);
+        } else if (S_ISREG(st.st_mode)) {
+            if (!(st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))) continue;
+            if (st.st_mtime >= *newestTime) {
+                *newestTime = st.st_mtime;
+                strncpy(bestPath, candidate, bestPathSize - 1);
+                bestPath[bestPathSize - 1] = '\0';
+            }
+        }
+    }
+
+    closedir(dirp);
+}
+
 static void updateLastExecutableFromDirectory(const char* outputDir) {
     lastExecutablePath[0] = '\0';
     if (!outputDir || outputDir[0] == '\0') return;
 
-    DIR* dir = opendir(outputDir);
-    if (!dir) return;
-
-    struct dirent* entry;
     time_t newestTime = 0;
-    char candidate[1024];
-    char best[1024] = {0};
-
-    while ((entry = readdir(dir)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
-
-        snprintf(candidate, sizeof(candidate), "%s/%s", outputDir, entry->d_name);
-
-        struct stat st = {0};
-        if (stat(candidate, &st) != 0) continue;
-        if (!S_ISREG(st.st_mode)) continue;
-
-        if (st.st_mtime >= newestTime) {
-            newestTime = st.st_mtime;
-            snprintf(best, sizeof(best), "%s", candidate);
-        }
-    }
-
-    closedir(dir);
+    char best[PATH_MAX] = {0};
+    searchNewestExecutable(outputDir, best, sizeof(best), &newestTime);
 
     if (best[0] != '\0') {
         snprintf(lastExecutablePath, sizeof(lastExecutablePath), "%s", best);
@@ -72,6 +85,44 @@ static void updateLastExecutableFromDirectory(const char* outputDir) {
     }
 }
 
+static void expandPathRelative(const char* baseDir,
+                               const char* path,
+                               char* out,
+                               size_t outSize) {
+    if (!out || outSize == 0) return;
+    out[0] = '\0';
+
+    if (!path || !*path) {
+        return;
+    }
+
+    if (path[0] == '/') {
+        strncpy(out, path, outSize - 1);
+        out[outSize - 1] = '\0';
+        return;
+    }
+
+    if (path[0] == '~') {
+        const char* home = getenv("HOME");
+        if (!home) home = "";
+        if (path[1] == '/' || path[1] == '\\') {
+            snprintf(out, outSize, "%s/%s", home, path + 2);
+        } else if (path[1] == '\0') {
+            snprintf(out, outSize, "%s", home);
+        } else {
+            snprintf(out, outSize, "%s/%s", home, path + 1);
+        }
+        return;
+    }
+
+    if (baseDir && *baseDir) {
+        snprintf(out, outSize, "%s/%s", baseDir, path);
+    } else {
+        strncpy(out, path, outSize - 1);
+        out[outSize - 1] = '\0';
+    }
+}
+
 
 void triggerBuild(void) {
     clearBuildOutput();
@@ -80,47 +131,65 @@ void triggerBuild(void) {
     currentStatus = BUILD_STATUS_RUNNING;
     lastExecutablePath[0] = '\0';
 
-    BuildOutputPanelState* state = getBuildOutputPanelState();
-    const char* outputFolder = "last_build";  // fallback
+    const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
+    const char* customCommand = (cfg && cfg->build_command[0]) ? cfg->build_command : NULL;
 
-    if (state->selectedBuildDirectory && state->selectedBuildDirectory->fullPath) {
-        outputFolder = state->selectedBuildDirectory->label;
-    }
-
-    char fullOutputPath[1024];
-    char buildOutputRoot[1024];
-
-    snprintf(buildOutputRoot, sizeof(buildOutputRoot), "%s/BuildOutputs", projectPath);
-    struct stat st = {0};
-    if (stat(buildOutputRoot, &st) == -1) {
-        if (mkdir(buildOutputRoot, 0755) != 0 && errno != EEXIST) {
-            printToTerminal("[BuildSystem] Failed to create BuildOutputs folder.\n");
-            currentStatus = BUILD_STATUS_FAILED;
-            return;
+    char resolvedWorkingDir[PATH_MAX];
+    const char* workingDir = projectPath;
+    if (customCommand && cfg->build_working_dir[0]) {
+        expandPathRelative(projectPath, cfg->build_working_dir, resolvedWorkingDir, sizeof(resolvedWorkingDir));
+        if (resolvedWorkingDir[0]) {
+            workingDir = resolvedWorkingDir;
         }
     }
 
-    snprintf(fullOutputPath, sizeof(fullOutputPath), "%s/%s", buildOutputRoot, outputFolder);
+    char resolvedOutputDir[PATH_MAX] = {0};
+    const char* outputDirForArtifacts = NULL;
 
-    // Ensure output directory exists
-    if (stat(fullOutputPath, &st) == -1) {
-        if (mkdir(fullOutputPath, 0755) != 0 && errno != EEXIST) {
-            printToTerminal("[BuildSystem] Failed to create build output folder.\n");
-            currentStatus = BUILD_STATUS_FAILED;
-            return;
+    char command[2048];
+    command[0] = '\0';
+
+    if (!customCommand) {
+        snprintf(command, sizeof(command),
+                 "cd \"%s\" && make 2>&1",
+                 projectPath);
+
+        snprintf(resolvedOutputDir, sizeof(resolvedOutputDir), "%s/build", projectPath);
+        outputDirForArtifacts = resolvedOutputDir;
+
+        char msg[512];
+        snprintf(msg, sizeof(msg), "[BuildSystem] Default build command: make\n");
+        printToTerminal(msg);
+        snprintf(msg, sizeof(msg), "[BuildSystem] Scanning for artifacts in: %s\n", resolvedOutputDir);
+        printToTerminal(msg);
+    } else {
+        char buildArgs[512];
+        buildArgs[0] = '\0';
+        if (cfg->build_args[0]) {
+            snprintf(buildArgs, sizeof(buildArgs), " %s", cfg->build_args);
+        }
+
+        snprintf(command, sizeof(command), "cd \"%s\" && %s%s 2>&1",
+                 workingDir, customCommand, buildArgs);
+
+        if (cfg->build_output_dir[0]) {
+            expandPathRelative(workingDir, cfg->build_output_dir, resolvedOutputDir, sizeof(resolvedOutputDir));
+            if (resolvedOutputDir[0]) {
+                outputDirForArtifacts = resolvedOutputDir;
+            }
+        }
+
+        char summary[512];
+        snprintf(summary, sizeof(summary), "[BuildSystem] Working directory: %s\n", workingDir);
+        printToTerminal(summary);
+        snprintf(summary, sizeof(summary), "[BuildSystem] Command: %s%s\n", customCommand,
+                 cfg->build_args[0] ? buildArgs : "");
+        printToTerminal(summary);
+        if (outputDirForArtifacts) {
+            snprintf(summary, sizeof(summary), "[BuildSystem] Artifact directory: %s\n", outputDirForArtifacts);
+            printToTerminal(summary);
         }
     }
-
-    // Log
-    char msg[512];
-    snprintf(msg, sizeof(msg), "[BuildSystem] Using output path: %s\n", fullOutputPath);
-    printToTerminal(msg);
-
-    // Construct build command
-    char command[1024];
-    snprintf(command, sizeof(command),
-             "cd \"%s\" && make PROJECT_ROOT=\"%s\" OUTPUT_DIR=\"%s\" IDE_ROOT=\"%s\" 2>&1",
-             projectPath, projectPath, fullOutputPath, projectRootPath);
 
     FILE* pipe = popen(command, "r");
     if (!pipe) {
@@ -140,7 +209,9 @@ void triggerBuild(void) {
     int result = pclose(pipe);
     if (result == 0) {
         printToTerminal("[BuildSystem] Build completed successfully.\n");
-        updateLastExecutableFromDirectory(fullOutputPath);
+        if (outputDirForArtifacts && outputDirForArtifacts[0]) {
+            updateLastExecutableFromDirectory(outputDirForArtifacts);
+        }
         pendingProjectRefresh = true;
         currentStatus = BUILD_STATUS_SUCCESS;
     } else {
