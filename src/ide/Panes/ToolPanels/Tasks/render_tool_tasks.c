@@ -93,14 +93,14 @@ void renderTasksPanel(UIPane* pane) {
 
     // --- [+] Add Task Button ---
     SDL_Rect addBtn = { x, y, iconBtnSize, iconBtnSize };
-    renderButton(addBtn, "+");
+    renderButton(pane, addBtn, "+");
     drawText(addBtn.x + iconBtnSize + 6, y + 4, "Add Task");
 
     y += iconBtnSize + TASK_BUTTON_SPACING;
 
     // --- [-] Remove Task Button ---
     SDL_Rect removeBtn = { x, y, iconBtnSize, iconBtnSize };
-    renderButton(removeBtn, "-");
+    renderButton(pane, removeBtn, "-");
     drawText(removeBtn.x + iconBtnSize + 6, y + 4, "Remove Task");
 
     y += iconBtnSize + TASK_BUTTON_SPACING;
@@ -109,4 +109,3 @@ void renderTasksPanel(UIPane* pane) {
         renderTaskTreeRecursive(taskRoots[i], x, &y, maxY);
     }
 }
-

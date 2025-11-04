@@ -5,6 +5,7 @@
 
 #include "core/CommandBus/command_bus.h"
 #include "core/CommandBus/command_metadata.h"
+#include "core/UI/scroll_manager.h"
 
 #include <SDL2/SDL.h>
 #include <stdbool.h>
@@ -65,6 +66,8 @@ typedef struct UIPane {
 
     // Modular input routing
     struct UIPaneInputHandler* inputHandler;
+
+    PaneScrollState* scrollState;
 } UIPane;
 
 

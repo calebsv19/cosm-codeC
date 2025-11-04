@@ -23,6 +23,7 @@
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/MenuBar/menu_buttons.h"
 
+#include "core/TextSelection/text_selection_manager.h"
 
 
 // TimerHud extension
@@ -75,6 +76,7 @@ static int s_logged_begin_out_of_date = 0;
 static int s_logged_begin_failure = 0;
 static int s_logged_end_failure = 0;
 static int s_logged_no_draw = 0;
+static int s_logged_extent_mismatch = 0;
 #if VK_RENDERER_FRAME_DEBUG_ENABLED
 static unsigned s_debug_frame_counter = 0;
 #endif
@@ -226,6 +228,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
 
     int winW, winH;
     RenderContext* ctx = getRenderContext();
+    text_selection_manager_begin_frame();
     if (!ctx) {
         if (timerHudActive) {
             ts_stop_timer("Render");
@@ -248,6 +251,30 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     /* Keep Vulkan logical coordinates aligned with window space; Vulkan backend
        will handle scaling to the swapchain extent. */
     vk_renderer_set_logical_size(ctx->renderer, (float)winW, (float)winH);
+
+    if (ctx->renderer && drawableW > 0 && drawableH > 0) {
+        VkExtent2D swapExtent = ctx->renderer->context.swapchain.extent;
+        if (swapExtent.width != (uint32_t)drawableW ||
+            swapExtent.height != (uint32_t)drawableH) {
+            if (!s_logged_extent_mismatch) {
+                fprintf(stderr,
+                        "[Render] Drawable size (%dx%d) differs from swapchain extent (%ux%u); "
+                        "forcing swapchain recreate.\n",
+                        drawableW, drawableH,
+                        swapExtent.width, swapExtent.height);
+                s_logged_extent_mismatch = 1;
+            }
+            vk_renderer_recreate_swapchain(ctx->renderer, ctx->window);
+            s_logged_begin_out_of_date = 0;
+            s_logged_begin_failure = 0;
+            s_logged_end_failure = 0;
+            if (timerHudActive) {
+                ts_stop_timer("Render");
+            }
+            return;
+        }
+        s_logged_extent_mismatch = 0;
+    }
 #else
     SDL_GL_GetDrawableSize(ctx->window, &drawableW, &drawableH);
 
@@ -270,11 +297,13 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     VkResult frameResult =
         vk_renderer_begin_frame(ctx->renderer, &commandBuffer, &framebuffer, &extent);
 
-    if (frameResult == VK_ERROR_OUT_OF_DATE_KHR) {
+    if (frameResult == VK_ERROR_OUT_OF_DATE_KHR ||
+        frameResult == VK_SUBOPTIMAL_KHR) {
         if (!s_logged_begin_out_of_date) {
             fprintf(stderr,
-                    "[Render] vk_renderer_begin_frame reported OUT_OF_DATE (win=%dx%d drawable=%dx%d); "
+                    "[Render] vk_renderer_begin_frame reported %s (win=%dx%d drawable=%dx%d); "
                     "triggering swapchain recreate.\n",
+                    (frameResult == VK_SUBOPTIMAL_KHR) ? "SUBOPTIMAL" : "OUT_OF_DATE",
                     winW, winH, drawableW, drawableH);
             s_logged_begin_out_of_date = 1;
         }

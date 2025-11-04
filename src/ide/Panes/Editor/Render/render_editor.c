@@ -11,7 +11,10 @@
 #include "ide/Panes/Editor/editor_view_state.h"
 #include "ide/Panes/Editor/editor_core.h"
 
+#include "core/TextSelection/text_selection_manager.h"
+
 #include <SDL2/SDL.h>
+#include <string.h>
 
 void renderEditorViewContents(UIPane* pane, bool hovered, IDECoreState* core) {
     RenderContext* ctx = getRenderContext();
@@ -304,6 +307,30 @@ void renderEditorBuffer(EditorBuffer* buffer, EditorState* state,
 
         drawClippedText(textX, yLine, line, maxWidth);
 
+        int lineLen = line ? (int)strlen(line) : 0;
+        int lineWidth = getTextWidth(line);
+        if (lineWidth <= 0) {
+            lineWidth = maxWidth;
+        }
+        TextSelectionRect rect = {
+            .bounds = { textX, yLine, lineWidth, lineHeight },
+            .line = bufferLineIndex,
+            .column_start = 0,
+            .column_end = lineLen
+        };
+        TextSelectionDescriptor desc = {
+            .owner = buffer,
+            .owner_role = PANE_ROLE_EDITOR,
+            .text = line,
+            .text_length = (size_t)lineLen,
+            .rects = &rect,
+            .rect_count = 1,
+            .flags = TEXT_SELECTION_FLAG_SELECTABLE,
+            .copy_handler = NULL,
+            .copy_user_data = NULL
+        };
+        text_selection_manager_register(&desc);
+
         // Always draw cursor on the current line, even if it's empty
         if (bufferLineIndex == state->cursorRow) {
             int cursorX = (line[0] == '\0')
@@ -315,4 +342,3 @@ void renderEditorBuffer(EditorBuffer* buffer, EditorState* state,
         }
     }
 }
-

@@ -25,11 +25,15 @@ VULKAN RENDERER QUICK INTEGRATION GUIDE
 
 3. Frame Loop (drop-in for SDL_RenderClear / SDL_RenderPresent)
    ```c
+   int winW, winH;
+   SDL_GetWindowSize(sdlWindow, &winW, &winH);
+   vk_renderer_set_logical_size(&renderer, (float)winW, (float)winH);
+
    VkCommandBuffer cmd;
    VkFramebuffer fb;
    VkExtent2D extent;
    VkResult r = vk_renderer_begin_frame(&renderer, &cmd, &fb, &extent);
-   if (r == VK_ERROR_OUT_OF_DATE_KHR) {
+   if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
        vk_renderer_recreate_swapchain(&renderer, sdlWindow);
        continue;
    }
@@ -59,7 +63,10 @@ VULKAN RENDERER QUICK INTEGRATION GUIDE
 
 6. Extras / Notes
    - Window resize: call `vk_renderer_recreate_swapchain(&renderer, sdlWindow)` when you receive
-     `VK_ERROR_OUT_OF_DATE_KHR` or SDL resize events.
+     `VK_ERROR_OUT_OF_DATE_KHR` **or** `VK_SUBOPTIMAL_KHR`, or if SDL reports a resize.
+     High-DPI windows sometimes trigger `SUBOPTIMAL` even though the swapchain still renders.
+   - Logical size: call `vk_renderer_set_logical_size` whenever your window size changes so UI
+     code using layout coordinates stays in sync with the swapchain extent.
    - Validation: enabled by default in debug builds; automatically disabled if unavailable
      (common on vanilla macOS). Install Homebrew `vulkan-validationlayers` and set `VK_LAYER_PATH`
      to re-enable.

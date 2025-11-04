@@ -17,7 +17,17 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
 
-    drawText(pane->x + 8, pane->y + 6, pane->title);
+    SelectableTextOptions titleOpts = {
+        .pane = pane,
+        .owner = pane,
+        .owner_role = pane->role,
+        .x = pane->x + 8,
+        .y = pane->y + 6,
+        .maxWidth = pane->w - 16,
+        .text = pane->title,
+        .flags = TEXT_SELECTION_FLAG_SELECTABLE,
+    };
+    drawSelectableText(&titleOpts);
 
     int iconCount = ICON_COUNT;
     int iconSize = pane->w - 20;
@@ -52,4 +62,3 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
         SDL_RenderDrawRect(renderer, &icon);
     }
 }
-

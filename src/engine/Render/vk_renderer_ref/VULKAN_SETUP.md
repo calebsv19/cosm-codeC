@@ -1,42 +1,117 @@
-# Vulkan Integration Notes
+# SDL + Vulkan Integration Notes
 
-This document records how the SDL → Vulkan renderer bridge was brought online and the state of the system now that it is drawing correctly.
+This document captures the wiring between the SDL host application and the
+modular Vulkan renderer. Use it as a reference when dropping the layer into
+new projects or revisiting the setup after a long pause.
 
-## Background
+## Responsibilities
 
-The IDE originally used SDL’s `SDL_Renderer` API. We replaced that renderer with a drop-in Vulkan implementation (`VkRenderer`) that mimics the SDL primitives through the compatibility header `vk_renderer_compat_sdl.h`. The high-level layout code still calls functions such as `SDL_RenderFillRect`, but those macros now translate into Vulkan command recording.
+| Component     | Owns / Provides                                                    |
+|---------------|--------------------------------------------------------------------|
+| SDL           | Window creation, event loop, high-DPI handling, timing.            |
+| VkRenderer    | Vulkan instance/device/swapchain, command buffers, draw helpers.   |
+| Compat header | Macro bridge that remaps `SDL_Render*` calls to Vulkan functions.  |
 
-During the migration the swapchain presented successfully, but every captured frame only contained the clear colour. GPU captures and verbose logs showed that draw calls and vertex data were being recorded, yet nothing appeared on screen. The investigation tracked the issue through several layers of the pipeline until rasterisation finally produced visible pixels.
+SDL continues to own the window and emits resize events; the Vulkan layer simply
+records draw calls against the surface tied to that window.
 
-## Debugging Timeline
+## Bootstrapping Checklist
 
-1. **Instrumented render context setup**  
-   Added detailed logs inside `setRenderContext` and `vk_renderer_begin_frame` to confirm that the global render context held the Vulkan renderer pointer, that swapchain images were being targeted, and that the render pass and framebuffers matched the swapchain format/extents.
+1. **Create the window**
+   ```c
+   SDL_Window* window = SDL_CreateWindow("App",
+                                         SDL_WINDOWPOS_CENTERED,
+                                         SDL_WINDOWPOS_CENTERED,
+                                         width, height,
+                                         SDL_WINDOW_VULKAN |
+                                         SDL_WINDOW_RESIZABLE |
+                                         SDL_WINDOW_ALLOW_HIGHDPI);
+   ```
 
-2. **Verified vertex data and buffer flushes**  
-   Instrumentation in `vk_renderer_set_draw_color` and `flush_vertex_range` showed that the vertex buffer received sensible `x/y` positions and RGBA values (with `a == 1.0`), ruling out CPU-side colour or flush issues.
+2. **Initialise Vulkan renderer**
+   ```c
+   VkRenderer* renderer = calloc(1, sizeof(*renderer));
+   VkRendererConfig cfg;
+   vk_renderer_config_set_defaults(&cfg);
+   cfg.enable_validation = SDL_TRUE;    // disable for release if desired
 
-3. **Fragment shader sanity checks**  
-   Temporarily forced `fill.frag` to output constant colours. A solid red test proved that the graphics pipeline and attachments could write to the swapchain. Switching to `vec4(fsColor.rgb, 1.0)` produced a black screen, which highlighted a separate problem: the vertex shader was not receiving its tint push constants.
+   VkResult init = vk_renderer_init(renderer, window, &cfg);
+   SDL_assert(init == VK_SUCCESS);
+   setRenderContext(renderer, window, initialWidth, initialHeight);
+   ```
 
-4. **Push-constant stage mask fix**  
-   Updated `push_basic_constants` so that the tint block is pushed to both vertex and fragment stages. This allowed `fill.vert` to multiply vertex colours by the expected tint values, restoring the intended colour output once `fill.frag` reverted to `outColor = fsColor`.
+3. **Enable compatibility macros (optional but recommended for migration)**
+   ```c
+   #define VK_RENDERER_ENABLE_SDL_COMPAT
+   #include "vk_renderer_compat_sdl.h"
+   ```
+   This typedefs `SDL_Renderer` to `VkRenderer` so existing drawing code compiles
+   unchanged. If you later want to call the Vulkan functions directly, just drop
+   the macro and update call-sites.
 
-5. **Coordinate system correction**  
-   The rendered UI appeared upside-down because each Vulkan vertex shader manually flipped the Y axis (`ndc.y = -ndc.y`). Vulkan’s clip space already maps `y = +1` to the top of the viewport when a positive-height viewport is used. Removing the manual flip from `fill.vert`, `line.vert`, and `textured.vert` fixed the orientation.
+4. **Per-frame maintenance**
+   - Fetch `SDL_GetWindowSize` and `SDL_Vulkan_GetDrawableSize`.
+   - Call `vk_renderer_set_logical_size(renderer, winW, winH)` so logical units
+     used by your UI match the window regardless of pixel density.
+   - Begin the frame with `vk_renderer_begin_frame`. Handle both
+     `VK_ERROR_OUT_OF_DATE_KHR` *and* `VK_SUBOPTIMAL_KHR` by recreating the
+     swapchain (`vk_renderer_recreate_swapchain(renderer, window)`) and skipping
+     the rest of the frame.
+   - Record draw calls (compat macros or direct API).
+   - End the frame with `vk_renderer_end_frame`, again watching for
+     `OUT_OF_DATE`/`SUBOPTIMAL`.
+   - Optional: if `drawable` size diverges from the swapchain extent, force a
+     recreate to stay in sync with high-DPI monitors.
 
-6. **Debug logging controls**  
-   Two build-time flags were introduced in the makefile:
-   - `VULKAN_RENDER_DEBUG` enables high-level diagnostic output.
-   - `VULKAN_RENDER_DEBUG_FRAMES` enables per-frame logging (requires `VULKAN_RENDER_DEBUG=1` as well).
+5. **Textures**
+   Promote `SDL_Surface` data (e.g. from SDL_ttf) via
+   `vk_renderer_upload_sdl_surface`. The helper internally stages the pixels and
+   queues destruction when they are no longer needed.
 
-   All verbose logging in `vk_renderer.c` and `render_pipeline.c` now routes through `VK_RENDERER_DEBUG_LOG` / `VK_RENDERER_FRAME_DEBUG_LOG`, leaving release builds silent while still allowing deep traces when needed.
+6. **Shutdown**
+   ```c
+   vk_renderer_shutdown(renderer);
+   free(renderer);
+   SDL_DestroyWindow(window);
+   SDL_Quit();
+   ```
 
-## Current State
+## Handling Resizes
 
-- The IDE renders correctly via Vulkan, with all UI panes and textures appearing in the proper orientation.
-- Push constants (`screenSize` + tint) are delivered to both shader stages, so colour modulation works as intended.
-- Debug logging is completely optional: a normal `make` build emits no Vulkan/SDL render logs, while `make VULKAN_RENDER_DEBUG=1 VULKAN_RENDER_DEBUG_FRAMES=1` reproduces the detailed trace used during bring-up.
-- The shader binaries (`*.spv`) match the updated GLSL sources (no Y flip, tint fix).
+- SDL sends `SDL_WINDOWEVENT_SIZE_CHANGED` / `SDL_WINDOWEVENT_RESIZED` events.
+  Use these to update any UI layout state.
+- When the window is resized, the next call to `vk_renderer_begin_frame` or
+  `vk_renderer_end_frame` will often return `VK_ERROR_OUT_OF_DATE_KHR`. Some
+  drivers (notably on macOS) prefer `VK_SUBOPTIMAL_KHR` instead. Treat *both*
+  codes the same: wait for any in-flight work to finish (`vkDeviceWaitIdle`
+  is called inside `vk_renderer_recreate_swapchain`) and build a fresh
+  swapchain.
+- After recreating the swapchain, immediately refresh the logical size with the
+  new window dimensions.
 
-This summary should provide enough history for future maintainers or tooling to understand the quirks of the Vulkan layer and the knobs available for debugging. ***
+## Debugging Aids
+
+- Define `VULKAN_RENDER_DEBUG=1` to enable high-level logging.
+- Define `VULKAN_RENDER_DEBUG_FRAMES=1` alongside the above to get per-frame
+  traces of draw calls, logical sizing, and swapchain rebuilds.
+- The renderer keeps track of draw call counts; if you see zero draws reported,
+  double-check that your UI code is still issuing the expected `SDL_Render*`
+  calls or direct `vk_renderer_*` primitives.
+- Mitigate black screens by verifying:
+  1. `vk_renderer_begin_frame` returns `VK_SUCCESS`.
+  2. Logical size is non-zero (set every frame).
+  3. Shaders are compiled to SPIR-V (run `scripts/compile_shaders.sh` after GLSL tweaks).
+
+## Porting to Other SDL Projects
+
+- Wrap existing SDL render contexts inside a lightweight struct that stores the
+  `SDL_Window*` and `VkRenderer*`.
+- Enable the compat header to keep the rest of the codebase unchanged.
+- Replace any direct calls to `SDL_RenderPresent` or `SDL_RenderClear` with the
+  begin/end frame pair documented above.
+- Propagate resize notifications so layout systems recalculate using
+  `SDL_GetWindowSize`; the renderer will take care of the swapchain.
+
+Following this checklist ensures the Vulkan backend remains a drop-in upgrade
+that respects SDL’s window lifecycle while providing explicit control over the
+graphics pipeline.

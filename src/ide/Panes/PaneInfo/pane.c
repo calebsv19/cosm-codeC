@@ -120,6 +120,9 @@ UIPane* createEmptyPane(UIPaneRole role) {
 
     pane->render = NULL;
     pane->editorView = NULL;
+    pane->handleCommand = NULL;
+    pane->inputHandler = NULL;
+    pane->scrollState = NULL;
 
     return pane;
 }
@@ -272,7 +275,6 @@ void destroyPane(UIPane* pane) {
 
     free(pane);
 }
-
 
 
 

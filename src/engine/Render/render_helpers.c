@@ -2,9 +2,20 @@
 #include "engine/Render/render_text_helpers.h"
 #include "engine/Render/render_pipeline.h"  // for getRenderContext
 #include "engine/Render/render_font.h"      // for getActiveFont
+#include "core/TextSelection/text_selection_manager.h"
+#include "ide/Panes/PaneInfo/pane.h"
 
 #include <SDL2/SDL_ttf.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
+#if !USE_VULKAN
+#define CLIP_STACK_MAX 16
+static SDL_Rect s_clip_stack[CLIP_STACK_MAX];
+static bool s_clip_enabled_stack[CLIP_STACK_MAX];
+static int s_clip_top = 0;
+#endif
 
 void drawText(int x, int y, const char* text) {
     if (!text || text[0] == '\0') return;
@@ -44,28 +55,22 @@ void drawText(int x, int y, const char* text) {
 void drawClippedText(int x, int y, const char* text, int maxWidth) {
     if (!text || text[0] == '\0' || maxWidth <= 0) return;
 
-    int len = strnlen(text, 1023);  // Prevent overflow
+    size_t cutoff = getTextClampedLength(text, maxWidth);
+    if (cutoff == 0) return;
+
     char temp[1024] = {0};
-    int cutoff = len;
-
-    for (int i = 1; i <= len; i++) {
-        strncpy(temp, text, i);
-        temp[i] = '\0';
-
-        if (getTextWidth(temp) > maxWidth) {
-            cutoff = i - 1;
-            break;
-        }
+    size_t copyLen = cutoff;
+    if (copyLen >= sizeof(temp)) {
+        copyLen = sizeof(temp) - 1;
     }
-
-    strncpy(temp, text, cutoff);
-    temp[cutoff] = '\0';
+    strncpy(temp, text, copyLen);
+    temp[copyLen] = '\0';
 
     drawText(x, y, temp);
 }
 
 
-void renderButton(SDL_Rect rect, const char* label) {
+void renderButton(UIPane* pane, SDL_Rect rect, const char* label) {
     RenderContext* ctx = getRenderContext();
     SDL_Renderer* renderer = ctx->renderer;
 
@@ -78,5 +83,136 @@ void renderButton(SDL_Rect rect, const char* label) {
     SDL_SetRenderDrawColor(renderer, white.r, white.g, white.b, 255);
     SDL_RenderDrawRect(renderer, &rect);
 
-    drawText(rect.x + 6, rect.y + 4, label);
+    SelectableTextOptions opts = {
+        .pane = pane,
+        .owner = pane ? (void*)pane : NULL,
+        .owner_role = pane ? pane->role : PANE_ROLE_UNKNOWN,
+        .x = rect.x + 6,
+        .y = rect.y + 4,
+        .maxWidth = rect.w - 12,
+        .text = label,
+        .flags = TEXT_SELECTION_FLAG_SELECTABLE,
+    };
+    drawSelectableText(&opts);
+}
+
+void drawSelectableText(const SelectableTextOptions* options) {
+    if (!options || !options->text || options->text[0] == '\0') return;
+
+    RenderContext* ctx = getRenderContext();
+    if (!ctx || !ctx->renderer) return;
+
+    const char* displayText = options->text;
+    size_t sourceLen = strlen(displayText);
+    if (sourceLen == 0) return;
+
+    int maxWidth = options->maxWidth;
+    bool needsClamp = maxWidth > 0;
+    size_t visibleLen = sourceLen;
+    char* ownedText = NULL;
+
+    if (needsClamp) {
+        size_t clampedLen = getTextClampedLength(displayText, maxWidth);
+        if (clampedLen == 0) {
+            return;
+        }
+        visibleLen = clampedLen;
+        if (clampedLen < sourceLen) {
+            ownedText = (char*)malloc(clampedLen + 1);
+            if (!ownedText) {
+                drawClippedText(options->x, options->y, displayText, maxWidth);
+                return;
+            }
+            memcpy(ownedText, displayText, clampedLen);
+            ownedText[clampedLen] = '\0';
+            displayText = ownedText;
+        }
+    }
+
+    if (needsClamp && ownedText == NULL && visibleLen < sourceLen) {
+        drawClippedText(options->x, options->y, displayText, maxWidth);
+    } else {
+        drawText(options->x, options->y, displayText);
+    }
+
+    int textWidth = (visibleLen > 0) ? getTextWidthN(displayText, (int)visibleLen) : 0;
+    if (textWidth <= 0 && maxWidth > 0) {
+        textWidth = maxWidth;
+    }
+
+    TTF_Font* font = getActiveFont();
+    int lineHeight = font ? TTF_FontHeight(font) : 20;
+    if (lineHeight <= 0) lineHeight = 20;
+
+    TextSelectionRect rect = {
+        .bounds = { options->x, options->y, textWidth, lineHeight },
+        .line = 0,
+        .column_start = 0,
+        .column_end = (int)visibleLen,
+    };
+
+    void* owner = options->owner ? options->owner : (void*)options->pane;
+    UIPaneRole role = options->owner_role;
+    if (role == PANE_ROLE_UNKNOWN && options->pane) {
+        role = options->pane->role;
+    }
+
+    unsigned int flags = options->flags;
+    if (flags == TEXT_SELECTION_FLAG_NONE) {
+        flags = TEXT_SELECTION_FLAG_SELECTABLE;
+    }
+
+    TextSelectionDescriptor desc = {
+        .owner = owner,
+        .owner_role = role,
+        .text = displayText,
+        .text_length = visibleLen,
+        .rects = &rect,
+        .rect_count = 1,
+        .flags = flags,
+        .copy_handler = NULL,
+        .copy_user_data = NULL,
+    };
+    text_selection_manager_register(&desc);
+
+    if (ownedText) {
+        free(ownedText);
+    }
+}
+
+void pushClipRect(const SDL_Rect* rect) {
+    RenderContext* ctx = getRenderContext();
+    if (!ctx || !ctx->renderer) return;
+#if USE_VULKAN
+    (void)rect;
+#else
+    if (s_clip_top < CLIP_STACK_MAX) {
+        SDL_Rect current = {0, 0, 0, 0};
+        SDL_RenderGetClipRect(ctx->renderer, &current);
+        SDL_bool enabled = SDL_RenderIsClipEnabled(ctx->renderer);
+        s_clip_stack[s_clip_top] = current;
+        s_clip_enabled_stack[s_clip_top] = (enabled == SDL_TRUE);
+        s_clip_top++;
+    }
+    SDL_RenderSetClipRect(ctx->renderer, rect);
+#endif
+}
+
+void popClipRect(void) {
+    RenderContext* ctx = getRenderContext();
+    if (!ctx || !ctx->renderer) return;
+#if USE_VULKAN
+    (void)ctx;
+#else
+    if (s_clip_top <= 0) {
+        SDL_RenderSetClipRect(ctx->renderer, NULL);
+        return;
+    }
+    s_clip_top--;
+    if (!s_clip_enabled_stack[s_clip_top]) {
+        SDL_RenderSetClipRect(ctx->renderer, NULL);
+    } else {
+        SDL_RenderSetClipRect(ctx->renderer, &s_clip_stack[s_clip_top]);
+    }
+#endif
 }

@@ -43,3 +43,20 @@ int getTextWidthN(const char* text, int n) {
     return w;
 }
 
+size_t getTextClampedLength(const char* text, int maxWidth) {
+    if (!text) return 0;
+    if (maxWidth <= 0) return strlen(text);
+
+    size_t len = strlen(text);
+    if (len == 0) return 0;
+
+    size_t cutoff = len;
+    for (size_t i = 1; i <= len; ++i) {
+        int width = getTextWidthN(text, (int)i);
+        if (width > maxWidth) {
+            cutoff = (i > 0) ? i - 1 : 0;
+            break;
+        }
+    }
+    return cutoff;
+}

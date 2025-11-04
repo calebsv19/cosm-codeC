@@ -2,29 +2,81 @@
 #include "editor.h"
 #include "ide/Panes/Editor/undo_stack.h"
 #include "ide/Panes/Editor/buffer_safety.h"
+#include "core/Clipboard/clipboard.h"
+#include <stdlib.h>
+#include <string.h>
 
-bool handleCommandCopySelection(EditorBuffer* buffer, EditorState* state) {
-    if (!state->selecting) return false;
-        
-    int startRow = state->selStartRow, startCol = state->selStartCol;
-    int endRow = state->cursorRow, endCol = state->cursorCol;
-        
+static void selection_buffer_store(const char* text) {
+    if (!text) {
+        selectionBuffer[0] = '\0';
+        return;
+    }
+    size_t len = strlen(text);
+    if (len >= MAX_SELECTION_LENGTH) {
+        len = MAX_SELECTION_LENGTH - 1;
+    }
+    memcpy(selectionBuffer, text, len);
+    selectionBuffer[len] = '\0';
+}
+
+static char* extract_selection_text(EditorBuffer* buffer, EditorState* state) {
+    if (!state->selecting) return NULL;
+
+    int startRow = state->selStartRow;
+    int startCol = state->selStartCol;
+    int endRow = state->cursorRow;
+    int endCol = state->cursorCol;
+
     if (startRow > endRow || (startRow == endRow && startCol > endCol)) {
         int tmpRow = startRow, tmpCol = startCol;
         startRow = endRow; startCol = endCol;
         endRow = tmpRow;   endCol = tmpCol;
     }
- 
-    selectionBuffer[0] = '\0';
+
+    size_t total = 0;
     for (int r = startRow; r <= endRow; r++) {
         const char* line = buffer->lines[r];
+        if (!line) line = "";
         int from = (r == startRow) ? startCol : 0;
-        int to   = (r == endRow)   ? endCol   : strlen(line);
-        strncat(selectionBuffer, line + from, to - from);
-        if (r != endRow) strcat(selectionBuffer, "\n");
+        int to = (r == endRow) ? endCol : (int)strlen(line);
+        if (from < 0) from = 0;
+        if (to < from) to = from;
+        total += (size_t)(to - from);
+        if (r != endRow) total++; // newline
     }
 
-//    state->selecting = false;
+    char* result = (char*)malloc(total + 1);
+    if (!result) return NULL;
+
+    size_t offset = 0;
+    for (int r = startRow; r <= endRow; r++) {
+        const char* line = buffer->lines[r];
+        if (!line) line = "";
+        int from = (r == startRow) ? startCol : 0;
+        int to = (r == endRow) ? endCol : (int)strlen(line);
+        if (from < 0) from = 0;
+        if (to < from) to = from;
+        size_t chunk = (size_t)(to - from);
+        if (chunk > 0) {
+            memcpy(result + offset, line + from, chunk);
+            offset += chunk;
+        }
+        if (r != endRow) {
+            result[offset++] = '\n';
+        }
+    }
+    result[offset] = '\0';
+    return result;
+}
+
+bool handleCommandCopySelection(EditorBuffer* buffer, EditorState* state) {
+    if (!state->selecting) return false;
+    char* text = extract_selection_text(buffer, state);
+    if (!text) return false;
+
+    selection_buffer_store(text);
+    clipboard_copy_text(text);
+    free(text);
     return true;
 }  
 
@@ -39,35 +91,32 @@ bool handleCommandCutSelection(EditorBuffer* buffer, EditorState* state) {
 
     pushUndoState(file);
 
-    int startRow = state->selStartRow, startCol = state->selStartCol;
-    int endRow = state->cursorRow, endCol = state->cursorCol;
+    char* text = extract_selection_text(buffer, state);
+    if (!text) return false;
 
-    // Normalize selection range
-    if (startRow > endRow || (startRow == endRow && startCol > endCol)) {
-        int tmpRow = startRow, tmpCol = startCol;
-        startRow = endRow; startCol = endCol;
-        endRow = tmpRow;   endCol = tmpCol;
-    }
-
-    // Copy selected text to clipboard buffer
-    selectionBuffer[0] = '\0';
-    for (int r = startRow; r <= endRow; r++) {
-        const char* line = buffer->lines[r];
-        int from = (r == startRow) ? startCol : 0;
-        int to   = (r == endRow)   ? endCol   : strlen(line);
-        strncat(selectionBuffer, line + from, to - from);
-        if (r != endRow) strcat(selectionBuffer, "\n");
-    }
+    selection_buffer_store(text);
+    clipboard_copy_text(text);
 
     // Now remove the selected text (shared logic)
     bool result = removeSelectedText(buffer, state);
+    free(text);
     return result;
 }
 
 
 
 bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state) {
-    if (strlen(selectionBuffer) == 0) return false;
+    char* clipboardText = clipboard_paste_text();
+    const char* source = NULL;
+
+    if (clipboardText && clipboardText[0] != '\0') {
+        source = clipboardText;
+    } else if (selectionBuffer[0] != '\0') {
+        source = selectionBuffer;
+    } else {
+        clipboard_free_text(clipboardText);
+        return false;
+    }
 
     IDECoreState* core = getCoreState();
     EditorView* view = core->activeEditorView;
@@ -83,6 +132,7 @@ bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state) {
     }
 
     char* currentLine = buffer->lines[state->cursorRow];
+    char* originalLine = currentLine;
     int currentLen = strlen(currentLine);
     int insertPos = state->cursorCol;
 
@@ -94,10 +144,14 @@ bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state) {
     beforeCursor[insertPos] = '\0';
     strcpy(afterCursor, currentLine + insertPos);
 
-    free(buffer->lines[state->cursorRow]);
-
-    char* selectionCopy = strdup(selectionBuffer);
-    if (!selectionCopy) return false;
+    char* selectionCopy = strdup(source);
+    if (!selectionCopy) {
+        clipboard_free_text(clipboardText);
+        free(beforeCursor);
+        free(afterCursor);
+        return false;
+    }
+    free(originalLine);
 
     char* line = strtok(selectionCopy, "\n");
     int row = state->cursorRow;
@@ -131,6 +185,10 @@ bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state) {
     free(beforeCursor);
     free(afterCursor);
     free(selectionCopy);
+    if (source != selectionBuffer) {
+        selection_buffer_store(source);
+    }
+    clipboard_free_text(clipboardText);
 
     return true;
 }
@@ -383,5 +441,3 @@ void clearCutBuffer(void) {
     }
     editorCutBuffer.count = 0;
 }
-
-

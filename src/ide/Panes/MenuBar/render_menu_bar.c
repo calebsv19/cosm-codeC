@@ -32,7 +32,17 @@ void renderMenuBarStandard(UIPane* pane, SDL_Renderer* renderer, struct IDECoreS
     const char* fileName = getActiveFileName();
 
     // 1. Draw file name (left-aligned)
-    drawText(pane->x + 8, y, fileName);   
+    SelectableTextOptions fileNameOpts = {
+        .pane = pane,
+        .owner = pane,
+        .owner_role = pane->role,
+        .x = pane->x + 8,
+        .y = y,
+        .maxWidth = 0,
+        .text = fileName,
+        .flags = TEXT_SELECTION_FLAG_SELECTABLE,
+    };
+    drawSelectableText(&fileNameOpts);
 
     // 2. Calculate button group start after file name
     int nameWidth = getTextWidth(fileName);
@@ -48,7 +58,7 @@ void renderMenuBarStandard(UIPane* pane, SDL_Renderer* renderer, struct IDECoreS
             LEFT_BUTTON_WIDTH,
             pane->h - BUTTON_HEIGHT_PADDING
         };
-        renderButton(rect, leftLabels[i]);
+        renderButton(pane, rect, leftLabels[i]);
     }
 
     // 4. Status tag ([modified], [saved], etc.)
@@ -68,9 +78,29 @@ void renderMenuBarStandard(UIPane* pane, SDL_Renderer* renderer, struct IDECoreS
         Uint32 now = SDL_GetTicks();
 
         if (file->showSavedTag && now - file->savedTagTimestamp < 1500) {
-            drawText(tagX, y, "[saved]");
+            SelectableTextOptions savedOpts = {
+                .pane = pane,
+                .owner = pane,
+                .owner_role = pane->role,
+                .x = tagX,
+                .y = y,
+                .maxWidth = 0,
+                .text = "[saved]",
+                .flags = TEXT_SELECTION_FLAG_SELECTABLE,
+            };
+            drawSelectableText(&savedOpts);
         } else if (file->isModified) {
-            drawText(tagX, y, "[modified]");
+            SelectableTextOptions modifiedOpts = {
+                .pane = pane,
+                .owner = pane,
+                .owner_role = pane->role,
+                .x = tagX,
+                .y = y,
+                .maxWidth = 0,
+                .text = "[modified]",
+                .flags = TEXT_SELECTION_FLAG_SELECTABLE,
+            };
+            drawSelectableText(&modifiedOpts);
         } else {
             file->showSavedTag = false;
         }
@@ -80,7 +110,7 @@ void renderMenuBarStandard(UIPane* pane, SDL_Renderer* renderer, struct IDECoreS
     const char* rightLabels[MENU_BUTTON_RIGHT_COUNT] = { "Build", "Run", "Debug", "Ctrl" };
     for (int i = 0; i < MENU_BUTTON_RIGHT_COUNT; i++) {
         SDL_Rect rect = getRightMenuButtonRect(pane, i);
-        renderButton(rect, rightLabels[i]);
+        renderButton(pane, rect, rightLabels[i]);
     }
 }
 
@@ -95,7 +125,7 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
         int x = pane->x + 8 + i * (LEFT_BUTTON_WIDTH + BUTTON_SPACING);
         SDL_Rect rect = { x, pane->y + BUTTON_HEIGHT_PADDING / 2,
                           LEFT_BUTTON_WIDTH, pane->h - BUTTON_HEIGHT_PADDING };
-        renderButton(rect, leftLabels[i]);
+        renderButton(pane, rect, leftLabels[i]);
     }
 
     // 2. Modified/saved tag
@@ -115,9 +145,29 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
         Uint32 now = SDL_GetTicks();
 
         if (file->showSavedTag && now - file->savedTagTimestamp < 1500) {
-            drawText(tagX, y, "[saved]");
+            SelectableTextOptions savedOpts = {
+                .pane = pane,
+                .owner = pane,
+                .owner_role = pane->role,
+                .x = tagX,
+                .y = y,
+                .maxWidth = 0,
+                .text = "[saved]",
+                .flags = TEXT_SELECTION_FLAG_SELECTABLE,
+            };
+            drawSelectableText(&savedOpts);
         } else if (file->isModified) {
-            drawText(tagX, y, "[modified]");   
+            SelectableTextOptions modifiedOpts = {
+                .pane = pane,
+                .owner = pane,
+                .owner_role = pane->role,
+                .x = tagX,
+                .y = y,
+                .maxWidth = 0,
+                .text = "[modified]",
+                .flags = TEXT_SELECTION_FLAG_SELECTABLE,
+            };
+            drawSelectableText(&modifiedOpts);
         } else {
             file->showSavedTag = false; // auto-clear after timeout
         }
@@ -137,13 +187,23 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
     // Draw box & filename (optional highlight box here if desired)
     SDL_SetRenderDrawColor(renderer, 80, 80, 80, 100);
     SDL_RenderFillRect(renderer, &nameBox);
-    drawText(centerX - nameWidth / 2, y, fileName);
+    SelectableTextOptions centeredNameOpts = {
+        .pane = pane,
+        .owner = pane,
+        .owner_role = pane->role,
+        .x = centerX - nameWidth / 2,
+        .y = y,
+        .maxWidth = nameWidth,
+        .text = fileName,
+        .flags = TEXT_SELECTION_FLAG_SELECTABLE,
+    };
+    drawSelectableText(&centeredNameOpts);
 
 
     // 4. Right-side buttons (Build / Run / Debug / Ctrl)
     const char* rightLabels[MENU_BUTTON_RIGHT_COUNT] = { "Build", "Run", "Debug", "Ctrl" };
     for (int i = 0; i < MENU_BUTTON_RIGHT_COUNT; i++) {
         SDL_Rect rect = getRightMenuButtonRect(pane, i);
-        renderButton(rect, rightLabels[i]);
+        renderButton(pane, rect, rightLabels[i]);
     }
 }

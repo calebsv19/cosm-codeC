@@ -165,7 +165,13 @@ VkResult vk_renderer_commands_begin_frame(VkRenderer* renderer,
             s_logged_acquire_out_of_date = 1;
         }
         return result;
-    } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+    } else if (result == VK_SUBOPTIMAL_KHR) {
+        if (!s_logged_acquire_failure) {
+            fprintf(stderr, "[vulkan] vkAcquireNextImageKHR returned SUBOPTIMAL.\n");
+            s_logged_acquire_failure = 1;
+        }
+        return result;
+    } else if (result != VK_SUCCESS) {
         if (!s_logged_acquire_failure) {
             fprintf(stderr, "[vulkan] vkAcquireNextImageKHR failed: %d\n", result);
             s_logged_acquire_failure = 1;
@@ -245,8 +251,11 @@ VkResult vk_renderer_commands_end_frame(VkRenderer* renderer,
         return result;
     }
     if (result == VK_SUBOPTIMAL_KHR) {
-        s_logged_present_failure = 0;
-        return VK_SUCCESS;
+        if (!s_logged_present_failure) {
+            fprintf(stderr, "[vulkan] vkQueuePresentKHR returned SUBOPTIMAL.\n");
+            s_logged_present_failure = 1;
+        }
+        return result;
     }
     if (result != VK_SUCCESS && !s_logged_present_failure) {
         fprintf(stderr, "[vulkan] vkQueuePresentKHR failed: %d\n", result);

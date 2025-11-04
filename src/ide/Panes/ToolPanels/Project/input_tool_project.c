@@ -2,6 +2,7 @@
 #include "ide/Panes/ToolPanels/Project/input_tool_project.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
 #include "ide/Panes/ToolPanels/Project/rename_callbacks.h"
+#include "ide/Panes/ToolPanels/Project/render_tool_project.h"
 #include "app/GlobalInfo/core_state.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/CommandBus/command_bus.h"
@@ -144,7 +145,14 @@ void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
 
 
 void handleProjectFilesScrollInput(UIPane* pane, SDL_Event* event) {
-    // Optional scroll logic
+    if (!pane || event->type != SDL_MOUSEWHEEL) return;
+    PaneScrollState* scroll = project_get_scroll_state(pane);
+    if (!scroll) return;
+    float lines = (float)event->wheel.y;
+    if (event->wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
+        lines = -lines;
+    }
+    scroll_state_scroll_lines(scroll, lines);
 }
 
 void handleProjectFilesHoverInput(UIPane* pane, int x, int y) {

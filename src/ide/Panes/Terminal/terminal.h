@@ -6,6 +6,8 @@
 
 #define MAX_TERMINAL_LINES 512
 #define MAX_TERMINAL_LINE_LENGTH 256
+#define TERMINAL_LINE_HEIGHT 20
+#define TERMINAL_PADDING 6
 
 void initTerminal(void);
 void printToTerminal(const char* text);           // Appends one line
@@ -13,5 +15,12 @@ void clearTerminal(void);                             // Wipes all content
 const char** getTerminalBuffer(void);                 // Exposes read-only line array
 int getTerminalLineCount(void);                       // Number of active lines
 
-#endif
+void terminal_begin_selection(int line, int column);
+void terminal_update_selection(int line, int column);
+void terminal_end_selection(void);
+void terminal_clear_selection(void);
+bool terminal_get_selection_bounds(int* startLine, int* startCol, int* endLine, int* endCol);
+bool terminal_has_selection(void);
+bool terminal_copy_selection_to_clipboard(void);
 
+#endif
