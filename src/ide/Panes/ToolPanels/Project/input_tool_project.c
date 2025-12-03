@@ -3,6 +3,7 @@
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
 #include "ide/Panes/ToolPanels/Project/rename_callbacks.h"
 #include "ide/Panes/ToolPanels/Project/render_tool_project.h"
+#include "ide/UI/scroll_manager.h"
 #include "app/GlobalInfo/core_state.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/CommandBus/command_bus.h"
@@ -81,6 +82,15 @@ void handleProjectFilesKeyboardInput(UIPane* pane, SDL_Event* event) {
 void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane) return;
 
+    PaneScrollState* scroll = project_get_scroll_state(pane);
+    if (scroll) {
+        SDL_Rect track = project_get_scroll_track_rect();
+        SDL_Rect thumb = project_get_scroll_thumb_rect();
+        if (scroll_state_handle_mouse_drag(scroll, event, &track, &thumb)) {
+            return;
+        }
+    }
+
     int mx = 0;
     int my = 0;
     if (event->type == SDL_MOUSEMOTION) {
@@ -145,14 +155,11 @@ void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
 
 
 void handleProjectFilesScrollInput(UIPane* pane, SDL_Event* event) {
-    if (!pane || event->type != SDL_MOUSEWHEEL) return;
+    if (!pane) return;
     PaneScrollState* scroll = project_get_scroll_state(pane);
-    if (!scroll) return;
-    float lines = (float)event->wheel.y;
-    if (event->wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
-        lines = -lines;
+    if (scroll && scroll_state_handle_mouse_wheel(scroll, event)) {
+        return;
     }
-    scroll_state_scroll_lines(scroll, lines);
 }
 
 void handleProjectFilesHoverInput(UIPane* pane, int x, int y) {

@@ -2,7 +2,7 @@
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"
-#include "core/UI/scroll_manager.h"
+#include "ide/UI/scroll_manager.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
 
@@ -30,6 +30,8 @@ static const PaneScrollConfig s_projectScrollConfig = {
     .deceleration_px = 0.0f,
     .allow_negative = false,
 };
+static SDL_Rect s_projectScrollTrack = {0};
+static SDL_Rect s_projectScrollThumb = {0};
 
 static const char* project_entry_display_name(const DirEntry* entry) {
     if (!entry || !entry->path) return "";
@@ -180,6 +182,10 @@ void renderProjectFilesPanel(UIPane* pane) {
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
 
+    IDECoreState* coreState = getCoreState();
+    bool paneHovered = coreState && coreState->activeMousePane == pane;
+    bool paneActive = coreState && coreState->focusedPane == pane;
+
     int x = pane->x + 12;
     const char* workspace = getWorkspacePath();
     char workspaceLabel[512];
@@ -229,6 +235,9 @@ void renderProjectFilesPanel(UIPane* pane) {
     y += iconBtnSize + spacing;
 
     int contentTop = y;
+    const int trackWidth = 6;
+    const int trackPadding = 4;
+
     SDL_Rect viewport = {
         .x = pane->x,
         .y = contentTop,
@@ -236,6 +245,7 @@ void renderProjectFilesPanel(UIPane* pane) {
         .h = maxY - contentTop
     };
     if (viewport.h < 0) viewport.h = 0;
+    if (viewport.w < 0) viewport.w = 0;
 
     PaneScrollState* scroll = project_get_scroll_state(pane);
     scroll_state_set_viewport(scroll, (float)viewport.h);
@@ -249,7 +259,15 @@ void renderProjectFilesPanel(UIPane* pane) {
     }
     scroll_state_set_content_height(scroll, effectiveHeight);
 
-    pushClipRect(&viewport);
+    SDL_Rect clipRect = {
+        .x = x - 6,
+        .y = contentTop,
+        .w = pane->w - (trackWidth + trackPadding + (x - pane->x)),
+        .h = viewport.h
+    };
+    if (clipRect.w < 0) clipRect.w = 0;
+
+    pushClipRect(&clipRect);
 
     if (projectRoot && visibleLines > 0) {
         ProjectRenderContext renderCtx = {
@@ -269,4 +287,39 @@ void renderProjectFilesPanel(UIPane* pane) {
     }
 
     popClipRect();
+
+    bool showScrollbar = scroll_state_can_scroll(scroll) && viewport.h > 0 &&
+                         (paneHovered || paneActive || scroll_state_is_dragging_thumb(scroll));
+
+    if (showScrollbar) {
+        s_projectScrollTrack = (SDL_Rect){
+            clipRect.x + clipRect.w + trackPadding,
+            clipRect.y,
+            trackWidth,
+            clipRect.h
+        };
+        s_projectScrollThumb = scroll_state_thumb_rect(scroll,
+                                                       s_projectScrollTrack.x,
+                                                       s_projectScrollTrack.y,
+                                                       s_projectScrollTrack.w,
+                                                       s_projectScrollTrack.h);
+
+        SDL_Color trackColor = scroll->track_color;
+        SDL_Color thumbColor = scroll->thumb_color;
+        SDL_SetRenderDrawColor(renderer, trackColor.r, trackColor.g, trackColor.b, trackColor.a);
+        SDL_RenderFillRect(renderer, &s_projectScrollTrack);
+        SDL_SetRenderDrawColor(renderer, thumbColor.r, thumbColor.g, thumbColor.b, thumbColor.a);
+        SDL_RenderFillRect(renderer, &s_projectScrollThumb);
+    } else {
+        s_projectScrollTrack = (SDL_Rect){0};
+        s_projectScrollThumb = (SDL_Rect){0};
+    }
+}
+
+SDL_Rect project_get_scroll_track_rect(void) {
+    return s_projectScrollTrack;
+}
+
+SDL_Rect project_get_scroll_thumb_rect(void) {
+    return s_projectScrollThumb;
 }

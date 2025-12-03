@@ -4,9 +4,22 @@
 #include "ide/Panes/Terminal/command_terminal.h"
 #include "ide/Panes/Terminal/terminal.h"
 #include "engine/Render/render_text_helpers.h"
+#include "ide/UI/scroll_manager.h"
 
 #include <stdio.h>
 #include <string.h>
+
+static void terminal_update_follow_flag(PaneScrollState* scroll) {
+    if (!scroll) return;
+    float maxOffset = scroll->content_height_px - scroll->viewport_height_px;
+    if (maxOffset < 0.0f) maxOffset = 0.0f;
+    float offset = scroll_state_get_offset(scroll);
+    if (offset >= maxOffset - 1.0f) {
+        terminal_set_follow_output(true);
+    } else {
+        terminal_set_follow_output(false);
+    }
+}
 
 static void terminal_compute_position(UIPane* pane, int mouseX, int mouseY, int* outLine, int* outColumn) {
     int lineHeight = TERMINAL_LINE_HEIGHT;
@@ -20,17 +33,18 @@ static void terminal_compute_position(UIPane* pane, int mouseX, int mouseY, int*
         return;
     }
 
-    int visibleLines = (pane->h - 2 * padding) / lineHeight;
-    if (visibleLines <= 0) visibleLines = 1;
+    PaneScrollState* scroll = terminal_get_scroll_state();
+    float offset = scroll_state_get_offset(scroll);
+    int firstLine = (lineHeight > 0) ? (int)(offset / (float)lineHeight) : 0;
+    if (firstLine < 0) firstLine = 0;
+    if (firstLine > totalLines) firstLine = totalLines;
+    float intra = offset - (float)firstLine * (float)lineHeight;
 
-    int start = (totalLines > visibleLines) ? totalLines - visibleLines : 0;
-
-    int localY = mouseY - (pane->y + padding);
+    int localY = mouseY - (pane->y + padding) + (int)intra;
     if (localY < 0) localY = 0;
-    int lineOffset = localY / lineHeight;
-    if (lineOffset >= visibleLines) lineOffset = visibleLines - 1;
+    int lineOffset = (lineHeight > 0) ? localY / lineHeight : 0;
 
-    int lineIndex = start + lineOffset;
+    int lineIndex = firstLine + lineOffset;
     if (lineIndex >= totalLines) lineIndex = totalLines - 1;
     if (lineIndex < 0) lineIndex = 0;
 
@@ -96,12 +110,23 @@ void handleTerminalKeyboardInput(UIPane* pane, SDL_Event* event) {
 void handleTerminalMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane) return;
 
+    PaneScrollState* scroll = terminal_get_scroll_state();
+    if (scroll) {
+        SDL_Rect track, thumb;
+        terminal_get_scroll_track(&track, &thumb);
+        if (scroll_state_handle_mouse_drag(scroll, event, &track, &thumb)) {
+            terminal_update_follow_flag(scroll);
+            return;
+        }
+    }
+
     switch (event->type) {
         case SDL_MOUSEBUTTONDOWN:
             if (event->button.button == SDL_BUTTON_LEFT) {
                 int line = 0, column = 0;
                 terminal_compute_position(pane, event->button.x, event->button.y, &line, &column);
                 terminal_begin_selection(line, column);
+                terminal_set_follow_output(false);
             }
             break;
 
@@ -126,7 +151,11 @@ void handleTerminalMouseInput(UIPane* pane, SDL_Event* event) {
 
 
 void handleTerminalScrollInput(UIPane* pane, SDL_Event* event) {
-    (void)pane; (void)event;
+    PaneScrollState* scroll = terminal_get_scroll_state();
+    if (scroll && scroll_state_handle_mouse_wheel(scroll, event)) {
+        terminal_set_follow_output(false);
+        terminal_update_follow_flag(scroll);
+    }
 }
 
 void handleTerminalHoverInput(UIPane* pane, int x, int y) {

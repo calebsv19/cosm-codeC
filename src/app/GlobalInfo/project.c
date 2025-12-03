@@ -109,21 +109,7 @@ static DirEntry* loadProjectDirectoryInternal(const char* path, DirEntry* parent
     }
 
     root->parent = parent;
-    if (parent == NULL) {
-        root->isExpanded = true;
-    } else {
-        const char* parentPath = parent->path;
-        const char* workspace = getWorkspacePath();
-        if (workspace && strncmp(path, workspace, strlen(workspace)) == 0) {
-            const char* relative = path + strlen(workspace);
-            if (relative[0] == '/' || relative[0] == '\\') relative++;
-            if (strncmp(relative, "BuildOutputs", strlen("BuildOutputs")) == 0 ||
-                strncmp(relative, "build", strlen("build")) == 0 ||
-                strncmp(relative, "Build", strlen("Build")) == 0) {
-                root->isExpanded = true;
-            }
-        }
-    }
+    root->isExpanded = (parent == NULL);
 
     struct dirent* entry;
     while ((entry = readdir(dir)) != NULL) {

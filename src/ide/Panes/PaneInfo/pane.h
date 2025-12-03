@@ -5,7 +5,7 @@
 
 #include "core/CommandBus/command_bus.h"
 #include "core/CommandBus/command_metadata.h"
-#include "core/UI/scroll_manager.h"
+#include "ide/UI/scroll_manager.h"
 
 #include <SDL2/SDL.h>
 #include <stdbool.h>

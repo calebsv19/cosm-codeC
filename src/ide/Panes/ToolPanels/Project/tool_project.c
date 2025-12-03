@@ -71,6 +71,13 @@ static void clearRunTargetSelection(void) {
     saveRunTargetPreference(NULL);
 }
 
+static bool entryIsExecutableFile(const DirEntry* entry) {
+    if (!entry || entry->type != ENTRY_FILE || !entry->path) return false;
+    struct stat st;
+    if (stat(entry->path, &st) != 0) return false;
+    return S_ISREG(st.st_mode) && (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH));
+}
+
 static void setSelectedFile(DirEntry* entry) {
     selectedFile = entry;
     if (entry && entry->path) {
@@ -136,6 +143,10 @@ static void updateRunTargetSelection(DirEntry* entry) {
     }
 
     if (entry->type == ENTRY_FILE) {
+        if (!entryIsExecutableFile(entry)) {
+            clearRunTargetSelection();
+            return;
+        }
         if (strcmp(runTargetPath, entry->path) != 0) {
             snprintf(runTargetPath, sizeof(runTargetPath), "%s", entry->path);
             setRunTargetPath(runTargetPath);

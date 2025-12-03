@@ -2,6 +2,7 @@
 #include "engine/Render/render_pipeline.h"   // drawText, drawClippedText
 #include "engine/Render/render_text_helpers.h"
 #include "core/Clipboard/clipboard.h"
+#include "ide/UI/scroll_manager.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -21,6 +22,23 @@ typedef struct {
 } TerminalSelectionState;
 
 static TerminalSelectionState g_selection = {0};
+static PaneScrollState g_terminalScrollState;
+static bool g_terminalScrollInitialized = false;
+static SDL_Rect g_terminalScrollTrack = {0};
+static SDL_Rect g_terminalScrollThumb = {0};
+static bool g_terminalFollowOutput = true;
+static const PaneScrollConfig kTerminalScrollConfig = {
+    .line_height_px = TERMINAL_LINE_HEIGHT,
+    .deceleration_px = 0.0f,
+    .allow_negative = false,
+};
+
+static void ensure_terminal_scroll_state(void) {
+    if (!g_terminalScrollInitialized) {
+        scroll_state_init(&g_terminalScrollState, &kTerminalScrollConfig);
+        g_terminalScrollInitialized = true;
+    }
+}
 
 static void terminal_shift_lines_if_needed(void) {
     if (terminalLineCount < MAX_TERMINAL_LINES) return;
@@ -78,6 +96,8 @@ static void terminal_append_text(const char* text) {
     } else if (lastWasSeparator) {
         terminal_store_line("", 0);
     }
+
+    ensure_terminal_scroll_state();
 }
 
 static void clamp_selection_position(int* line, int* column) {
@@ -131,6 +151,9 @@ void clearTerminal() {
     terminalLineCount = 0;
     memset(terminalLines, 0, sizeof(terminalLines));
     terminal_clear_selection();
+    ensure_terminal_scroll_state();
+    g_terminalScrollState.offset_px = 0.0f;
+    g_terminalScrollState.target_offset_px = 0.0f;
 }
 
 const char** getTerminalBuffer() {
@@ -245,4 +268,37 @@ bool terminal_copy_selection_to_clipboard(void) {
     bool success = clipboard_copy_text(buffer);
     free(buffer);
     return success;
+}
+
+PaneScrollState* terminal_get_scroll_state(void) {
+    ensure_terminal_scroll_state();
+    return &g_terminalScrollState;
+}
+
+void terminal_set_scroll_track(const SDL_Rect* track, const SDL_Rect* thumb) {
+    if (track) {
+        g_terminalScrollTrack = *track;
+    } else {
+        g_terminalScrollTrack = (SDL_Rect){0};
+    }
+    if (thumb) {
+        g_terminalScrollThumb = *thumb;
+    } else {
+        g_terminalScrollThumb = (SDL_Rect){0};
+    }
+}
+
+void terminal_get_scroll_track(SDL_Rect* track, SDL_Rect* thumb) {
+    if (track) *track = g_terminalScrollTrack;
+    if (thumb) *thumb = g_terminalScrollThumb;
+}
+
+void terminal_set_follow_output(bool follow) {
+    ensure_terminal_scroll_state();
+    g_terminalFollowOutput = follow;
+}
+
+bool terminal_is_following_output(void) {
+    ensure_terminal_scroll_state();
+    return g_terminalFollowOutput;
 }

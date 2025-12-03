@@ -14,7 +14,7 @@
 #include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
 #include "ide/Plugin/plugin_interface.h"
 #include "ide/UI/ui_state.h"
-#include "core/UI/scroll_manager.h"
+#include "ide/UI/scroll_manager.h"
 
 #include "workspace_prefs.h"
 #include "core/Watcher/file_watcher.h"
