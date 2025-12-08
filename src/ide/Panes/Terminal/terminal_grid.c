@@ -15,6 +15,8 @@ static void grid_alloc(TermGrid* grid, int rows, int cols) {
     term_grid_clear(grid);
 }
 
+static void clamp_cursor(TermGrid* grid);
+
 void term_grid_init(TermGrid* grid, int rows, int cols) {
     if (!grid) return;
     grid->cells = NULL;
@@ -62,8 +64,48 @@ void term_grid_clear_line(TermGrid* grid, int row) {
 
 void term_grid_resize(TermGrid* grid, int rows, int cols) {
     if (!grid || rows <= 0 || cols <= 0) return;
-    term_grid_free(grid);
-    term_grid_init(grid, rows, cols);
+    if (!grid->cells) {
+        term_grid_init(grid, rows, cols);
+        return;
+    }
+
+    TermGrid newGrid = {0};
+    newGrid.rows = rows;
+    newGrid.cols = cols;
+    newGrid.cur_fg = grid->cur_fg;
+    newGrid.cur_bg = grid->cur_bg;
+    newGrid.cur_attrs = grid->cur_attrs;
+    newGrid.cursor_row = grid->cursor_row;
+    newGrid.cursor_col = grid->cursor_col;
+    newGrid.cells = (TermCell*)malloc((size_t)rows * (size_t)cols * sizeof(TermCell));
+    if (!newGrid.cells) return;
+
+    // Initialize to blanks
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < cols; ++c) {
+            TermCell* cell = &newGrid.cells[r * cols + c];
+            cell->ch = ' ';
+            cell->fg = newGrid.cur_fg;
+            cell->bg = newGrid.cur_bg;
+            cell->attrs = 0;
+        }
+    }
+
+    int rowsToCopy = (grid->rows < rows) ? grid->rows : rows;
+    int colsToCopy = (grid->cols < cols) ? grid->cols : cols;
+    for (int r = 0; r < rowsToCopy; ++r) {
+        for (int c = 0; c < colsToCopy; ++c) {
+            TermCell* src = term_grid_cell(grid, r, c);
+            TermCell* dst = &newGrid.cells[r * cols + c];
+            if (src && dst) {
+                *dst = *src;
+            }
+        }
+    }
+
+    free(grid->cells);
+    *grid = newGrid;
+    clamp_cursor(grid);
 }
 
 static void clamp_cursor(TermGrid* grid) {
@@ -203,6 +245,34 @@ static void handle_csi(TermGrid* grid, const char* params, int paramLen, char co
             int mode = values[0];
             if (mode == 2) {
                 term_grid_clear(grid);
+            } else if (mode == 0) {
+                // Clear from cursor to end of screen
+                for (int c = grid->cursor_col; c < grid->cols; ++c) {
+                    TermCell* cell = term_grid_cell(grid, grid->cursor_row, c);
+                    if (cell) {
+                        cell->ch = ' ';
+                        cell->fg = grid->cur_fg;
+                        cell->bg = grid->cur_bg;
+                        cell->attrs = 0;
+                    }
+                }
+                for (int r = grid->cursor_row + 1; r < grid->rows; ++r) {
+                    term_grid_clear_line(grid, r);
+                }
+            } else if (mode == 1) {
+                // Clear from start to cursor
+                for (int c = 0; c <= grid->cursor_col && c < grid->cols; ++c) {
+                    TermCell* cell = term_grid_cell(grid, grid->cursor_row, c);
+                    if (cell) {
+                        cell->ch = ' ';
+                        cell->fg = grid->cur_fg;
+                        cell->bg = grid->cur_bg;
+                        cell->attrs = 0;
+                    }
+                }
+                for (int r = 0; r < grid->cursor_row; ++r) {
+                    term_grid_clear_line(grid, r);
+                }
             }
             break;
         }
@@ -252,6 +322,7 @@ void term_emulator_feed(TermGrid* grid, const char* data, size_t len) {
                 } else if (ch == '\n') {
                     move_cursor_newline(grid);
                 } else if (ch == '\r') {
+                    // Carriage return: move to column 0 (do not clear line)
                     grid->cursor_col = 0;
                 } else if (ch == '\b' || ch == 0x7f) {
                     if (grid->cursor_col > 0) grid->cursor_col--;

@@ -5,6 +5,7 @@
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
 #include "app/GlobalInfo/workspace_prefs.h"
+#include "ide/Panes/Terminal/terminal.h"
 #include "ide/Panes/PaneInfo/pane.h"
 #include "ide/Panes/Editor/editor_view.h"
 
@@ -706,6 +707,11 @@ void refreshProjectDirectory(void) {
         } else {
             selectedEntry = selectedDirectory;
         }
+    }
+
+    // Restart terminal in the newly loaded workspace
+    if (projectPath[0] != '\0') {
+        terminal_spawn_shell(projectPath, 0, 0);
     }
 
     restoreRunTargetSelection();

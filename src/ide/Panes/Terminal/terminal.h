@@ -5,18 +5,14 @@
 #include <stdbool.h>
 #include "ide/Panes/Terminal/terminal_grid.h"
 
-#define MAX_TERMINAL_LINES 512
-#define MAX_TERMINAL_LINE_LENGTH 256
 #define TERMINAL_LINE_HEIGHT 20
 #define TERMINAL_PADDING 6
 
 struct PaneScrollState;
 
 void initTerminal(void);
-void printToTerminal(const char* text);           // Appends one line
-void clearTerminal(void);                             // Wipes all content
-const char** getTerminalBuffer(void);                 // Exposes read-only line array
-int getTerminalLineCount(void);                       // Number of active lines
+void printToTerminal(const char* text);           // Appends text into the grid
+void clearTerminal(void);                         // Wipes all content
 
 void terminal_begin_selection(int line, int column);
 void terminal_update_selection(int line, int column);
@@ -25,6 +21,11 @@ void terminal_clear_selection(void);
 bool terminal_get_selection_bounds(int* startLine, int* startCol, int* endLine, int* endCol);
 bool terminal_has_selection(void);
 bool terminal_copy_selection_to_clipboard(void);
+
+// Helpers for UI hit-testing/copy:
+int terminal_line_to_string(int row, char* out, int cap, bool trim_trailing);
+int terminal_line_length(int row, bool trim_trailing);
+int terminal_last_used_row(void);
 
 struct PaneScrollState* terminal_get_scroll_state(void);
 void terminal_set_scroll_track(const SDL_Rect* track, const SDL_Rect* thumb);

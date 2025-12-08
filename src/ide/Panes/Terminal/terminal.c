@@ -1,21 +1,16 @@
 #include "terminal.h"
-#include "engine/Render/render_pipeline.h"   // drawText, drawClippedText
-#include "engine/Render/render_text_helpers.h"
 #include "core/Clipboard/clipboard.h"
 #include "ide/UI/scroll_manager.h"
 #include "core/Terminal/terminal_backend.h"
 #include "ide/Panes/Terminal/terminal_grid.h"
 #include "engine/Render/render_font.h"
+#include "engine/Render/render_text_helpers.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <ctype.h>
 #include <sys/select.h>
 #include <SDL2/SDL_ttf.h>
-
-static char terminalLines[MAX_TERMINAL_LINES][MAX_TERMINAL_LINE_LENGTH];
-static int terminalLineCount = 0;
 
 typedef struct {
     bool selecting;
@@ -36,7 +31,7 @@ static TerminalBackend* g_terminalBackend = NULL;
 static size_t g_backendConsumed = 0;
 static bool g_backendExitNotified = false;
 TermGrid g_termGrid;
-int g_gridRows = 32;
+int g_gridRows = 512;   // generous scrollback
 int g_gridCols = 120;
 int g_cellWidth = 8;
 int g_cellHeight = TERMINAL_LINE_HEIGHT;
@@ -55,78 +50,74 @@ static void ensure_terminal_scroll_state(void) {
     }
 }
 
-static void terminal_shift_lines_if_needed(void) {
-    if (terminalLineCount < MAX_TERMINAL_LINES) return;
-    for (int i = 1; i < MAX_TERMINAL_LINES; ++i) {
-        memcpy(terminalLines[i - 1], terminalLines[i], MAX_TERMINAL_LINE_LENGTH);
-    }
-    terminalLineCount = MAX_TERMINAL_LINES - 1;
+static void terminal_jump_to_bottom(void) {
+    ensure_terminal_scroll_state();
+    PaneScrollState* scroll = &g_terminalScrollState;
+    int lastRowUsed = terminal_last_used_row();
+    int contentRows = (lastRowUsed >= 0) ? (lastRowUsed + 1) : 1;
+    float contentHeight = (float)g_cellHeight * (float)contentRows;
+    scroll_state_set_content_height(scroll, contentHeight);
+    float maxOffset = contentHeight - scroll->viewport_height_px;
+    if (maxOffset < 0.0f) maxOffset = 0.0f;
+    scroll->target_offset_px = maxOffset;
+    scroll->offset_px = maxOffset;
 }
 
-static void terminal_start_new_line(void) {
-    terminal_shift_lines_if_needed();
-    if (terminalLineCount < MAX_TERMINAL_LINES) {
-        terminalLines[terminalLineCount][0] = '\0';
-        terminalLineCount++;
+int terminal_line_length(int row, bool trim_trailing) {
+    if (!g_termGrid.cells || row < 0 || row >= g_termGrid.rows) return 0;
+    int lastNonSpace = -1;
+    for (int c = 0; c < g_termGrid.cols; ++c) {
+        TermCell* cell = term_grid_cell(&g_termGrid, row, c);
+        char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
+        if (ch != ' ' && ch != '\0') {
+            lastNonSpace = c;
+        }
     }
+    if (!trim_trailing) return g_termGrid.cols;
+    return (lastNonSpace >= 0) ? lastNonSpace + 1 : 0;
 }
 
-static void terminal_append_text(const char* text) {
-    if (!text) return;
-
-    if (terminalLineCount == 0) {
-        terminal_start_new_line();
+int terminal_line_to_string(int row, char* out, int cap, bool trim_trailing) {
+    if (!out || cap <= 0) return 0;
+    if (!g_termGrid.cells || row < 0 || row >= g_termGrid.rows) {
+        out[0] = '\0';
+        return 0;
     }
+    int len = terminal_line_length(row, trim_trailing);
+    if (len > cap - 1) len = cap - 1;
+    for (int c = 0; c < len; ++c) {
+        TermCell* cell = term_grid_cell(&g_termGrid, row, c);
+        char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
+        out[c] = (ch >= 0x20 && ch < 0x7F) ? ch : ' ';
+    }
+    out[len] = '\0';
+    return len;
+}
 
-    int currentLine = terminalLineCount - 1;
-    const char* cursor = text;
-    while (*cursor) {
-        unsigned char c = (unsigned char)*cursor;
-        if (c == '\n') {
-            terminal_start_new_line();
-            currentLine = terminalLineCount - 1;
-        } else if (c == '\r') {
-            // Carriage return: reset to start of current line.
-            terminalLines[currentLine][0] = '\0';
-        } else if (c == '\b' || c == 0x7f) {
-            // Backspace/delete: remove last char on current line, or pull from previous.
-            while (currentLine >= 0) {
-                size_t len = strlen(terminalLines[currentLine]);
-                if (len > 0) {
-                    terminalLines[currentLine][len - 1] = '\0';
-                    break;
-                } else if (currentLine > 0) {
-                    // Remove empty line and move up.
-                    terminalLineCount = currentLine;
-                    currentLine--;
-                } else {
-                    break;
-                }
-            }
-        } else if (c >= 0x20 || c == '\t') {
-            size_t curLen = strlen(terminalLines[currentLine]);
-            if (curLen + 1 < MAX_TERMINAL_LINE_LENGTH) {
-                terminalLines[currentLine][curLen] = (char)c;
-                terminalLines[currentLine][curLen + 1] = '\0';
+int terminal_last_used_row(void) {
+    if (!g_termGrid.cells || g_termGrid.rows <= 0) return -1;
+    for (int r = g_termGrid.rows - 1; r >= 0; --r) {
+        for (int c = 0; c < g_termGrid.cols; ++c) {
+            TermCell* cell = term_grid_cell(&g_termGrid, r, c);
+            char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
+            if (ch != ' ') {
+                return r;
             }
         }
-        cursor++;
     }
-
-    ensure_terminal_scroll_state();
+    return -1;
 }
 
 static void clamp_selection_position(int* line, int* column) {
     if (*line < 0) *line = 0;
-    if (*line >= terminalLineCount) *line = terminalLineCount - 1;
+    if (*line >= g_termGrid.rows) *line = g_termGrid.rows - 1;
     if (*line < 0) {
         *line = 0;
         *column = 0;
         return;
     }
 
-    const char* text = terminalLines[*line];
-    int len = text ? (int)strlen(text) : 0;
+    int len = terminal_line_length(*line, true);
     if (*column < 0) *column = 0;
     if (*column > len) *column = len;
 }
@@ -153,8 +144,6 @@ static void normalize_selection(int* startLine, int* startCol, int* endLine, int
 }
 
 void initTerminal() {
-    terminalLineCount = 0;
-    memset(terminalLines, 0, sizeof(terminalLines));
     terminal_clear_selection();
     g_backendConsumed = 0;
     g_backendExitNotified = false;
@@ -162,13 +151,12 @@ void initTerminal() {
 }
 
 void printToTerminal(const char* text) {
-    terminal_append_text(text);
-    terminal_clear_selection();
+    if (!text) return;
+    size_t len = strlen(text);
+    term_emulator_feed(&g_termGrid, text, len);
 }
 
 void clearTerminal() {
-    terminalLineCount = 0;
-    memset(terminalLines, 0, sizeof(terminalLines));
     terminal_clear_selection();
     ensure_terminal_scroll_state();
     g_terminalScrollState.offset_px = 0.0f;
@@ -178,20 +166,8 @@ void clearTerminal() {
     g_lastViewportH = -1;
 }
 
-const char** getTerminalBuffer() {
-    static const char* buffer[MAX_TERMINAL_LINES];
-    for (int i = 0; i < terminalLineCount; i++) {
-        buffer[i] = terminalLines[i];
-    }
-    return buffer;
-}
-
-int getTerminalLineCount() {
-    return terminalLineCount;
-}
-
 void terminal_begin_selection(int line, int column) {
-    if (terminalLineCount == 0) {
+    if (!g_termGrid.cells || g_termGrid.rows == 0) {
         terminal_clear_selection();
         return;
     }
@@ -205,7 +181,7 @@ void terminal_begin_selection(int line, int column) {
 }
 
 void terminal_update_selection(int line, int column) {
-    if (!g_selection.selecting || terminalLineCount == 0) return;
+    if (!g_selection.selecting || g_termGrid.rows == 0) return;
     clamp_selection_position(&line, &column);
     g_selection.cursorLine = line;
     g_selection.cursorCol = column;
@@ -237,7 +213,7 @@ bool terminal_get_selection_bounds(int* startLine, int* startCol, int* endLine, 
 
 bool terminal_has_selection(void) {
     if (!g_selection.hasSelection) return false;
-    if (terminalLineCount == 0) return false;
+    if (!g_termGrid.cells || g_termGrid.rows == 0) return false;
     if (g_selection.anchorLine == g_selection.cursorLine &&
         g_selection.anchorCol == g_selection.cursorCol) {
         return false;
@@ -255,12 +231,12 @@ bool terminal_copy_selection_to_clipboard(void) {
 
     size_t total = 0;
     for (int line = startLine; line <= endLine; ++line) {
-        const char* text = terminalLines[line];
-        if (!text) text = "";
+        int lineLen = terminal_line_length(line, true);
         int from = (line == startLine) ? startCol : 0;
-        int to = (line == endLine) ? endCol : (int)strlen(text);
+        int to = (line == endLine) ? endCol : lineLen;
         if (from < 0) from = 0;
         if (to < from) to = from;
+        if (to > lineLen) to = lineLen;
         total += (size_t)(to - from);
         if (line != endLine) total++;
     }
@@ -270,16 +246,20 @@ bool terminal_copy_selection_to_clipboard(void) {
 
     size_t offset = 0;
     for (int line = startLine; line <= endLine; ++line) {
-        const char* text = terminalLines[line];
-        if (!text) text = "";
+        int lineLen = terminal_line_length(line, true);
         int from = (line == startLine) ? startCol : 0;
-        int to = (line == endLine) ? endCol : (int)strlen(text);
+        int to = (line == endLine) ? endCol : lineLen;
         if (from < 0) from = 0;
         if (to < from) to = from;
-        size_t chunk = (size_t)(to - from);
+        if (to > lineLen) to = lineLen;
+        int chunk = to - from;
         if (chunk > 0) {
-            memcpy(buffer + offset, text + from, chunk);
-            offset += chunk;
+            char* temp = (char*)malloc((size_t)lineLen + 1);
+            if (!temp) { free(buffer); return false; }
+            terminal_line_to_string(line, temp, lineLen + 1, true);
+            memcpy(buffer + offset, temp + from, (size_t)chunk);
+            offset += (size_t)chunk;
+            free(temp);
         }
         if (line != endLine) {
             buffer[offset++] = '\n';
@@ -325,102 +305,6 @@ bool terminal_is_following_output(void) {
     return g_terminalFollowOutput;
 }
 
-// Lightweight ANSI/OSC stripper to keep the line renderer readable.
-static char* sanitize_output_chunk(const char* input, size_t len, size_t* out_len) {
-    if (!input || len == 0) return NULL;
-    char* out = (char*)malloc(len + 1);
-    if (!out) return NULL;
-
-    size_t w = 0;
-    for (size_t i = 0; i < len; ++i) {
-        unsigned char c = (unsigned char)input[i];
-        if (c == 0x1b) {
-            if (i + 1 < len) {
-                unsigned char next = (unsigned char)input[i + 1];
-                if (next == '[') {
-                    // CSI: ESC [ ... terminator
-                    i += 2;
-                    while (i < len) {
-                        unsigned char term = (unsigned char)input[i];
-                        if ((term >= '@' && term <= '~') || isalpha(term)) {
-                            break;
-                        }
-                        i++;
-                    }
-                    continue;
-                } else if (next == ']') {
-                    /* OSC: ESC ] ... BEL or ESC \ */
-                    i += 2;
-                    while (i < len) {
-                        if ((unsigned char)input[i] == 0x07) {
-                            break;
-                        }
-                        if ((unsigned char)input[i] == 0x1b &&
-                            i + 1 < len &&
-                            (unsigned char)input[i + 1] == '\\') {
-                            i++;
-                            break;
-                        }
-                        i++;
-                    }
-                    continue;
-                } else {
-                    // Other small escapes, drop next char.
-                    i++;
-                    continue;
-                }
-            }
-            continue;
-        }
-
-        if (c < 0x20 && c != '\n' && c != '\t' && c != '\b') {
-            continue;
-        }
-
-        out[w++] = (char)c;
-    }
-    out[w] = '\0';
-    if (out_len) *out_len = w;
-    return out;
-}
-
-// Trim trailing spaces/tabs on lines that are terminated by '\n'.
-// Leaves the last line untouched if it has no trailing newline so user-typed
-// spaces on the current prompt remain visible.
-static char* trim_trailing_spaces_completed_lines(const char* input, size_t len, size_t* out_len) {
-    if (!input || len == 0) return NULL;
-    char* out = (char*)malloc(len + 1);
-    if (!out) return NULL;
-    size_t w = 0;
-    const char* start = input;
-    const char* end = input + len;
-    while (start < end) {
-        const char* nl = memchr(start, '\n', (size_t)(end - start));
-        const char* lineEnd = nl ? nl : end;
-        const char* trimEnd = lineEnd;
-        bool hasNewline = (nl != NULL);
-        if (hasNewline) {
-            while (trimEnd > start && (trimEnd[-1] == ' ' || trimEnd[-1] == '\t')) {
-                trimEnd--;
-            }
-        }
-        size_t chunk = (size_t)(trimEnd - start);
-        if (chunk > 0) {
-            memcpy(out + w, start, chunk);
-            w += chunk;
-        }
-        if (hasNewline) {
-            out[w++] = '\n';
-            start = nl + 1;
-        } else {
-            start = end;
-        }
-    }
-    out[w] = '\0';
-    if (out_len) *out_len = w;
-    return out;
-}
-
 static void terminal_flush_backend_output(void) {
     if (!g_terminalBackend) return;
 
@@ -428,26 +312,23 @@ static void terminal_flush_backend_output(void) {
     const char* data = terminal_backend_buffer(g_terminalBackend, &len);
     if (data && len > g_backendConsumed) {
         size_t chunkLen = len - g_backendConsumed;
-        size_t cleanedLen = 0;
         char* raw = (char*)malloc(chunkLen + 1);
         if (raw) {
             memcpy(raw, data + g_backendConsumed, chunkLen);
             raw[chunkLen] = '\0';
+            // Debug: log incoming chunk and cursor state
+            printf("[TerminalDebug] Chunk (%zu bytes): \"", chunkLen);
+            for (size_t i = 0; i < chunkLen; ++i) {
+                unsigned char c = (unsigned char)raw[i];
+                if (c == '\n') printf("\\n");
+                else if (c == '\r') printf("\\r");
+                else if (c == '\t') printf("\\t");
+                else if (c < 32 || c > 126) printf("\\x%02X", c);
+                else putchar(c);
+            }
+            printf("\"\n");
             // Feed raw bytes to emulator
             term_emulator_feed(&g_termGrid, raw, chunkLen);
-            // Strip for legacy line renderer
-            char* cleaned = sanitize_output_chunk(raw, chunkLen, &cleanedLen);
-            if (cleaned) {
-                size_t trimmedLen = 0;
-                char* trimmed = trim_trailing_spaces_completed_lines(cleaned, cleanedLen, &trimmedLen);
-                if (trimmed) {
-                    terminal_append_text(trimmed);
-                    free(trimmed);
-                } else {
-                    terminal_append_text(cleaned);
-                }
-                free(cleaned);
-            }
             free(raw);
         }
         g_backendConsumed = len;
@@ -463,6 +344,8 @@ void terminal_send_text(const char* text, size_t len) {
     if (!text || len == 0) return;
     if (!g_terminalBackend || g_terminalBackend->dead) return;
     terminal_backend_send_input(g_terminalBackend, text, len);
+    terminal_set_follow_output(true);
+    terminal_jump_to_bottom();
 }
 
 bool terminal_spawn_shell(const char* start_dir, int rows, int cols) {
@@ -471,6 +354,7 @@ bool terminal_spawn_shell(const char* start_dir, int rows, int cols) {
     }
 
     clearTerminal();
+    terminal_set_follow_output(true);
     g_backendConsumed = 0;
     g_backendExitNotified = false;
 
@@ -497,7 +381,6 @@ void terminal_shutdown_shell(void) {
     }
     g_backendConsumed = 0;
     g_backendExitNotified = false;
-    term_grid_free(&g_termGrid);
 }
 
 void terminal_tick_backend(void) {
@@ -539,14 +422,20 @@ void terminal_resize_grid_for_pane(int width_px, int height_px) {
     if (cellH <= 0) cellH = 16;
     g_cellWidth = cellW;
     g_cellHeight = cellH;
-    int cols = (cellW > 0) ? (width_px / cellW) : g_gridCols;
-    int rows = (cellH > 0) ? (height_px / cellH) : g_gridRows;
-    if (cols < 10) cols = g_gridCols;
-    if (rows < 5) rows = g_gridRows;
-    g_gridCols = cols;
-    g_gridRows = rows;
-    term_grid_resize(&g_termGrid, rows, cols);
+    int viewCols = (cellW > 0) ? (width_px / cellW) : g_gridCols;
+    int viewRows = (cellH > 0) ? (height_px / cellH) : g_gridRows;
+    if (viewCols < 10) viewCols = g_gridCols;
+    if (viewRows < 5) viewRows = g_gridRows;
+
+    // Keep plenty of scrollback rows beyond the visible area.
+    const int scrollbackExtra = 512;
+    int desiredRows = viewRows + scrollbackExtra;
+    if (desiredRows < g_gridRows) desiredRows = g_gridRows; // don't shrink and lose scrollback
+    g_gridCols = viewCols;
+    g_gridRows = desiredRows;
+    term_grid_resize(&g_termGrid, desiredRows, viewCols);
     if (g_terminalBackend) {
-        terminal_backend_resize(g_terminalBackend, rows, cols);
+        // Inform the shell of the visible size, not the scrollback buffer size.
+        terminal_backend_resize(g_terminalBackend, viewRows, viewCols);
     }
 }

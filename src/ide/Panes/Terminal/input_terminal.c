@@ -22,10 +22,9 @@ static void terminal_update_follow_flag(PaneScrollState* scroll) {
 }
 
 static void terminal_compute_position(UIPane* pane, int mouseX, int mouseY, int* outLine, int* outColumn) {
-    int lineHeight = TERMINAL_LINE_HEIGHT;
+    int lineHeight = g_cellHeight > 0 ? g_cellHeight : TERMINAL_LINE_HEIGHT;
     int padding = TERMINAL_PADDING;
-    int totalLines = getTerminalLineCount();
-    const char** lines = getTerminalBuffer();
+    int totalLines = g_termGrid.rows;
 
     if (totalLines <= 0) {
         *outLine = 0;
@@ -48,9 +47,7 @@ static void terminal_compute_position(UIPane* pane, int mouseX, int mouseY, int*
     if (lineIndex >= totalLines) lineIndex = totalLines - 1;
     if (lineIndex < 0) lineIndex = 0;
 
-    const char* text = lines[lineIndex];
-    if (!text) text = "";
-    int lineLen = (int)strlen(text);
+    int lineLen = terminal_line_length(lineIndex, true);
 
     int textX = pane->x + padding;
     int localX = mouseX;
@@ -58,22 +55,30 @@ static void terminal_compute_position(UIPane* pane, int mouseX, int mouseY, int*
 
     int col = 0;
     int prevWidth = 0;
-    while (col < lineLen) {
-        int width = getTextWidthN(text, col + 1);
-        int charLeft = textX + prevWidth;
-        int charRight = textX + width;
-        if (localX < charRight) {
-            int leftDist = localX - charLeft;
-            int rightDist = charRight - localX;
-            if (rightDist < leftDist) {
+    char* lineBuf = NULL;
+    if (lineLen > 0) {
+        lineBuf = (char*)malloc((size_t)lineLen + 1);
+        if (lineBuf) {
+            terminal_line_to_string(lineIndex, lineBuf, lineLen + 1, true);
+            while (col < lineLen) {
+                int width = getTextWidthN(lineBuf, col + 1);
+                int charLeft = textX + prevWidth;
+                int charRight = textX + width;
+                if (localX < charRight) {
+                    int leftDist = localX - charLeft;
+                    int rightDist = charRight - localX;
+                    if (rightDist < leftDist) {
+                        col++;
+                    }
+                    break;
+                }
+                prevWidth = width;
                 col++;
             }
-            break;
         }
-        prevWidth = width;
-        col++;
     }
     if (col > lineLen) col = lineLen;
+    if (lineBuf) free(lineBuf);
 
     *outLine = lineIndex;
     *outColumn = col;

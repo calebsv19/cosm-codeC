@@ -35,14 +35,14 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     if (viewport.w < 0) viewport.w = 0;
     if (viewport.h < 0) viewport.h = 0;
 
-    int totalLines = getTerminalLineCount();
-    (void)totalLines;
     terminal_resize_grid_for_pane(viewport.w, viewport.h);
 
     PaneScrollState* scroll = terminal_get_scroll_state();
     scroll_state_set_viewport(scroll, (float)viewport.h);
-    // Use grid height for scrolling
-    float contentHeight = (float)g_cellHeight * (float)g_termGrid.rows;
+    // Use last used row to size scroll content so we don't pad with empty rows
+    int lastRowUsed = terminal_last_used_row();
+    int contentRows = (lastRowUsed >= 0) ? (lastRowUsed + 1) : 1;
+    float contentHeight = (float)g_cellHeight * (float)contentRows;
     scroll_state_set_content_height(scroll, contentHeight);
 
     if (terminal_is_following_output()) {
@@ -62,12 +62,17 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
 
     pushClipRect(&viewport);
 
-    int rowsToRender = (viewport.h > 0) ? (viewport.h / g_cellHeight) + 1 : g_termGrid.rows;
+    int rowsToRender = (viewport.h > 0 && g_cellHeight > 0)
+        ? ((viewport.h + g_cellHeight - 1) / g_cellHeight)
+        : g_termGrid.rows;
     int cols = g_termGrid.cols;
     if (!g_termGrid.cells || g_termGrid.rows <= 0 || g_termGrid.cols <= 0) {
         popClipRect();
         return;
     }
+    int selStartLine = 0, selStartCol = 0, selEndLine = 0, selEndCol = 0;
+    bool hasSelection = terminal_get_selection_bounds(&selStartLine, &selStartCol, &selEndLine, &selEndCol);
+
     char* lineBuf = (char*)malloc((size_t)cols + 1);
     if (lineBuf) {
         for (int r = 0; r < rowsToRender; ++r) {
@@ -75,8 +80,8 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
             if (rowIndex >= g_termGrid.rows) break;
 
             float drawYf = (float)viewport.y + (float)r * (float)g_cellHeight - intraLineOffset;
+            if (drawYf < (float)viewport.y) continue; // avoid drawing rows that would clip above
             if (drawYf >= (float)(viewport.y + viewport.h)) break;
-            if (drawYf + g_cellHeight <= viewport.y) continue;
 
             int drawY = (int)drawYf;
             int lastNonSpace = -1;
@@ -92,6 +97,21 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
             }
             int renderLen = (lastNonSpace >= 0) ? lastNonSpace + 1 : 0;
             lineBuf[renderLen] = '\0';
+            // Selection highlight using grid coords
+            if (hasSelection && rowIndex >= selStartLine && rowIndex <= selEndLine) {
+                int startCol = (rowIndex == selStartLine) ? selStartCol : 0;
+                int endCol = (rowIndex == selEndLine) ? selEndCol : cols;
+                if (startCol < 0) startCol = 0;
+                if (endCol < startCol) endCol = startCol;
+                if (endCol > cols) endCol = cols;
+                if (startCol != endCol) {
+                    int startX = viewport.x + startCol * g_cellWidth;
+                    int width = (endCol - startCol) * g_cellWidth;
+                    SDL_Rect highlight = { startX, drawY, width, g_cellHeight };
+                    SDL_SetRenderDrawColor(renderer, 80, 120, 200, 100);
+                    SDL_RenderFillRect(renderer, &highlight);
+                }
+            }
             if (renderLen > 0) {
                 drawText(viewport.x, drawY, lineBuf);
             }
@@ -129,10 +149,34 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         // Caret at grid cursor position
         int caretRow = g_termGrid.cursor_row;
         int caretCol = g_termGrid.cursor_col;
-        int caretX = viewport.x + caretCol * g_cellWidth;
+        if (caretRow < 0) caretRow = 0;
+        if (caretRow >= g_termGrid.rows) caretRow = g_termGrid.rows - 1;
+        if (caretCol < 0) caretCol = 0;
+        if (caretCol > cols) caretCol = cols;
+
+        // Build a row slice up to caretCol to measure width with proportional font.
+        int caretLen = caretCol;
+        if (caretLen > cols) caretLen = cols;
+        char* caretBuf = (char*)malloc((size_t)caretLen + 1);
+        int caretWidthPx = 0;
+        if (caretBuf) {
+            for (int c = 0; c < caretLen; ++c) {
+                TermCell* cell = term_grid_cell(&g_termGrid, caretRow, c);
+                char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
+                caretBuf[c] = (ch >= 0x20 && ch < 0x7F) ? ch : ' ';
+            }
+            caretBuf[caretLen] = '\0';
+            caretWidthPx = getTextWidth(caretBuf);
+            free(caretBuf);
+        }
+
+        int caretX = viewport.x + caretWidthPx;
         int caretY = viewport.y + (caretRow - firstRow) * g_cellHeight - (int)intraLineOffset;
-        SDL_Rect caret = { caretX, caretY, g_cellWidth > 0 ? g_cellWidth : 8, g_cellHeight > 0 ? g_cellHeight : 3 };
-        SDL_SetRenderDrawColor(renderer, 200, 200, 220, 200);
+        int caretW = (g_cellWidth > 0) ? (g_cellWidth / 4) : 4;
+        int caretH = 3;
+        caretY += (g_cellHeight > caretH) ? (g_cellHeight - caretH) : 0;
+        SDL_Rect caret = { caretX, caretY, caretW, caretH };
+        SDL_SetRenderDrawColor(renderer, 200, 200, 220, 220);
         SDL_RenderFillRect(renderer, &caret);
     }
 }
