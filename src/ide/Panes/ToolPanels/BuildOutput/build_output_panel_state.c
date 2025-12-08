@@ -7,6 +7,7 @@ void initBuildOutputPanelState(void) {
     state.rootTree = NULL;
     state.selectedBuildDirectory = NULL;
     state.selectedRunTarget = NULL;
+    state.selectedDiagIndex = -1;
 }
 
 void freeBuildOutputPanelState(void) {
@@ -16,6 +17,7 @@ void freeBuildOutputPanelState(void) {
     }
     state.selectedBuildDirectory = NULL;
     state.selectedRunTarget = NULL;
+    state.selectedDiagIndex = -1;
 }
 
 BuildOutputPanelState* getBuildOutputPanelState(void) {
@@ -49,3 +51,10 @@ UITreeNode* getSelectedRunTarget(void) {
     return state.selectedRunTarget;
 }
 
+int getSelectedBuildDiag(void) {
+    return state.selectedDiagIndex;
+}
+
+void setSelectedBuildDiag(int index) {
+    state.selectedDiagIndex = index;
+}

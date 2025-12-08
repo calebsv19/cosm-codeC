@@ -20,6 +20,7 @@
 #include "workspace_prefs.h"
 #include "core/Watcher/file_watcher.h"
 #include "core/BuildSystem/build_system.h"
+#include "core/BuildSystem/build_diagnostics.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 
 #include "Parser/language_parser.h"
@@ -66,6 +67,15 @@ static bool pathIsDirectory(const char* path) {
     return S_ISDIR(st.st_mode);
 }
 
+static void ensureIdeFilesDir(const char* root) {
+    if (!root || !*root) return;
+    char dirPath[1024];
+    snprintf(dirPath, sizeof(dirPath), "%s/ide_files", root);
+    struct stat st;
+    if (stat(dirPath, &st) == 0 && S_ISDIR(st.st_mode)) return;
+    mkdir(dirPath, 0755);
+}
+
 static const char* getDefaultWorkspacePath(void) {
     return "/Users/calebsv16/Desktop/Project";
 }
@@ -98,6 +108,7 @@ static void loadInitialWorkspace(void) {
     snprintf(projectPath, sizeof(projectPath), "%s", finalPath);
     setWorkspacePath(projectPath);
     setWorkspaceWatchPath(projectPath);
+    build_diagnostics_load(projectPath);
 
     const char* savedRunTarget = loadRunTargetPreference();
     if (savedRunTarget && savedRunTarget[0]) {
@@ -131,8 +142,9 @@ static void loadInitialWorkspace(void) {
     taskRootCount = 0;
         
     // 📦 Load task tree from file
+    ensureIdeFilesDir(projectPath);
     char taskPath[1024];
-    snprintf(taskPath, sizeof(taskPath), "%s/task_tree.json", projectPath);
+    snprintf(taskPath, sizeof(taskPath), "%s/ide_files/task_tree.json", projectPath);
     bool loaded = loadTaskTreeFromFile(taskPath, &taskRoots, &taskRootCount);
 
     if (loaded && taskRootCount > 0) {
@@ -245,6 +257,7 @@ bool initializeSystem() {
     initLanguageParser();
     initBuildSystem();
     initBuildOutputPanelState();
+    build_diagnostics_load(projectPath);
 
     initPluginSystem();
 
@@ -264,6 +277,9 @@ bool initializeSystem() {
 }
 
 void shutdownSystem(UIPane** panes, int paneCount) {
+    // Persist last build diagnostics for next session.
+    build_diagnostics_save(projectPath);
+
     terminal_shutdown_shell();
 
     // === Destroy UI panes ===
@@ -274,9 +290,10 @@ void shutdownSystem(UIPane** panes, int paneCount) {
     shutdownRenderPipeline();
     unloadAllPlugins();
 
-    // === Save current task tree to JSON ===
+    // === Save current task tree to JSON (in ide_files) ===
+    ensureIdeFilesDir(projectPath);
     char taskPath[1024];
-    snprintf(taskPath, sizeof(taskPath), "%s/task_tree.json", projectPath);
+    snprintf(taskPath, sizeof(taskPath), "%s/ide_files/task_tree.json", projectPath);
     if (!saveTaskTreeToFile(taskPath, taskRoots, taskRootCount)) {
         fprintf(stderr, "[Shutdown] Failed to save task tree to %s\n", taskPath);
     }

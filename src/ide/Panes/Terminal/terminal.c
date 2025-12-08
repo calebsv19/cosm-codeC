@@ -7,6 +7,7 @@
 #include "engine/Render/render_text_helpers.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "app/GlobalInfo/core_state.h"
+#include "core/BuildSystem/build_diagnostics.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -138,6 +139,14 @@ bool terminal_session_info(int index, const char** name, bool* isBuild, bool* is
     return true;
 }
 
+bool terminal_set_name(int index, const char* name) {
+    if (index < 0 || index >= g_session_count) return false;
+    TerminalSession* s = &g_sessions[index];
+    if (!name) return false;
+    snprintf(s->name, sizeof(s->name), "%s", name);
+    return true;
+}
+
 int terminal_find_task(bool isBuild, bool isRun) {
     for (int i = 0; i < g_session_count; ++i) {
         if (g_sessions[i].isBuild == isBuild && g_sessions[i].isRun == isRun) {
@@ -240,6 +249,25 @@ bool terminal_close_active_interactive(void) {
     if (count_interactive() <= 1) return false;
     terminal_close_interactive(g_active_index);
     return true;
+}
+
+void terminal_append_to_session(int index, const char* text) {
+    if (!text) return;
+    if (index < 0 || index >= g_session_count) return;
+    TerminalSession* s = &g_sessions[index];
+    term_emulator_feed(&s->grid, text, strlen(text));
+}
+
+void terminal_clear_session(int index) {
+    if (index < 0 || index >= g_session_count) return;
+    TerminalSession* s = &g_sessions[index];
+    term_grid_clear(&s->grid);
+    if (!s->scrollInitialized) {
+        scroll_state_init(&s->scrollState, &kTerminalScrollConfig);
+        s->scrollInitialized = true;
+    }
+    s->scrollState.offset_px = 0.0f;
+    s->scrollState.target_offset_px = 0.0f;
 }
 
 int terminal_line_length(int row, bool trim_trailing) {
@@ -526,6 +554,9 @@ static void terminal_flush_backend_output(void) {
             printf("\"\n");
             // Feed raw bytes to emulator
             term_emulator_feed(&s->grid, raw, chunkLen);
+            if (s->isBuild) {
+                build_diagnostics_feed_chunk(raw, chunkLen);
+            }
             free(raw);
         }
         s->backendConsumed = len;

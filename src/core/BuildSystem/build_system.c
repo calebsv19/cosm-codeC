@@ -4,6 +4,7 @@
 #include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/workspace_prefs.h"
+#include "core/BuildSystem/build_diagnostics.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -85,6 +86,35 @@ static void updateLastExecutableFromDirectory(const char* outputDir) {
     }
 }
 
+// Try to find a runnable artifact in common locations:
+// 1) A preferred path, if provided.
+// 2) The build output dir (if provided).
+// 3) The workspace root as a fallback.
+static void discoverRunTarget(const char* preferredPath,
+                              const char* outputDir,
+                              const char* workspaceRoot) {
+    const char* existing = getRunTargetPath();
+    if (existing && existing[0]) return;
+
+    if (preferredPath && preferredPath[0]) {
+        struct stat st;
+        if (stat(preferredPath, &st) == 0 && S_ISREG(st.st_mode) && (st.st_mode & S_IXUSR)) {
+            setRunTargetPath(preferredPath);
+            saveRunTargetPreference(preferredPath);
+            return;
+        }
+    }
+
+    if (outputDir && outputDir[0]) {
+        updateLastExecutableFromDirectory(outputDir);
+        if (getRunTargetPath() && getRunTargetPath()[0]) return;
+    }
+
+    if (workspaceRoot && workspaceRoot[0]) {
+        updateLastExecutableFromDirectory(workspaceRoot);
+    }
+}
+
 static void expandPathRelative(const char* baseDir,
                                const char* path,
                                char* out,
@@ -126,9 +156,17 @@ static void expandPathRelative(const char* baseDir,
 
 void triggerBuild(void) {
     clearBuildOutput();
-    if (terminal_activate_task(true, false)) {
+    build_diagnostics_clear();
+    setSelectedBuildDiag(-1);
+
+    bool buildTerminalReady = terminal_activate_task(true, false);
+    if (buildTerminalReady) {
         clearTerminal();
+        terminal_set_follow_output(true);
+    } else {
+        printToTerminal("[BuildSystem] Warning: Build terminal not found; using current terminal.\n");
     }
+
     printToTerminal("[BuildSystem] Starting build...\n");
     currentStatus = BUILD_STATUS_RUNNING;
     lastExecutablePath[0] = '\0';
@@ -148,11 +186,12 @@ void triggerBuild(void) {
     char resolvedOutputDir[PATH_MAX] = {0};
     const char* outputDirForArtifacts = NULL;
 
-    char command[2048];
-    command[0] = '\0';
+    char commandForShell[1024] = {0};   // Command to feed into an interactive shell
+    char commandForPopen[2048] = {0};   // Command to execute via popen fallback
 
     if (!customCommand) {
-        snprintf(command, sizeof(command),
+        snprintf(commandForShell, sizeof(commandForShell), "make");
+        snprintf(commandForPopen, sizeof(commandForPopen),
                  "cd \"%s\" && make 2>&1",
                  projectPath);
 
@@ -161,6 +200,8 @@ void triggerBuild(void) {
 
         char msg[512];
         snprintf(msg, sizeof(msg), "[BuildSystem] Default build command: make\n");
+        printToTerminal(msg);
+        snprintf(msg, sizeof(msg), "[BuildSystem] Working directory: %s\n", projectPath);
         printToTerminal(msg);
         snprintf(msg, sizeof(msg), "[BuildSystem] Scanning for artifacts in: %s\n", resolvedOutputDir);
         printToTerminal(msg);
@@ -171,7 +212,9 @@ void triggerBuild(void) {
             snprintf(buildArgs, sizeof(buildArgs), " %s", cfg->build_args);
         }
 
-        snprintf(command, sizeof(command), "cd \"%s\" && %s%s 2>&1",
+        snprintf(commandForShell, sizeof(commandForShell), "%s%s",
+                 customCommand, buildArgs);
+        snprintf(commandForPopen, sizeof(commandForPopen), "cd \"%s\" && %s%s 2>&1",
                  workingDir, customCommand, buildArgs);
 
         if (cfg->build_output_dir[0]) {
@@ -193,7 +236,31 @@ void triggerBuild(void) {
         }
     }
 
-    FILE* pipe = popen(command, "r");
+    // Preferred path: run inside a PTY shell so output streams live into the Build tab.
+    if (buildTerminalReady) {
+        // Start a fresh shell in the desired working directory.
+        if (!terminal_spawn_shell(workingDir, 0, 0)) {
+            printToTerminal("[BuildSystem] Failed to start build shell.\n");
+            currentStatus = BUILD_STATUS_FAILED;
+            return;
+        }
+
+        char dispatch[512];
+        snprintf(dispatch, sizeof(dispatch), "[BuildSystem] Executing in shell: %s\n", commandForShell);
+        printToTerminal(dispatch);
+
+        // Send the command to the shell.
+        if (commandForShell[0]) {
+            terminal_send_text(commandForShell, strlen(commandForShell));
+            terminal_send_text("\n", 1);
+        }
+
+        // We cannot synchronously know success here; leave status as running and let user read output.
+        return;
+    }
+
+    // Fallback: run synchronously with popen in the current terminal.
+    FILE* pipe = popen(commandForPopen, "r");
     if (!pipe) {
         const char* errorMsg = "[BuildSystem] Failed to open build pipe.\n";
         printToTerminal(errorMsg);
@@ -201,25 +268,29 @@ void triggerBuild(void) {
         currentStatus = BUILD_STATUS_FAILED;
         return;
     }
+    char startLine[256];
+    snprintf(startLine, sizeof(startLine), "[BuildSystem] Executing: %s\n", commandForPopen);
+    printToTerminal(startLine);
 
     char buffer[256];
     while (fgets(buffer, sizeof(buffer), pipe)) {
         printToTerminal(buffer);
+        build_diagnostics_feed_chunk(buffer, strlen(buffer));
         strncat(buildLog, buffer, sizeof(buildLog) - strlen(buildLog) - 1);
     }
 
     int result = pclose(pipe);
     if (result == 0) {
         printToTerminal("[BuildSystem] Build completed successfully.\n");
-        if (outputDirForArtifacts && outputDirForArtifacts[0]) {
-            updateLastExecutableFromDirectory(outputDirForArtifacts);
-        }
+        const char* workspace = getWorkspacePath();
+        discoverRunTarget(lastExecutablePath, outputDirForArtifacts, workspace);
         pendingProjectRefresh = true;
         currentStatus = BUILD_STATUS_SUCCESS;
     } else {
         printToTerminal("[BuildSystem] Build failed.\n");
         currentStatus = BUILD_STATUS_FAILED;
     }
+    build_diagnostics_save(projectPath);
 }
 
 

@@ -8,6 +8,7 @@ typedef struct {
     UITreeNode* rootTree;
     UITreeNode* selectedBuildDirectory;
     UITreeNode* selectedRunTarget;
+    int selectedDiagIndex;
 } BuildOutputPanelState;
 
 // === Lifecycle
@@ -25,6 +26,7 @@ void selectRunTarget(UITreeNode* fileNode);
 // === Getters
 UITreeNode* getSelectedBuildDirectory(void);
 UITreeNode* getSelectedRunTarget(void);
+int getSelectedBuildDiag(void);
+void setSelectedBuildDiag(int index);
 
 #endif // BUILD_OUTPUT_PANEL_STATE_H
-

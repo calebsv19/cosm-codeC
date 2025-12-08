@@ -709,10 +709,8 @@ void refreshProjectDirectory(void) {
         }
     }
 
-    // Restart terminal in the newly loaded workspace
-    if (projectPath[0] != '\0') {
-        terminal_spawn_shell(projectPath, 0, 0);
-    }
+    // Do not restart terminals here; we want build/run sessions to keep their scrollback.
+    // If we ever need to start a shell on first load, do it from initTerminal instead.
 
     restoreRunTargetSelection();
 }

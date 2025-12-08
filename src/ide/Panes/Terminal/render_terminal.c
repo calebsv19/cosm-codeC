@@ -78,7 +78,21 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         if (!terminal_session_info(i, &name, &isBuild, &isRun)) continue;
         if (isBuild || isRun) continue;
         const char* label = name ? name : "Term";
-        int textW = getTextWidth(label);
+        char truncated[64];
+        const bool isActiveTab = (i == activeIdx);
+        const char* drawLabel = label;
+        if (!isActiveTab) {
+            size_t len = strlen(label);
+            if (len > 20) {
+                size_t copy = 17;
+                if (copy > sizeof(truncated) - 4) copy = sizeof(truncated) - 4;
+                memcpy(truncated, label, copy);
+                truncated[copy] = '\0';
+                strncat(truncated, "...", sizeof(truncated) - copy - 1);
+                drawLabel = truncated;
+            }
+        }
+        int textW = getTextWidth(drawLabel);
         int tabW = textW + 16;
         SDL_Rect tabRect = { tabX, tabY, tabW, headerH - 8 };
         terminal_set_tab_rect(i, tabRect);
@@ -90,7 +104,7 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         SDL_RenderFillRect(renderer, &tabRect);
         SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
         SDL_RenderDrawRect(renderer, &tabRect);
-        drawText(tabRect.x + 8, tabRect.y + (tabRect.h - 14) / 2, label);
+        drawText(tabRect.x + 8, tabRect.y + (tabRect.h - 14) / 2, drawLabel);
         tabX += tabW + 6;
     }
 

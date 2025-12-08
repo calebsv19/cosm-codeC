@@ -5,8 +5,10 @@
 #include "ide/Panes/Terminal/terminal.h"
 #include "engine/Render/render_text_helpers.h"
 #include "ide/UI/scroll_manager.h"
+#include "core/InputManager/UserInput/rename_flow.h"
 #include "app/GlobalInfo/core_state.h"
 
+#include <SDL2/SDL.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -85,6 +87,35 @@ static void terminal_compute_position(UIPane* pane, int mouseX, int mouseY, int*
 
     *outLine = lineIndex;
     *outColumn = col;
+}
+
+// --- Rename support (double-click interactive tab) ---
+static Uint32 g_lastTabClickTicks = 0;
+static int g_lastTabClickIndex = -1;
+static const Uint32 kTabDoubleClickMs = 400;
+
+static void handle_tab_rename_callback(const char* oldName, const char* newName, void* context) {
+    (void)oldName;
+    int idx = (int)(intptr_t)context;
+    if (!newName) return;
+    terminal_set_name(idx, newName);
+}
+
+static void maybe_begin_tab_rename(int tabIndex) {
+    const char* name = NULL;
+    bool isBuild = false, isRun = false;
+    if (!terminal_session_info(tabIndex, &name, &isBuild, &isRun)) return;
+    if (isBuild || isRun) return; // only interactive tabs are renameable
+    const char* current = name ? name : "Terminal";
+    beginRenameWithPrompt(
+        "Terminal Name:",
+        "Enter a name",
+        current,
+        handle_tab_rename_callback,
+        NULL, // no validation needed
+        (void*)(intptr_t)tabIndex,
+        true   // accept unchanged
+    );
 }
 
 
@@ -180,7 +211,16 @@ void handleTerminalMouseInput(UIPane* pane, SDL_Event* event) {
             if (event->button.button == SDL_BUTTON_LEFT) {
                 int hit = terminal_tab_hit(event->button.x, event->button.y);
                 if (hit >= 0) {
-                    terminal_set_active(hit);
+                    Uint32 now = SDL_GetTicks();
+                    bool doubleClick = (hit == g_lastTabClickIndex) &&
+                                       (now - g_lastTabClickTicks < kTabDoubleClickMs);
+                    g_lastTabClickTicks = now;
+                    g_lastTabClickIndex = hit;
+                    if (doubleClick) {
+                        maybe_begin_tab_rename(hit);
+                    } else {
+                        terminal_set_active(hit);
+                    }
                     return;
                 }
                 if (terminal_plus_hit(event->button.x, event->button.y)) {

@@ -2,39 +2,39 @@
 
 #include "ide/Panes/ToolPanels/BuildOutput/render_tool_build_output.h"
 #include "ide/Panes/ToolPanels/BuildOutput/tool_build_output.h"
-#include "core/BuildSystem/build_system.h"   // for getBuildOutput()
+#include "core/BuildSystem/build_diagnostics.h"
+#include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
+#include "engine/Render/render_pipeline.h" // getRenderContext
 #include <SDL2/SDL.h>
 #include <string.h>
 
-// Internal rendering
-static void renderBuildLogLines(const char* logText, int x, int y, int maxY, int lineHeight) {
-    char buffer[1024];
-    char lineWithNumber[1152];  // Enough space for line number + buffer
-    int lineIndex = 0;
-    const char* lineStart = logText;
-
-    while (*lineStart && y + lineHeight <= maxY) {
-        const char* lineEnd = strchr(lineStart, '\n');
-        if (!lineEnd) lineEnd = lineStart + strlen(lineStart);
-
-        int len = lineEnd - lineStart;
-        if (len >= sizeof(buffer)) len = sizeof(buffer) - 1;
-        strncpy(buffer, lineStart, len);
-        buffer[len] = '\0';
-
-        // Format with line number prefix
-        snprintf(lineWithNumber, sizeof(lineWithNumber), "%4d | %s", lineIndex + 1, buffer);
-        drawText(x, y, lineWithNumber);
+static void renderDiagnosticsList(const BuildDiagnostic* diags, size_t count, int x, int y, int maxY, int lineHeight) {
+    int selected = getSelectedBuildDiag();
+    char line[1400];
+    for (size_t i = 0; i < count && y + lineHeight <= maxY; ++i) {
+        const BuildDiagnostic* d = &diags[i];
+        const char* sev = d->isError ? "[E]" : "[W]";
+        // Highlight selection
+        if ((int)i == selected) {
+            SDL_Rect highlight = { x - 6, y - 2, 1000, lineHeight * 2 };
+            SDL_SetRenderDrawColor(getRenderContext()->renderer, 60, 80, 120, 120);
+            SDL_RenderFillRect(getRenderContext()->renderer, &highlight);
+        }
+        // Line 1: label + location
+        snprintf(line, sizeof(line), "%s %s:%d:%d", sev, d->path, d->line, d->col);
+        drawText(x, y, line);
         y += lineHeight;
-
-        lineStart = (*lineEnd == '\n') ? lineEnd + 1 : lineEnd;
-        lineIndex++;
+        // Line 2: indented message
+        snprintf(line, sizeof(line), "    %s", d->message);
+        drawText(x, y, line);
+        y += lineHeight;
+        if (d->notes[0] && y + lineHeight <= maxY) {
+            snprintf(line, sizeof(line), "    note: %s", d->notes);
+            drawText(x, y, line);
+            y += lineHeight;
+        }
     }
 }
-
-
-
-
 
 void renderBuildOutputPanel(UIPane* pane) {
     int x = pane->x + 12;
@@ -42,12 +42,12 @@ void renderBuildOutputPanel(UIPane* pane) {
     int maxY = pane->y + pane->h;
     int lineHeight = 20;
 
-    const char* log = getBuildOutput();
-    if (!log || strlen(log) == 0) {
-        drawText(x, y, "(No build output yet)");
+    size_t count = 0;
+    const BuildDiagnostic* diags = build_diagnostics_get(&count);
+    if (!diags || count == 0) {
+        drawText(x, y, "(No build diagnostics yet)");
         return;
     }
 
-    renderBuildLogLines(log, x, y, maxY, lineHeight);
+    renderDiagnosticsList(diags, count, x, y, maxY, lineHeight);
 }
-
