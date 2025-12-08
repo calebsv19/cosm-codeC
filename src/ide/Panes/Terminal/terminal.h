@@ -3,6 +3,7 @@
 
 #include <SDL2/SDL.h>
 #include <stdbool.h>
+#include "ide/Panes/Terminal/terminal_grid.h"
 
 #define MAX_TERMINAL_LINES 512
 #define MAX_TERMINAL_LINE_LENGTH 256
@@ -30,5 +31,19 @@ void terminal_set_scroll_track(const SDL_Rect* track, const SDL_Rect* thumb);
 void terminal_get_scroll_track(SDL_Rect* track, SDL_Rect* thumb);
 void terminal_set_follow_output(bool follow);
 bool terminal_is_following_output(void);
+
+// Input to the PTY shell (UTF-8 bytes; caller provides already-encoded data).
+void terminal_send_text(const char* text, size_t len);
+
+// Backend lifecycle (PTY shell). Rows/cols are optional hints; pass 0 for defaults.
+bool terminal_spawn_shell(const char* start_dir, int rows, int cols);
+void terminal_shutdown_shell(void);
+void terminal_tick_backend(void);  // Non-blocking pump; call from frame loop
+void terminal_resize_grid_for_pane(int width_px, int height_px);
+
+// Expose grid and cell metrics for rendering.
+extern TermGrid g_termGrid;
+extern int g_cellWidth;
+extern int g_cellHeight;
 
 #endif

@@ -6,6 +6,8 @@
 
 #include "../Terminal/terminal.h"
 #include "core/TextSelection/text_selection_manager.h"
+#include "ide/Panes/Terminal/terminal_grid.h"
+#include "ide/Panes/Terminal/terminal.h" // for globals exported from terminal.c
 #include "ide/UI/scroll_manager.h"
 #include "ide/Panes/PaneInfo/pane.h"
 
@@ -20,7 +22,6 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
 
     renderUIPane(pane, hovered);
 
-    const int lineHeight = TERMINAL_LINE_HEIGHT;
     const int padding = TERMINAL_PADDING;
     const int trackWidth = 6;
     const int trackPadding = 4;
@@ -35,11 +36,13 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     if (viewport.h < 0) viewport.h = 0;
 
     int totalLines = getTerminalLineCount();
-    const char** lines = getTerminalBuffer();
+    (void)totalLines;
+    terminal_resize_grid_for_pane(viewport.w, viewport.h);
 
     PaneScrollState* scroll = terminal_get_scroll_state();
     scroll_state_set_viewport(scroll, (float)viewport.h);
-    float contentHeight = (float)totalLines * (float)lineHeight;
+    // Use grid height for scrolling
+    float contentHeight = (float)g_cellHeight * (float)g_termGrid.rows;
     scroll_state_set_content_height(scroll, contentHeight);
 
     if (terminal_is_following_output()) {
@@ -52,74 +55,48 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     }
 
     float offset = scroll_state_get_offset(scroll);
-    int firstLine = (lineHeight > 0) ? (int)(offset / (float)lineHeight) : 0;
-    if (firstLine < 0) firstLine = 0;
-    if (firstLine > totalLines) firstLine = totalLines;
-    float intraLineOffset = offset - (float)firstLine * (float)lineHeight;
+    int firstRow = (g_cellHeight > 0) ? (int)(offset / (float)g_cellHeight) : 0;
+    if (firstRow < 0) firstRow = 0;
+    if (firstRow > g_termGrid.rows) firstRow = g_termGrid.rows;
+    float intraLineOffset = offset - (float)firstRow * (float)g_cellHeight;
 
     pushClipRect(&viewport);
 
-    int selStartLine = 0, selStartCol = 0, selEndLine = 0, selEndCol = 0;
-    bool hasSelection = terminal_get_selection_bounds(&selStartLine, &selStartCol, &selEndLine, &selEndCol);
+    int rowsToRender = (viewport.h > 0) ? (viewport.h / g_cellHeight) + 1 : g_termGrid.rows;
+    int cols = g_termGrid.cols;
+    if (!g_termGrid.cells || g_termGrid.rows <= 0 || g_termGrid.cols <= 0) {
+        popClipRect();
+        return;
+    }
+    char* lineBuf = (char*)malloc((size_t)cols + 1);
+    if (lineBuf) {
+        for (int r = 0; r < rowsToRender; ++r) {
+            int rowIndex = firstRow + r;
+            if (rowIndex >= g_termGrid.rows) break;
 
-    int linesToRender = (viewport.h > 0) ? (viewport.h / lineHeight) + 2 : totalLines;
-    for (int i = 0; i < linesToRender; ++i) {
-        int lineIndex = firstLine + i;
-        if (lineIndex >= totalLines) break;
+            float drawYf = (float)viewport.y + (float)r * (float)g_cellHeight - intraLineOffset;
+            if (drawYf >= (float)(viewport.y + viewport.h)) break;
+            if (drawYf + g_cellHeight <= viewport.y) continue;
 
-        float drawYf = (float)viewport.y + (float)i * (float)lineHeight - intraLineOffset;
-        if (drawYf >= (float)(viewport.y + viewport.h)) break;
-        if (drawYf + lineHeight <= viewport.y) continue;
-
-        int drawY = (int)drawYf;
-        int drawX = viewport.x;
-        int maxWidth = viewport.w;
-
-        const char* text = lines[lineIndex];
-        if (!text) text = "";
-
-        if (hasSelection && lineIndex >= selStartLine && lineIndex <= selEndLine) {
-            int lineLen = (int)strlen(text);
-            int startCol = (lineIndex == selStartLine) ? selStartCol : 0;
-            int endCol = (lineIndex == selEndLine) ? selEndCol : lineLen;
-            if (startCol < 0) startCol = 0;
-            if (endCol < startCol) endCol = startCol;
-            if (endCol > lineLen) endCol = lineLen;
-
-            if (startCol != endCol) {
-                int startX = drawX + getTextWidthN(text, startCol);
-                int endX = drawX + getTextWidthN(text, endCol);
-                int width = endX - startX;
-                if (width <= 0) width = 2;
-                SDL_Rect highlight = { startX, drawY, width, lineHeight };
-                SDL_SetRenderDrawColor(renderer, 80, 120, 200, 100);
-                SDL_RenderFillRect(renderer, &highlight);
+            int drawY = (int)drawYf;
+            int lastNonSpace = -1;
+            for (int c = 0; c < cols; ++c) {
+                TermCell* cell = term_grid_cell(&g_termGrid, rowIndex, c);
+                char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
+                if (ch >= 0x20 && ch < 0x7F) {
+                    lineBuf[c] = ch;
+                    if (ch != ' ') lastNonSpace = c;
+                } else {
+                    lineBuf[c] = ' ';
+                }
+            }
+            int renderLen = (lastNonSpace >= 0) ? lastNonSpace + 1 : 0;
+            lineBuf[renderLen] = '\0';
+            if (renderLen > 0) {
+                drawText(viewport.x, drawY, lineBuf);
             }
         }
-
-        drawClippedText(drawX, drawY, text, maxWidth);
-
-        int lineWidth = getTextWidth(text);
-        if (lineWidth <= 0) lineWidth = maxWidth;
-        int lineLen = (int)strlen(text);
-        TextSelectionRect rect = {
-            .bounds = { drawX, drawY, lineWidth, lineHeight },
-            .line = lineIndex,
-            .column_start = 0,
-            .column_end = lineLen,
-        };
-        TextSelectionDescriptor desc = {
-            .owner = pane,
-            .owner_role = pane->role,
-            .text = text,
-            .text_length = (size_t)lineLen,
-            .rects = &rect,
-            .rect_count = 1,
-            .flags = TEXT_SELECTION_FLAG_SELECTABLE,
-            .copy_handler = NULL,
-            .copy_user_data = NULL,
-        };
-        text_selection_manager_register(&desc);
+        free(lineBuf);
     }
 
     popClipRect();
@@ -146,5 +123,16 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         terminal_set_scroll_track(&track, &thumb);
     } else {
         terminal_set_scroll_track(NULL, NULL);
+    }
+
+    if (paneActive) {
+        // Caret at grid cursor position
+        int caretRow = g_termGrid.cursor_row;
+        int caretCol = g_termGrid.cursor_col;
+        int caretX = viewport.x + caretCol * g_cellWidth;
+        int caretY = viewport.y + (caretRow - firstRow) * g_cellHeight - (int)intraLineOffset;
+        SDL_Rect caret = { caretX, caretY, g_cellWidth > 0 ? g_cellWidth : 8, g_cellHeight > 0 ? g_cellHeight : 3 };
+        SDL_SetRenderDrawColor(renderer, 200, 200, 220, 200);
+        SDL_RenderFillRect(renderer, &caret);
     }
 }

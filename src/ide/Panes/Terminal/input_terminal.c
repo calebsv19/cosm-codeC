@@ -94,16 +94,63 @@ void handleTerminalKeyboardInput(UIPane* pane, SDL_Event* event) {
             case SDLK_l: CMD(COMMAND_CLEAR_TERMINAL); return;
             case SDLK_r: CMD(COMMAND_RUN_EXECUTABLE); return;
             case SDLK_c:
-                if (terminal_copy_selection_to_clipboard()) {
+                if (terminal_has_selection() && terminal_copy_selection_to_clipboard()) {
                     printf("[Terminal] Copied selection to clipboard.\n");
+                } else {
+                    const char sig = 0x03;
+                    terminal_send_text(&sig, 1);
                 }
                 return;
+            case SDLK_d: {
+                const char eof = 0x04;
+                terminal_send_text(&eof, 1);
+                return;
+            }
             default:
                 break;
         }
     }
 
-    printf("[Terminal] Unmapped keyboard input: %s\n", SDL_GetKeyName(key));
+    switch (key) {
+        case SDLK_RETURN: {
+            const char cr = '\r';
+            terminal_send_text(&cr, 1);
+            break;
+        }
+        case SDLK_BACKSPACE: {
+            const char del = 0x7f;
+            terminal_send_text(&del, 1);
+            break;
+        }
+        case SDLK_TAB: {
+            const char tab = '\t';
+            terminal_send_text(&tab, 1);
+            break;
+        }
+        case SDLK_UP: {
+            const char seq[] = {0x1b, '[', 'A'};
+            terminal_send_text(seq, sizeof(seq));
+            break;
+        }
+        case SDLK_DOWN: {
+            const char seq[] = {0x1b, '[', 'B'};
+            terminal_send_text(seq, sizeof(seq));
+            break;
+        }
+        case SDLK_RIGHT: {
+            const char seq[] = {0x1b, '[', 'C'};
+            terminal_send_text(seq, sizeof(seq));
+            break;
+        }
+        case SDLK_LEFT: {
+            const char seq[] = {0x1b, '[', 'D'};
+            terminal_send_text(seq, sizeof(seq));
+            break;
+        }
+        default:
+            printf("[Terminal] Unmapped keyboard input: %s\n", SDL_GetKeyName(key));
+            break;
+    }
 }
 
 
@@ -162,10 +209,19 @@ void handleTerminalHoverInput(UIPane* pane, int x, int y) {
     (void)pane; (void)x; (void)y;
 }
 
+void handleTerminalTextInput(UIPane* pane, SDL_Event* event) {
+    (void)pane;
+    if (!event || event->type != SDL_TEXTINPUT) return;
+    const char* text = event->text.text;
+    if (!text || text[0] == '\0') return;
+    terminal_send_text(text, strlen(text));
+}
+
 UIPaneInputHandler terminalInputHandler = {
     .onCommand = handleTerminalCommand,
     .onKeyboard = handleTerminalKeyboardInput,
     .onMouse = handleTerminalMouseInput,
     .onScroll = handleTerminalScrollInput,
     .onHover = handleTerminalHoverInput,
+    .onTextInput = handleTerminalTextInput,
 };

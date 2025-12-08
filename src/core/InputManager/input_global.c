@@ -13,8 +13,19 @@ void handleWindowGlobalEvents(SDL_Event* event,
             *running = false;
             break;
 
+        case SDL_APP_TERMINATING:
+            *running = false;
+            break;
+
         case SDL_WINDOWEVENT:
-            handleWindowEvent(event);
+            if (event->window.event == SDL_WINDOWEVENT_CLOSE) {
+                *running = false;
+                SDL_Event quit = {0};
+                quit.type = SDL_QUIT;
+                SDL_PushEvent(&quit);
+            } else {
+                handleWindowEvent(event);
+            }
             break;
 
         case SDL_MOUSEMOTION:

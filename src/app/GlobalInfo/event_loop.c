@@ -12,6 +12,7 @@
 #include "core/InputManager/input_manager.h"
 #include "core/CommandBus/command_bus.h"
 #include "core/Watcher/file_watcher.h"
+#include "ide/Panes/Terminal/terminal.h"
 #include "ide/Panes/Popup/popup_pane.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
 
@@ -54,6 +55,7 @@ static void processInputEvents(FrameContext* ctx) {
 static void tickBackgroundSystems() {
     tickCommandBus();
     pollFileWatcher();
+    terminal_tick_backend();
     // tickDiagnosticsEngine(dt), tickUndoSystem(dt), etc.
 }
 

@@ -15,6 +15,7 @@
 #include "ide/Plugin/plugin_interface.h"
 #include "ide/UI/ui_state.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/Panes/Terminal/terminal.h"
 
 #include "workspace_prefs.h"
 #include "core/Watcher/file_watcher.h"
@@ -252,6 +253,10 @@ bool initializeSystem() {
 
     initProjectPaths();
     loadInitialWorkspace();
+    initTerminal();
+
+    const char* workspace = getWorkspacePath();
+    terminal_spawn_shell((workspace && *workspace) ? workspace : NULL, 0, 0);
 
     initLibrariesPanel();
 
@@ -259,6 +264,8 @@ bool initializeSystem() {
 }
 
 void shutdownSystem(UIPane** panes, int paneCount) {
+    terminal_shutdown_shell();
+
     // === Destroy UI panes ===
     for (int i = 0; i < paneCount; i++) {
         destroyPane(panes[i]);
