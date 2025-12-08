@@ -7,6 +7,7 @@
 
 #define TERMINAL_LINE_HEIGHT 20
 #define TERMINAL_PADDING 6
+#define TERMINAL_HEADER_HEIGHT 28
 
 struct PaneScrollState;
 
@@ -26,6 +27,26 @@ bool terminal_copy_selection_to_clipboard(void);
 int terminal_line_to_string(int row, char* out, int cap, bool trim_trailing);
 int terminal_line_length(int row, bool trim_trailing);
 int terminal_last_used_row(void);
+TermGrid* terminal_active_grid(void);
+int terminal_cell_width(void);
+int terminal_cell_height(void);
+int terminal_session_count(void);
+int terminal_active_index(void);
+bool terminal_set_active(int index);
+int terminal_create_interactive(const char* start_dir);
+void terminal_close_interactive(int index);
+bool terminal_session_info(int index, const char** name, bool* isBuild, bool* isRun);
+bool terminal_close_active_interactive(void);
+bool terminal_active_is_task(void);
+int terminal_find_task(bool isBuild, bool isRun);
+bool terminal_activate_task(bool isBuild, bool isRun);
+void terminal_set_tab_rect(int index, SDL_Rect rect);
+int terminal_tab_hit(int x, int y);
+bool terminal_plus_hit(int x, int y);
+void terminal_reset_tab_rects(void);
+void terminal_set_plus_rect(SDL_Rect rect);
+void terminal_set_close_rect(SDL_Rect rect);
+bool terminal_close_hit(int x, int y);
 
 struct PaneScrollState* terminal_get_scroll_state(void);
 void terminal_set_scroll_track(const SDL_Rect* track, const SDL_Rect* thumb);
@@ -41,10 +62,5 @@ bool terminal_spawn_shell(const char* start_dir, int rows, int cols);
 void terminal_shutdown_shell(void);
 void terminal_tick_backend(void);  // Non-blocking pump; call from frame loop
 void terminal_resize_grid_for_pane(int width_px, int height_px);
-
-// Expose grid and cell metrics for rendering.
-extern TermGrid g_termGrid;
-extern int g_cellWidth;
-extern int g_cellHeight;
 
 #endif

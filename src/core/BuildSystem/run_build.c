@@ -2,6 +2,7 @@
 #include "ide/Panes/Terminal/terminal.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/workspace_prefs.h"
+#include "ide/Panes/Terminal/terminal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,7 +79,10 @@ static void replaceToken(const char* src,
 }
 
 void runExecutableAndStreamOutput(const char* executablePath) {
-    clearTerminal();
+    // Route output to the Run terminal session
+    if (terminal_activate_task(false, true)) {
+        clearTerminal();
+    }
 
     const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
     bool useCustomCommand = cfg && cfg->run_command[0];
@@ -103,6 +107,7 @@ void runExecutableAndStreamOutput(const char* executablePath) {
             return;
         }
 
+        const char* workspace = getWorkspacePath();
         char dirPath[PATH_MAX];
         strncpy(dirPath, executablePath, sizeof(dirPath) - 1);
         dirPath[sizeof(dirPath) - 1] = '\0';
@@ -115,12 +120,17 @@ void runExecutableAndStreamOutput(const char* executablePath) {
             dirPath[sizeof(dirPath) - 1] = '\0';
         }
 
+        const char* workingDir = (workspace && *workspace) ? workspace : dirPath;
         char infoMsg[512];
         snprintf(infoMsg, sizeof(infoMsg), "[RunSystem] Target: %s\n", executablePath);
         printToTerminal(infoMsg);
+        if (workingDir && *workingDir) {
+            snprintf(infoMsg, sizeof(infoMsg), "[RunSystem] Working directory: %s\n", workingDir);
+            printToTerminal(infoMsg);
+        }
 
         char command[1024];
-        snprintf(command, sizeof(command), "cd \"%s\" && \"%s\" 2>&1", dirPath, executablePath);
+        snprintf(command, sizeof(command), "cd \"%s\" && \"%s\" 2>&1", workingDir, executablePath);
 
         FILE* pipe = popen(command, "r");
         if (!pipe) {

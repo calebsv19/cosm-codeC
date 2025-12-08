@@ -126,7 +126,9 @@ static void expandPathRelative(const char* baseDir,
 
 void triggerBuild(void) {
     clearBuildOutput();
-    clearTerminal();
+    if (terminal_activate_task(true, false)) {
+        clearTerminal();
+    }
     printToTerminal("[BuildSystem] Starting build...\n");
     currentStatus = BUILD_STATUS_RUNNING;
     lastExecutablePath[0] = '\0';

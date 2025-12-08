@@ -5,6 +5,7 @@
 #include "ide/Panes/Terminal/terminal.h"
 #include "engine/Render/render_text_helpers.h"
 #include "ide/UI/scroll_manager.h"
+#include "app/GlobalInfo/core_state.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -22,9 +23,11 @@ static void terminal_update_follow_flag(PaneScrollState* scroll) {
 }
 
 static void terminal_compute_position(UIPane* pane, int mouseX, int mouseY, int* outLine, int* outColumn) {
-    int lineHeight = g_cellHeight > 0 ? g_cellHeight : TERMINAL_LINE_HEIGHT;
+    int cellH = terminal_cell_height();
+    int lineHeight = cellH > 0 ? cellH : TERMINAL_LINE_HEIGHT;
     int padding = TERMINAL_PADDING;
-    int totalLines = g_termGrid.rows;
+    TermGrid* grid = terminal_active_grid();
+    int totalLines = grid ? grid->rows : 0;
 
     if (totalLines <= 0) {
         *outLine = 0;
@@ -175,6 +178,18 @@ void handleTerminalMouseInput(UIPane* pane, SDL_Event* event) {
     switch (event->type) {
         case SDL_MOUSEBUTTONDOWN:
             if (event->button.button == SDL_BUTTON_LEFT) {
+                int hit = terminal_tab_hit(event->button.x, event->button.y);
+                if (hit >= 0) {
+                    terminal_set_active(hit);
+                    return;
+                }
+                if (terminal_plus_hit(event->button.x, event->button.y)) {
+                    terminal_create_interactive(getWorkspacePath());
+                    return;
+                }
+                if (terminal_close_hit(event->button.x, event->button.y)) {
+                    if (terminal_close_active_interactive()) return;
+                }
                 int line = 0, column = 0;
                 terminal_compute_position(pane, event->button.x, event->button.y, &line, &column);
                 terminal_begin_selection(line, column);

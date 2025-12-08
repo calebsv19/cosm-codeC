@@ -25,15 +25,101 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     const int padding = TERMINAL_PADDING;
     const int trackWidth = 6;
     const int trackPadding = 4;
+    const int headerH = TERMINAL_HEADER_HEIGHT;
+
+    SDL_Rect header = {
+        .x = pane->x + padding,
+        .y = pane->y + padding,
+        .w = pane->w - padding * 2,
+        .h = headerH
+    };
 
     SDL_Rect viewport = {
         .x = pane->x + padding,
-        .y = pane->y + padding,
+        .y = pane->y + padding + headerH,
         .w = pane->w - (padding * 2 + trackWidth + trackPadding),
-        .h = pane->h - (padding * 2)
+        .h = pane->h - (padding * 2 + headerH)
     };
     if (viewport.w < 0) viewport.w = 0;
     if (viewport.h < 0) viewport.h = 0;
+
+    // Draw header tabs
+    SDL_SetRenderDrawColor(renderer, 40, 40, 50, 255);
+    SDL_RenderFillRect(renderer, &header);
+    int tabX = header.x + 4;
+    int tabY = header.y + 4;
+    terminal_reset_tab_rects();
+    int sessionCount = terminal_session_count();
+    int activeIdx = terminal_active_index();
+    // Close button (for interactive tabs) placed on the far left
+    int closeW = headerH - 8;
+    SDL_Rect closeRect = { header.x + 4, tabY, closeW, headerH - 8 };
+    terminal_set_close_rect(closeRect);
+    SDL_SetRenderDrawColor(renderer, 80, 50, 50, 255);
+    SDL_RenderFillRect(renderer, &closeRect);
+    SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
+    SDL_RenderDrawRect(renderer, &closeRect);
+    drawText(closeRect.x + closeRect.w / 2 - 4, closeRect.y + (closeRect.h - 14) / 2, "x");
+
+    // Plus button for interactive, next to close
+    SDL_Rect plus = { closeRect.x + closeRect.w + 6, tabY, headerH - 8, headerH - 8 };
+    terminal_set_plus_rect(plus);
+    SDL_SetRenderDrawColor(renderer, 60, 60, 70, 255);
+    SDL_RenderFillRect(renderer, &plus);
+    SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
+    SDL_RenderDrawRect(renderer, &plus);
+    drawText(plus.x + 6, plus.y + (plus.h - 14) / 2, "+");
+    tabX = plus.x + plus.w + 6;
+
+    // Render interactive tabs immediately to the right of plus
+    for (int i = 0; i < sessionCount; ++i) {
+        const char* name = NULL;
+        bool isBuild = false, isRun = false;
+        if (!terminal_session_info(i, &name, &isBuild, &isRun)) continue;
+        if (isBuild || isRun) continue;
+        const char* label = name ? name : "Term";
+        int textW = getTextWidth(label);
+        int tabW = textW + 16;
+        SDL_Rect tabRect = { tabX, tabY, tabW, headerH - 8 };
+        terminal_set_tab_rect(i, tabRect);
+        if (i == activeIdx) {
+            SDL_SetRenderDrawColor(renderer, 70, 90, 140, 255);
+        } else {
+            SDL_SetRenderDrawColor(renderer, 60, 60, 70, 255);
+        }
+        SDL_RenderFillRect(renderer, &tabRect);
+        SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
+        SDL_RenderDrawRect(renderer, &tabRect);
+        drawText(tabRect.x + 8, tabRect.y + (tabRect.h - 14) / 2, label);
+        tabX += tabW + 6;
+    }
+
+    int rightStart = header.x + header.w - 4;
+    // Render task tabs (Build, Run) on the right side
+    for (int i = sessionCount - 1; i >= 0; --i) {
+        const char* name = NULL;
+        bool isBuild = false, isRun = false;
+        if (!terminal_session_info(i, &name, &isBuild, &isRun)) continue;
+        if (!isBuild && !isRun) continue;
+        const char* label = name ? name : (isBuild ? "Build" : (isRun ? "Run" : "Task"));
+        int textW = getTextWidth(label);
+        int tabW = textW + 16;
+        rightStart -= (tabW + 6);
+        SDL_Rect tabRect = { rightStart, tabY, tabW, headerH - 8 };
+        terminal_set_tab_rect(i, tabRect);
+        if (i == activeIdx) {
+            SDL_SetRenderDrawColor(renderer, 90, 110, 160, 255);
+        } else {
+            SDL_SetRenderDrawColor(renderer, 70, 70, 80, 255);
+        }
+        SDL_RenderFillRect(renderer, &tabRect);
+        SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
+        SDL_RenderDrawRect(renderer, &tabRect);
+        drawText(tabRect.x + 8, tabRect.y + (tabRect.h - 14) / 2, label);
+    }
+
+    TermGrid* grid = terminal_active_grid();
+    if (!grid) return;
 
     terminal_resize_grid_for_pane(viewport.w, viewport.h);
 
@@ -42,7 +128,9 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     // Use last used row to size scroll content so we don't pad with empty rows
     int lastRowUsed = terminal_last_used_row();
     int contentRows = (lastRowUsed >= 0) ? (lastRowUsed + 1) : 1;
-    float contentHeight = (float)g_cellHeight * (float)contentRows;
+    int cellH = terminal_cell_height();
+    int cellW = terminal_cell_width();
+    float contentHeight = (float)cellH * (float)contentRows;
     scroll_state_set_content_height(scroll, contentHeight);
 
     if (terminal_is_following_output()) {
@@ -55,18 +143,18 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     }
 
     float offset = scroll_state_get_offset(scroll);
-    int firstRow = (g_cellHeight > 0) ? (int)(offset / (float)g_cellHeight) : 0;
+    int firstRow = (cellH > 0) ? (int)(offset / (float)cellH) : 0;
     if (firstRow < 0) firstRow = 0;
-    if (firstRow > g_termGrid.rows) firstRow = g_termGrid.rows;
-    float intraLineOffset = offset - (float)firstRow * (float)g_cellHeight;
+    if (firstRow > grid->rows) firstRow = grid->rows;
+    float intraLineOffset = offset - (float)firstRow * (float)cellH;
 
     pushClipRect(&viewport);
 
-    int rowsToRender = (viewport.h > 0 && g_cellHeight > 0)
-        ? ((viewport.h + g_cellHeight - 1) / g_cellHeight)
-        : g_termGrid.rows;
-    int cols = g_termGrid.cols;
-    if (!g_termGrid.cells || g_termGrid.rows <= 0 || g_termGrid.cols <= 0) {
+    int rowsToRender = (viewport.h > 0 && cellH > 0)
+        ? ((viewport.h + cellH - 1) / cellH)
+        : grid->rows;
+    int cols = grid->cols;
+    if (!grid->cells || grid->rows <= 0 || grid->cols <= 0) {
         popClipRect();
         return;
     }
@@ -77,16 +165,16 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     if (lineBuf) {
         for (int r = 0; r < rowsToRender; ++r) {
             int rowIndex = firstRow + r;
-            if (rowIndex >= g_termGrid.rows) break;
+            if (rowIndex >= grid->rows) break;
 
-            float drawYf = (float)viewport.y + (float)r * (float)g_cellHeight - intraLineOffset;
+            float drawYf = (float)viewport.y + (float)r * (float)cellH - intraLineOffset;
             if (drawYf < (float)viewport.y) continue; // avoid drawing rows that would clip above
             if (drawYf >= (float)(viewport.y + viewport.h)) break;
 
             int drawY = (int)drawYf;
             int lastNonSpace = -1;
             for (int c = 0; c < cols; ++c) {
-                TermCell* cell = term_grid_cell(&g_termGrid, rowIndex, c);
+                TermCell* cell = term_grid_cell(grid, rowIndex, c);
                 char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
                 if (ch >= 0x20 && ch < 0x7F) {
                     lineBuf[c] = ch;
@@ -105,9 +193,9 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
                 if (endCol < startCol) endCol = startCol;
                 if (endCol > cols) endCol = cols;
                 if (startCol != endCol) {
-                    int startX = viewport.x + startCol * g_cellWidth;
-                    int width = (endCol - startCol) * g_cellWidth;
-                    SDL_Rect highlight = { startX, drawY, width, g_cellHeight };
+                    int startX = viewport.x + startCol * cellW;
+                    int width = (endCol - startCol) * cellW;
+                    SDL_Rect highlight = { startX, drawY, width, cellH };
                     SDL_SetRenderDrawColor(renderer, 80, 120, 200, 100);
                     SDL_RenderFillRect(renderer, &highlight);
                 }
@@ -147,10 +235,10 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
 
     if (paneActive) {
         // Caret at grid cursor position
-        int caretRow = g_termGrid.cursor_row;
-        int caretCol = g_termGrid.cursor_col;
+        int caretRow = grid->cursor_row;
+        int caretCol = grid->cursor_col;
         if (caretRow < 0) caretRow = 0;
-        if (caretRow >= g_termGrid.rows) caretRow = g_termGrid.rows - 1;
+        if (caretRow >= grid->rows) caretRow = grid->rows - 1;
         if (caretCol < 0) caretCol = 0;
         if (caretCol > cols) caretCol = cols;
 
@@ -161,7 +249,7 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         int caretWidthPx = 0;
         if (caretBuf) {
             for (int c = 0; c < caretLen; ++c) {
-                TermCell* cell = term_grid_cell(&g_termGrid, caretRow, c);
+                TermCell* cell = term_grid_cell(grid, caretRow, c);
                 char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
                 caretBuf[c] = (ch >= 0x20 && ch < 0x7F) ? ch : ' ';
             }
@@ -171,10 +259,10 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         }
 
         int caretX = viewport.x + caretWidthPx;
-        int caretY = viewport.y + (caretRow - firstRow) * g_cellHeight - (int)intraLineOffset;
-        int caretW = (g_cellWidth > 0) ? (g_cellWidth / 4) : 4;
+        int caretY = viewport.y + (caretRow - firstRow) * cellH - (int)intraLineOffset;
+        int caretW = (cellW > 0) ? (cellW / 4) : 4;
         int caretH = 3;
-        caretY += (g_cellHeight > caretH) ? (g_cellHeight - caretH) : 0;
+        caretY += (cellH > caretH) ? (cellH - caretH) : 0;
         SDL_Rect caret = { caretX, caretY, caretW, caretH };
         SDL_SetRenderDrawColor(renderer, 200, 200, 220, 220);
         SDL_RenderFillRect(renderer, &caret);
