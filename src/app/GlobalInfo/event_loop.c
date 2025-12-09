@@ -12,6 +12,7 @@
 #include "core/InputManager/input_manager.h"
 #include "core/CommandBus/command_bus.h"
 #include "core/Watcher/file_watcher.h"
+#include "core/Analysis/project_scan.h"
 #include "ide/Panes/Terminal/terminal.h"
 #include "ide/Panes/Popup/popup_pane.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
@@ -119,6 +120,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
 
     if (pendingProjectRefresh) {
         refreshProjectDirectory();
+        analysis_scan_workspace(projectPath);
         pendingProjectRefresh = false;
     }
 

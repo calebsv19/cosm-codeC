@@ -1,6 +1,9 @@
 #include "save_queue.h"
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "ide/Panes/Editor/editor_view.h"
+#include "core/Analysis/fisics_bridge.h"
+#include "core/Analysis/analysis_store.h"
+#include "app/GlobalInfo/project.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,8 +56,8 @@ void queueSaveFromOpenFile(OpenFile* file) {
     size_t length = 0;
     char* snapshot = getBufferSnapshot(file->buffer, &length);
     
-    if (!snapshot || length == 0) {
-        printf("[SaveQueue] Empty or failed snapshot for: %s\n", file->filePath);
+    if (!snapshot) {
+        printf("[SaveQueue] Failed snapshot for: %s\n", file->filePath);
         return;
     }
 
@@ -78,6 +81,11 @@ void tickSaveQueue() {
         fwrite(item->contents, 1, item->length, f);
         fclose(f);
         printf("[SaveQueue] Saved: %s\n", item->filePath);
+
+        // Run analysis after writing to disk so filePath + contents match.
+        printf("[SaveQueue] Analyzing: %s (%zu bytes)\n", item->filePath, item->length);
+        ide_analyze_buffer_for_file(item->filePath, item->contents, item->length);
+        analysis_store_save(projectPath);
     } else {
         printf("[SaveQueue] FAILED to save: %s\n", item->filePath);
     }
@@ -93,4 +101,3 @@ void tickSaveQueue() {
 bool isSaveQueueBusy() {
     return head != NULL;
 }
-

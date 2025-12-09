@@ -1,6 +1,9 @@
 #include "diagnostics_engine.h"
+#include <json-c/json.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #define MAX_DIAGNOSTICS 512
 
@@ -36,3 +39,89 @@ const Diagnostic* getDiagnosticAt(int index) {
     return &diagnostics[index];
 }
 
+void diagnostics_save(const char* workspaceRoot) {
+    if (!workspaceRoot || !*workspaceRoot) return;
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/ide_files", workspaceRoot);
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        mkdir(path, 0755);
+    }
+    snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
+
+    json_object* arr = json_object_new_array();
+    for (int i = 0; i < diagnosticCount; ++i) {
+        const Diagnostic* d = &diagnostics[i];
+        json_object* obj = json_object_new_object();
+        json_object_object_add(obj, "file", json_object_new_string(d->filePath ? d->filePath : ""));
+        json_object_object_add(obj, "line", json_object_new_int(d->line));
+        json_object_object_add(obj, "col", json_object_new_int(d->column));
+        json_object_object_add(obj, "severity", json_object_new_int(d->severity));
+        json_object_object_add(obj, "message", json_object_new_string(d->message ? d->message : ""));
+        json_object_array_add(arr, obj);
+    }
+
+    const char* serialized = json_object_to_json_string_ext(arr, JSON_C_TO_STRING_PLAIN);
+    FILE* f = fopen(path, "w");
+    if (f && serialized) {
+        fputs(serialized, f);
+        fclose(f);
+    } else if (f) {
+        fclose(f);
+    }
+    json_object_put(arr);
+}
+
+void diagnostics_load(const char* workspaceRoot) {
+    clearDiagnostics();
+    if (!workspaceRoot || !*workspaceRoot) return;
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
+    FILE* f = fopen(path, "r");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (len <= 0 || len > 1 << 20) {
+        fclose(f);
+        return;
+    }
+    char* buf = malloc((size_t)len + 1);
+    if (!buf) {
+        fclose(f);
+        return;
+    }
+    fread(buf, 1, (size_t)len, f);
+    buf[len] = '\0';
+    fclose(f);
+
+    json_object* root = json_tokener_parse(buf);
+    free(buf);
+    if (!root || !json_object_is_type(root, json_type_array)) {
+        if (root) json_object_put(root);
+        return;
+    }
+
+    size_t arrLen = json_object_array_length(root);
+    for (size_t i = 0; i < arrLen && diagnosticCount < MAX_DIAGNOSTICS; ++i) {
+        json_object* obj = json_object_array_get_idx(root, i);
+        if (!obj) continue;
+        json_object* jfile = NULL;
+        json_object* jline = NULL;
+        json_object* jcol = NULL;
+        json_object* jsev = NULL;
+        json_object* jmsg = NULL;
+        if (json_object_object_get_ex(obj, "file", &jfile) &&
+            json_object_object_get_ex(obj, "line", &jline) &&
+            json_object_object_get_ex(obj, "col", &jcol) &&
+            json_object_object_get_ex(obj, "severity", &jsev) &&
+            json_object_object_get_ex(obj, "message", &jmsg)) {
+            addDiagnostic(json_object_get_string(jfile),
+                          json_object_get_int(jline),
+                          json_object_get_int(jcol),
+                          json_object_get_string(jmsg),
+                          (DiagnosticSeverity)json_object_get_int(jsev));
+        }
+    }
+    json_object_put(root);
+}

@@ -23,6 +23,17 @@ static char lastExecutablePath[1024];
 extern char projectPath[1024];        // points to src/Project
 extern char projectRootPath[1024]; 
 
+static bool has_makefile(const char* dir) {
+    if (!dir || !*dir) return false;
+    char path[PATH_MAX];
+    struct stat st;
+    snprintf(path, sizeof(path), "%s/Makefile", dir);
+    if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) return true;
+    snprintf(path, sizeof(path), "%s/makefile", dir);
+    if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) return true;
+    return false;
+}
+
 void initBuildSystem() {
     currentStatus = BUILD_STATUS_IDLE;
     buildLog[0] = '\0';
@@ -189,22 +200,49 @@ void triggerBuild(void) {
     char commandForShell[1024] = {0};   // Command to feed into an interactive shell
     char commandForPopen[2048] = {0};   // Command to execute via popen fallback
 
+    bool usePopenFallback = false;
+
     if (!customCommand) {
-        snprintf(commandForShell, sizeof(commandForShell), "make");
-        snprintf(commandForPopen, sizeof(commandForPopen),
-                 "cd \"%s\" && make 2>&1",
-                 projectPath);
+        bool useMake = has_makefile(projectPath);
+        if (useMake) {
+            snprintf(commandForShell, sizeof(commandForShell), "make");
+            snprintf(commandForPopen, sizeof(commandForPopen),
+                     "cd \"%s\" && make 2>&1",
+                     projectPath);
 
-        snprintf(resolvedOutputDir, sizeof(resolvedOutputDir), "%s/build", projectPath);
-        outputDirForArtifacts = resolvedOutputDir;
+            snprintf(resolvedOutputDir, sizeof(resolvedOutputDir), "%s/build", projectPath);
+            outputDirForArtifacts = resolvedOutputDir;
 
-        char msg[512];
-        snprintf(msg, sizeof(msg), "[BuildSystem] Default build command: make\n");
-        printToTerminal(msg);
-        snprintf(msg, sizeof(msg), "[BuildSystem] Working directory: %s\n", projectPath);
-        printToTerminal(msg);
-        snprintf(msg, sizeof(msg), "[BuildSystem] Scanning for artifacts in: %s\n", resolvedOutputDir);
-        printToTerminal(msg);
+            char msg[512];
+            snprintf(msg, sizeof(msg), "[BuildSystem] Default build command: make (Makefile detected)\n");
+            printToTerminal(msg);
+            snprintf(msg, sizeof(msg), "[BuildSystem] Working directory: %s\n", projectPath);
+            printToTerminal(msg);
+            snprintf(msg, sizeof(msg), "[BuildSystem] Scanning for artifacts in: %s\n", resolvedOutputDir);
+            printToTerminal(msg);
+        } else {
+            // Fallback: compile all .c files in workspace into build/app
+            snprintf(resolvedOutputDir, sizeof(resolvedOutputDir), "%s/build", projectPath);
+            outputDirForArtifacts = resolvedOutputDir;
+            const char* fallbackCmd =
+                "set -e; "
+                "mkdir -p build; "
+                "find . -name '*.c' ! -path './build/*' -print0 | "
+                "xargs -0 cc -std=c11 -Wall -Wextra -g -o build/app && "
+                "echo 'Built build/app'";
+            snprintf(commandForShell, sizeof(commandForShell), "%s", fallbackCmd);
+            snprintf(commandForPopen, sizeof(commandForPopen),
+                     "cd \"%s\" && ( %s ) 2>&1",
+                     projectPath, fallbackCmd);
+            usePopenFallback = true; // ensure we capture output for diagnostics
+            char msg[512];
+            snprintf(msg, sizeof(msg), "[BuildSystem] No Makefile; compiling all .c files into build/app\n");
+            printToTerminal(msg);
+            snprintf(msg, sizeof(msg), "[BuildSystem] Working directory: %s\n", projectPath);
+            printToTerminal(msg);
+            snprintf(msg, sizeof(msg), "[BuildSystem] Command: %s\n", fallbackCmd);
+            printToTerminal(msg);
+        }
     } else {
         char buildArgs[512];
         buildArgs[0] = '\0';
@@ -237,7 +275,7 @@ void triggerBuild(void) {
     }
 
     // Preferred path: run inside a PTY shell so output streams live into the Build tab.
-    if (buildTerminalReady) {
+    if (buildTerminalReady && !usePopenFallback) {
         // Start a fresh shell in the desired working directory.
         if (!terminal_spawn_shell(workingDir, 0, 0)) {
             printToTerminal("[BuildSystem] Failed to start build shell.\n");
@@ -259,7 +297,7 @@ void triggerBuild(void) {
         return;
     }
 
-    // Fallback: run synchronously with popen in the current terminal.
+    // Fallback: run synchronously with popen in the current terminal (also used for no-Makefile path).
     FILE* pipe = popen(commandForPopen, "r");
     if (!pipe) {
         const char* errorMsg = "[BuildSystem] Failed to open build pipe.\n";

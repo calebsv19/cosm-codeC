@@ -23,5 +23,8 @@ void addDiagnostic(const char* file, int line, int col, const char* msg, Diagnos
 int getDiagnosticCount();
 const Diagnostic* getDiagnosticAt(int index);
 
-#endif
+// Persistence helpers (store under workspace/ide_files/analysis_diagnostics.json)
+void diagnostics_save(const char* workspaceRoot);
+void diagnostics_load(const char* workspaceRoot);
 
+#endif

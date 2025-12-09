@@ -2,6 +2,7 @@
 #include <assert.h>
 #include "app/GlobalInfo/core_state.h"
 #include "core/Watcher/file_watcher.h"
+#include "core/Analysis/fisics_bridge.h"
 
 
 #include "engine/Render/render_pipeline.h"
@@ -657,16 +658,25 @@ OpenFile* openFileInView(EditorView* view, const char* filePath) {
     }
     
     // Create new OpenFile
-    OpenFile* file = malloc(sizeof(OpenFile));
+    OpenFile* file = calloc(1, sizeof(OpenFile));
     if (!file) return NULL;
     
     file->refCount = 1;
+    file->undoStack = NULL;
     file->filePath = strdup(filePath);
     file->buffer = loadEditorBuffer(filePath);
     if (!file->buffer) {
         free(file->filePath);
         free(file); 
         return NULL;
+    }
+
+    // Run initial analysis on open buffer so diagnostics appear immediately.
+    size_t snapLen = 0;
+    char* snapshot = getBufferSnapshot(file->buffer, &snapLen);
+    if (snapshot) {
+        ide_analyze_buffer_for_file(file->filePath, snapshot, snapLen);
+        free(snapshot);
     }
     
     memset(&file->state, 0, sizeof(EditorState));

@@ -42,10 +42,27 @@
 
   ABS_VK_SHADER_ROOT := $(abspath src/engine/Render/vk_renderer_ref)
 
+  # Fisics frontend (compiler) integration
+  FISICS_DIR := ../fisics
+  FISICS_INC := $(FISICS_DIR)/src
+  FISICS_LIB := $(FISICS_DIR)/libfisics_frontend.a
+  ifeq ($(wildcard $(FISICS_LIB)),)
+  $(warning Fisics frontend library not found at $(FISICS_LIB); build may fail until it is built.)
+  endif
+
   VULKAN_RENDER_DEBUG ?= 0
   VULKAN_RENDER_DEBUG_FRAMES ?= 0
 
-  CFLAGS  = -g -Wall -std=c99 -MMD -MP $(INC_DIRS) -DVK_RENDERER_SHADER_ROOT=\"$(ABS_VK_SHADER_ROOT)\"
+  # LLVM (for Fisics frontend)
+  LLVM_CONFIG := $(shell command -v llvm-config 2>/dev/null)
+  LLVM_CFLAGS := $(if $(LLVM_CONFIG),$(shell $(LLVM_CONFIG) --cflags),)
+  LLVM_LDFLAGS := $(if $(LLVM_CONFIG),$(shell $(LLVM_CONFIG) --ldflags),)
+  LLVM_LIBS := $(if $(LLVM_CONFIG),$(shell $(LLVM_CONFIG) --libs core),)
+  ifeq ($(strip $(LLVM_CONFIG)),)
+  $(warning llvm-config not found; Fisics frontend linking may fail.)
+  endif
+
+  CFLAGS  = -g -Wall -std=c99 -MMD -MP $(INC_DIRS) -I$(FISICS_INC) $(LLVM_CFLAGS) -DVK_RENDERER_SHADER_ROOT=\"$(ABS_VK_SHADER_ROOT)\"
 
   ifeq ($(strip $(VULKAN_RENDER_DEBUG)),1)
   CFLAGS += -DVK_RENDERER_DEBUG=1
@@ -53,7 +70,7 @@
   CFLAGS += -DVK_RENDERER_FRAME_DEBUG=1
   endif
   endif
-  LDFLAGS = $(LIB_DIRS) -lSDL2 -lSDL2_ttf -lSDL2_image -ljson-c $(VULKAN_LIBS) $(SDL_MIXER_FLAGS)
+  LDFLAGS = $(LIB_DIRS) -lSDL2 -lSDL2_ttf -lSDL2_image -ljson-c $(VULKAN_LIBS) $(SDL_MIXER_FLAGS) $(FISICS_LIB) $(LLVM_LDFLAGS) $(LLVM_LIBS) -fsanitize=address,undefined
 
   SRC_DIR := src
   BUILD_DIR := build
@@ -71,7 +88,7 @@
 # ===== RULES =====
 all: $(OUT)
 
-$(OUT): $(OBJ_FILES)
+$(OUT): $(OBJ_FILES) $(FISICS_LIB)
 	@echo "Linking executable..."
 	@echo "LDFLAGS: $(LDFLAGS)"
 	@$(CC) -o $@ $^ $(LDFLAGS) || (echo "Linking failed!" && exit 1)
@@ -88,6 +105,10 @@ run: $(OUT)
 clean:
 	@rm -rf $(BUILD_DIR) $(OUT)
 	@echo "Cleaned up build artifacts."
+
+$(FISICS_LIB):
+	@echo "Building Fisics frontend library..."
+	@$(MAKE) -C $(FISICS_DIR) libfisics_frontend.a
 
 .PHONY: test-vk-macros
 test-vk-macros:

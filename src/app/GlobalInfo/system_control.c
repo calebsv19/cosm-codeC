@@ -22,6 +22,8 @@
 #include "core/BuildSystem/build_system.h"
 #include "core/BuildSystem/build_diagnostics.h"
 #include "core/Diagnostics/diagnostics_engine.h"
+#include "core/Analysis/project_scan.h"
+#include "core/Analysis/analysis_store.h"
 
 #include "Parser/language_parser.h"
 
@@ -106,9 +108,11 @@ static void loadInitialWorkspace(void) {
     }
 
     snprintf(projectPath, sizeof(projectPath), "%s", finalPath);
+    ensureIdeFilesDir(projectPath);
     setWorkspacePath(projectPath);
     setWorkspaceWatchPath(projectPath);
     build_diagnostics_load(projectPath);
+    diagnostics_load(projectPath);
 
     const char* savedRunTarget = loadRunTargetPreference();
     if (savedRunTarget && savedRunTarget[0]) {
@@ -258,6 +262,7 @@ bool initializeSystem() {
     initBuildSystem();
     initBuildOutputPanelState();
     build_diagnostics_load(projectPath);
+    analysis_store_load(projectPath);
 
     initPluginSystem();
 
@@ -266,6 +271,7 @@ bool initializeSystem() {
 
     initProjectPaths();
     loadInitialWorkspace();
+    analysis_scan_workspace(projectPath);
     initTerminal();
 
     const char* workspace = getWorkspacePath();
@@ -279,6 +285,8 @@ bool initializeSystem() {
 void shutdownSystem(UIPane** panes, int paneCount) {
     // Persist last build diagnostics for next session.
     build_diagnostics_save(projectPath);
+    diagnostics_save(projectPath);
+    analysis_store_save(projectPath);
 
     terminal_shutdown_shell();
 

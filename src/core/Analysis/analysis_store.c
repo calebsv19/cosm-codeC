@@ -1,0 +1,251 @@
+#include "core/Analysis/analysis_store.h"
+
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+static AnalysisFileDiagnostics* g_files = NULL;
+static size_t g_file_count = 0;
+static size_t g_file_cap = 0;
+static uint64_t g_stamp_counter = 0;
+
+static void free_entry(AnalysisFileDiagnostics* f) {
+    if (!f) return;
+    free(f->path);
+    for (int i = 0; i < f->count; ++i) {
+        free((char*)f->diags[i].filePath);
+        free((char*)f->diags[i].message);
+    }
+    free(f->diags);
+    f->path = NULL;
+    f->diags = NULL;
+    f->count = 0;
+}
+
+void analysis_store_clear(void) {
+    for (size_t i = 0; i < g_file_count; ++i) {
+        free_entry(&g_files[i]);
+    }
+    free(g_files);
+    g_files = NULL;
+    g_file_count = 0;
+    g_file_cap = 0;
+    g_stamp_counter = 0;
+}
+
+static DiagnosticSeverity map_severity(DiagKind kind) {
+    switch (kind) {
+        case DIAG_WARNING: return DIAG_SEVERITY_WARNING;
+        case DIAG_NOTE:    return DIAG_SEVERITY_INFO;
+        case DIAG_ERROR:
+        default:           return DIAG_SEVERITY_ERROR;
+    }
+}
+
+void analysis_store_upsert(const char* filePath,
+                           const FisicsDiagnostic* fisicsDiags,
+                           size_t diagCount) {
+    if (!filePath) return;
+
+    // Remove existing entry for this path
+    size_t existing = (size_t)-1;
+    for (size_t i = 0; i < g_file_count; ++i) {
+        if (g_files[i].path && strcmp(g_files[i].path, filePath) == 0) {
+            existing = i;
+            break;
+        }
+    }
+    if (existing != (size_t)-1) {
+        free_entry(&g_files[existing]);
+        // shift down
+        for (size_t j = existing + 1; j < g_file_count; ++j) {
+            g_files[j - 1] = g_files[j];
+        }
+        g_file_count--;
+    }
+
+    if (g_file_count >= g_file_cap) {
+        size_t newCap = g_file_cap ? g_file_cap * 2 : 8;
+        AnalysisFileDiagnostics* tmp = realloc(g_files, newCap * sizeof(AnalysisFileDiagnostics));
+        if (!tmp) return;
+        g_files = tmp;
+        g_file_cap = newCap;
+    }
+
+    AnalysisFileDiagnostics entry = {0};
+    entry.path = strdup(filePath);
+    entry.count = (int)diagCount;
+    entry.stamp = ++g_stamp_counter;
+
+    if (diagCount > 0) {
+        entry.diags = calloc(diagCount, sizeof(Diagnostic));
+        if (!entry.diags) {
+            free(entry.path);
+            return;
+        }
+        for (size_t i = 0; i < diagCount; ++i) {
+            // Defensive: do not trust pointers inside fisicsDiags (may be freed by frontend teardown).
+            entry.diags[i].filePath = strdup(filePath);
+            entry.diags[i].line = fisicsDiags[i].line;
+            entry.diags[i].column = fisicsDiags[i].column;
+            const char* msg = (fisicsDiags[i].message && fisicsDiags[i].message[0])
+                              ? fisicsDiags[i].message
+                              : "(no message)";
+            entry.diags[i].message = strdup(msg);
+            entry.diags[i].severity = map_severity(fisicsDiags[i].kind);
+        }
+    }
+
+    // Insert at front to keep newest-first ordering
+    for (size_t j = g_file_count; j > 0; --j) {
+        g_files[j] = g_files[j - 1];
+    }
+    g_files[0] = entry;
+    g_file_count++;
+}
+
+size_t analysis_store_file_count(void) {
+    return g_file_count;
+}
+
+const AnalysisFileDiagnostics* analysis_store_file_at(size_t idx) {
+    if (idx >= g_file_count) return NULL;
+    return &g_files[idx];
+}
+
+void analysis_store_flatten_to_engine(void) {
+    clearDiagnostics();
+    for (size_t i = 0; i < g_file_count; ++i) {
+        AnalysisFileDiagnostics* f = &g_files[i];
+        for (int d = 0; d < f->count; ++d) {
+            addDiagnostic(f->diags[d].filePath ? f->diags[d].filePath : f->path,
+                          f->diags[d].line,
+                          f->diags[d].column,
+                          f->diags[d].message ? f->diags[d].message : "(no message)",
+                          f->diags[d].severity);
+        }
+    }
+}
+
+// Persistence helpers
+#include <json-c/json.h>
+#include <sys/stat.h>
+
+void analysis_store_save(const char* workspaceRoot) {
+    if (!workspaceRoot || !*workspaceRoot) return;
+    char dir[1024];
+    snprintf(dir, sizeof(dir), "%s/ide_files", workspaceRoot);
+    struct stat st;
+    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        mkdir(dir, 0755);
+    }
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
+
+    json_object* arr = json_object_new_array();
+    for (size_t i = 0; i < g_file_count; ++i) {
+        AnalysisFileDiagnostics* f = &g_files[i];
+        json_object* obj = json_object_new_object();
+        json_object_object_add(obj, "path", json_object_new_string(f->path ? f->path : ""));
+        json_object_object_add(obj, "stamp", json_object_new_int64((long long)f->stamp));
+        json_object* diags = json_object_new_array();
+        for (int d = 0; d < f->count; ++d) {
+            json_object* jd = json_object_new_object();
+            json_object_object_add(jd, "line", json_object_new_int(f->diags[d].line));
+            json_object_object_add(jd, "col", json_object_new_int(f->diags[d].column));
+            json_object_object_add(jd, "severity", json_object_new_int(f->diags[d].severity));
+            json_object_object_add(jd, "message", json_object_new_string(f->diags[d].message ? f->diags[d].message : ""));
+            json_object_array_add(diags, jd);
+        }
+        json_object_object_add(obj, "diagnostics", diags);
+        json_object_array_add(arr, obj);
+    }
+
+    const char* serialized = json_object_to_json_string_ext(arr, JSON_C_TO_STRING_PLAIN);
+    FILE* f = fopen(path, "w");
+    if (f && serialized) {
+        fputs(serialized, f);
+        fclose(f);
+    } else if (f) {
+        fclose(f);
+    }
+    json_object_put(arr);
+}
+
+void analysis_store_load(const char* workspaceRoot) {
+    analysis_store_clear();
+    if (!workspaceRoot || !*workspaceRoot) return;
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
+    FILE* f = fopen(path, "r");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (len <= 0 || len > (32 * 1024 * 1024)) {
+        fclose(f);
+        return;
+    }
+    char* buf = malloc((size_t)len + 1);
+    if (!buf) {
+        fclose(f);
+        return;
+    }
+    fread(buf, 1, (size_t)len, f);
+    buf[len] = '\0';
+    fclose(f);
+
+    json_object* root = json_tokener_parse(buf);
+    free(buf);
+    if (!root || !json_object_is_type(root, json_type_array)) {
+        if (root) json_object_put(root);
+        return;
+    }
+
+    size_t arrLen = json_object_array_length(root);
+    for (size_t i = 0; i < arrLen; ++i) {
+        json_object* obj = json_object_array_get_idx(root, i);
+        if (!obj) continue;
+        json_object* jpath = NULL;
+        json_object* jstamp = NULL;
+        json_object* jdiags = NULL;
+        if (!json_object_object_get_ex(obj, "path", &jpath) ||
+            !json_object_object_get_ex(obj, "diagnostics", &jdiags)) {
+            continue;
+        }
+        const char* pathStr = json_object_get_string(jpath);
+        size_t dcount = json_object_array_length(jdiags);
+        FisicsDiagnostic* tmp = calloc(dcount, sizeof(FisicsDiagnostic));
+        if (!tmp) continue;
+        for (size_t d = 0; d < dcount; ++d) {
+            json_object* jd = json_object_array_get_idx(jdiags, d);
+            if (!jd) continue;
+            json_object* jline=NULL,* jcol=NULL,* jsev=NULL,* jmsg=NULL;
+            json_object_object_get_ex(jd, "line", &jline);
+            json_object_object_get_ex(jd, "col", &jcol);
+            json_object_object_get_ex(jd, "severity", &jsev);
+            json_object_object_get_ex(jd, "message", &jmsg);
+            tmp[d].file_path = (char*)pathStr;
+            tmp[d].line = jline ? json_object_get_int(jline) : 0;
+            tmp[d].column = jcol ? json_object_get_int(jcol) : 0;
+            int sev = jsev ? json_object_get_int(jsev) : 0;
+            tmp[d].kind = (sev == DIAG_SEVERITY_WARNING) ? DIAG_WARNING
+                       : (sev == DIAG_SEVERITY_INFO) ? DIAG_NOTE
+                       : DIAG_ERROR;
+            if (jmsg) {
+                const char* m = json_object_get_string(jmsg);
+                tmp[d].message = m ? strdup(m) : NULL;
+            }
+        }
+        analysis_store_upsert(pathStr, tmp, dcount);
+        for (size_t d = 0; d < dcount; ++d) {
+            free(tmp[d].message);
+        }
+        free(tmp);
+        if (json_object_object_get_ex(obj, "stamp", &jstamp)) {
+            long long s = json_object_get_int64(jstamp);
+            if (s > 0 && (uint64_t)s > g_stamp_counter) g_stamp_counter = (uint64_t)s;
+        }
+    }
+    json_object_put(root);
+}

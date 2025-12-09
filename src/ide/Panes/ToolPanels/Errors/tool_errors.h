@@ -6,5 +6,7 @@
 
 void handleErrorsEvent(UIPane* pane, SDL_Event* event);
 
-#endif
+int  getSelectedErrorDiag(void);
+void setSelectedErrorDiag(int index);
 
+#endif

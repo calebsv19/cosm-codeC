@@ -9,6 +9,7 @@
 #include "app/GlobalInfo/project.h" // projectPath
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 
 static int hit_test_diag(UIPane* pane, int mx, int my, int lineHeight, int firstY) {
     if (!pane) return -1;
@@ -28,6 +29,45 @@ static int hit_test_diag(UIPane* pane, int mx, int my, int lineHeight, int first
     return -1;
 }
 
+static bool selected[1024];
+static bool dragging = false;
+static int dragAnchor = -1;
+
+static void clear_selection(void) {
+    memset(selected, 0, sizeof(selected));
+    setSelectedBuildDiag(-1);
+}
+
+static void toggle_selection(int idx, bool additive) {
+    if (idx < 0 || idx >= (int)(sizeof(selected) / sizeof(selected[0]))) return;
+    if (!additive) {
+        clear_selection();
+    }
+    selected[idx] = !selected[idx];
+    setSelectedBuildDiag(idx);
+}
+
+static bool is_selected(int idx) {
+    if (idx < 0 || idx >= (int)(sizeof(selected) / sizeof(selected[0]))) return false;
+    return selected[idx];
+}
+
+static void select_range(int a, int b) {
+    if (a < 0 || b < 0) return;
+    clear_selection();
+    if (a > b) {
+        int tmp = a; a = b; b = tmp;
+    }
+    for (int i = a; i <= b && i < (int)(sizeof(selected) / sizeof(selected[0])); ++i) {
+        selected[i] = true;
+    }
+    setSelectedBuildDiag(b);
+}
+
+bool build_output_is_selected(int idx) {
+    return is_selected(idx);
+}
+
 static void copy_diag_to_clipboard(const BuildDiagnostic* d) {
     if (!d) return;
     char buf[2048];
@@ -38,6 +78,54 @@ static void copy_diag_to_clipboard(const BuildDiagnostic* d) {
              d->notes[0] ? "\n    note: " : "",
              d->notes[0] ? d->notes : "");
     clipboard_copy_text(buf);
+}
+
+static void copy_selected_block(void) {
+    size_t count = 0;
+    const BuildDiagnostic* diags = build_diagnostics_get(&count);
+    size_t cap = 4096;
+    size_t len = 0;
+    char* out = malloc(cap);
+    if (!out) return;
+    out[0] = '\0';
+
+    bool any = false;
+    for (size_t i = 0; i < count; ++i) {
+        if (!is_selected((int)i)) continue;
+        const BuildDiagnostic* d = &diags[i];
+        any = true;
+        char buf[2048];
+        snprintf(buf, sizeof(buf), "%s %s:%d:%d\n    %s",
+                 d->isError ? "[E]" : "[W]",
+                 d->path, d->line, d->col,
+                 d->message);
+        size_t add = strlen(buf);
+        if (d->notes[0]) {
+            snprintf(buf + add, sizeof(buf) - add, "\n    note: %s", d->notes);
+            add = strlen(buf);
+        }
+        buf[add++] = '\n';
+        buf[add] = '\0';
+        if (len + add + 1 > cap) {
+            cap = (len + add + 1) * 2;
+            char* tmp = realloc(out, cap);
+            if (!tmp) { free(out); return; }
+            out = tmp;
+        }
+        memcpy(out + len, buf, add);
+        len += add;
+        out[len] = '\0';
+    }
+
+    if (any) {
+        clipboard_copy_text(out);
+    } else {
+        int sel = getSelectedBuildDiag();
+        if (sel >= 0 && sel < (int)count) {
+            copy_diag_to_clipboard(&diags[sel]);
+        }
+    }
+    free(out);
 }
 
 static void jump_to_diag(const BuildDiagnostic* d) {
@@ -85,27 +173,36 @@ void handleBuildOutputEvent(UIPane* pane, SDL_Event* event) {
             bool dbl = (hit == lastClickIndex) && (now - lastClickTicks < doubleClickMs);
             lastClickTicks = now;
             lastClickIndex = hit;
-            setSelectedBuildDiag(hit);
+            Uint16 mod = SDL_GetModState();
+            bool additive = (mod & KMOD_CTRL) || (mod & KMOD_GUI) || (mod & KMOD_SHIFT);
+            toggle_selection(hit, additive);
+            dragging = true;
+            dragAnchor = hit;
             if (dbl) {
                 size_t count = 0;
                 const BuildDiagnostic* diags = build_diagnostics_get(&count);
                 if (hit >= 0 && hit < (int)count) jump_to_diag(&diags[hit]);
             }
         } else {
-            setSelectedBuildDiag(-1);
+            clear_selection();
+            dragging = false;
+            dragAnchor = -1;
         }
+    } else if (event->type == SDL_MOUSEMOTION && dragging) {
+        int hit = hit_test_diag(pane, event->motion.x, event->motion.y, lineHeight, firstY);
+        if (hit >= 0 && dragAnchor >= 0) {
+            select_range(dragAnchor, hit);
+        }
+    } else if (event->type == SDL_MOUSEBUTTONUP && event->button.button == SDL_BUTTON_LEFT) {
+        dragging = false;
+        dragAnchor = -1;
     } else if (event->type == SDL_KEYDOWN) {
         SDL_Keycode key = event->key.keysym.sym;
         Uint16 mod = event->key.keysym.mod;
         bool ctrl = (mod & KMOD_CTRL) != 0;
         bool gui = (mod & KMOD_GUI) != 0;
         if ((ctrl || gui) && key == SDLK_c) {
-            int sel = getSelectedBuildDiag();
-            size_t count = 0;
-            const BuildDiagnostic* diags = build_diagnostics_get(&count);
-            if (sel >= 0 && sel < (int)count) {
-                copy_diag_to_clipboard(&diags[sel]);
-            }
+            copy_selected_block();
         }
     }
 }

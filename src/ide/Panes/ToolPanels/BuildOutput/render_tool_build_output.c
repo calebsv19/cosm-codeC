@@ -8,14 +8,16 @@
 #include <SDL2/SDL.h>
 #include <string.h>
 
+// Forward decl from tool_build_output.c
+bool build_output_is_selected(int idx);
+
 static void renderDiagnosticsList(const BuildDiagnostic* diags, size_t count, int x, int y, int maxY, int lineHeight) {
-    int selected = getSelectedBuildDiag();
     char line[1400];
     for (size_t i = 0; i < count && y + lineHeight <= maxY; ++i) {
         const BuildDiagnostic* d = &diags[i];
         const char* sev = d->isError ? "[E]" : "[W]";
         // Highlight selection
-        if ((int)i == selected) {
+        if (build_output_is_selected((int)i)) {
             SDL_Rect highlight = { x - 6, y - 2, 1000, lineHeight * 2 };
             SDL_SetRenderDrawColor(getRenderContext()->renderer, 60, 80, 120, 120);
             SDL_RenderFillRect(getRenderContext()->renderer, &highlight);

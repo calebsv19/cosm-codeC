@@ -60,5 +60,25 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
         // Border
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
         SDL_RenderDrawRect(renderer, &icon);
+
+        // Letter label per icon
+        const char* label = "?";
+        switch (i) {
+            case ICON_PROJECT_FILES: label = "P"; break;
+            case ICON_LIBRARIES:     label = "L"; break;
+            case ICON_BUILD_OUTPUT:  label = "B"; break;
+            case ICON_ERRORS:        label = "E"; break;
+            case ICON_ASSET_MANAGER:   label = "A"; break;
+            case ICON_TASKS:           label = "T"; break;
+            case ICON_VERSION_CONTROL: label = "G"; break; // Git
+            default:                 label = "";  break;
+        }
+        if (label && label[0]) {
+            int textW = getTextWidth(label);
+            int textH = 16;
+            int tx = icon.x + (icon.w - textW) / 2;
+            int ty = icon.y + (icon.h - textH) / 2;
+            drawText(tx, ty, label);
+        }
     }
 }
