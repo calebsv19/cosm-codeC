@@ -4,6 +4,7 @@
 #include "core/Clipboard/clipboard.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
+#include "ide/UI/scroll_manager.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/Editor/editor_state.h"
 
@@ -15,6 +16,14 @@ static bool selected[512];
 static bool dragging = false;
 static int dragAnchor = -1;
 static int flatCount = 0;
+static PaneScrollState errorScroll;
+static SDL_Rect errorScrollTrack = {0};
+static SDL_Rect errorScrollThumb = {0};
+static bool fileCollapsed[512];
+PaneScrollState* errors_get_scroll_state(void) { return &errorScroll; }
+SDL_Rect errors_get_scroll_track_rect(void) { return errorScrollTrack; }
+SDL_Rect errors_get_scroll_thumb_rect(void) { return errorScrollThumb; }
+void errors_set_scroll_rects(SDL_Rect track, SDL_Rect thumb) { errorScrollTrack = track; errorScrollThumb = thumb; }
 
 int getSelectedErrorDiag(void) {
     for (int i = 0; i < (int)(sizeof(selected) / sizeof(selected[0])); ++i) {
@@ -62,20 +71,12 @@ bool is_error_selected(int idx) {
     return is_selected(idx);
 }
 
-typedef struct {
-    const Diagnostic* diag;
-    const char* path;
-    int fileIndex;
-    bool isHeader;
-} FlatDiagRef;
-
-static int flatten_diagnostics(FlatDiagRef* out, int max) {
+int flatten_diagnostics(FlatDiagRef* out, int max) {
     int total = 0;
     size_t files = analysis_store_file_count();
     for (size_t fi = 0; fi < files && total < max; ++fi) {
         const AnalysisFileDiagnostics* f = analysis_store_file_at(fi);
         if (!f || f->count <= 0) continue;
-        // header entry
         if (total < max) {
             out[total].diag = NULL;
             out[total].path = f->path;
@@ -83,6 +84,8 @@ static int flatten_diagnostics(FlatDiagRef* out, int max) {
             out[total].isHeader = true;
             total++;
         }
+        bool collapsed = (fi < sizeof(fileCollapsed) / sizeof(fileCollapsed[0])) ? fileCollapsed[fi] : false;
+        if (collapsed) continue;
         for (int di = 0; di < f->count && total < max; ++di) {
             out[total].diag = &f->diags[di];
             out[total].path = f->path;
@@ -125,6 +128,13 @@ static void jump_to_diag(const Diagnostic* d) {
     setActiveEditorView(view);
 }
 
+static void jump_to_first_diag_for_file(int fileIndex) {
+    if (fileIndex < 0) return;
+    const AnalysisFileDiagnostics* f = analysis_store_file_at((size_t)fileIndex);
+    if (!f || f->count <= 0) return;
+    jump_to_diag(&f->diags[0]);
+}
+
 static void copy_diag(const Diagnostic* d) {
     if (!d) return;
     const char* sev = (d->severity == DIAG_SEVERITY_ERROR) ? "[E]"
@@ -152,19 +162,22 @@ static void copy_selected_block(void) {
     bool any = false;
     for (int i = 0; i < flatCount; ++i) {
         if (!is_selected(i)) continue;
-        const Diagnostic* d = refs[i].diag;
-        if (!d) continue; // skip headers
         any = true;
-        const char* sev = (d->severity == DIAG_SEVERITY_ERROR) ? "[E]"
-                         : (d->severity == DIAG_SEVERITY_WARNING) ? "[W]"
-                         : "[I]";
         char line[1024];
-        snprintf(line, sizeof(line), "%s %s:%d:%d\n    %s\n",
-                 sev,
-                 d->filePath ? d->filePath : "(unknown)",
-                 d->line,
-                 d->column,
-                 d->message ? d->message : "(no message)");
+        if (refs[i].isHeader) {
+            snprintf(line, sizeof(line), "%s\n", refs[i].path ? refs[i].path : "(unknown file)");
+        } else {
+            const Diagnostic* d = refs[i].diag;
+            const char* sev = (d->severity == DIAG_SEVERITY_ERROR) ? "[E]"
+                             : (d->severity == DIAG_SEVERITY_WARNING) ? "[W]"
+                             : "[I]";
+            snprintf(line, sizeof(line), "  %s %s:%d:%d\n      %s\n",
+                     sev,
+                     d->filePath ? d->filePath : "(unknown)",
+                     d->line,
+                     d->column,
+                     d->message ? d->message : "(no message)");
+        }
         size_t add = strlen(line);
         if (len + add + 1 > cap) {
             cap = (len + add + 1) * 2;
@@ -189,20 +202,30 @@ static void copy_selected_block(void) {
 void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
     const int lineHeight = 20;
+    const int headerHeight = lineHeight;
+    const int diagHeight = lineHeight * 2;
     const int firstY = pane->y + 32;
     static Uint32 lastClickTicks = 0;
     static int lastClickIndex = -1;
     const Uint32 doubleClickMs = 400;
 
+    if (event->type == SDL_MOUSEWHEEL) {
+        PaneScrollState* scroll = errors_get_scroll_state();
+        if (scroll && scroll_state_handle_mouse_wheel(scroll, event)) {
+            return;
+        }
+    }
+
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
         FlatDiagRef refs[512];
         flatCount = flatten_diagnostics(refs, 512);
         int my = event->button.y;
-        int y = firstY;
+        int y = firstY - (int)scroll_state_get_offset(errors_get_scroll_state());
         int hit = -1;
         for (int i = 0; i < flatCount; ++i) {
             int blockTop = y;
-            int blockBottom = y + lineHeight * 2;
+            int h = refs[i].isHeader ? headerHeight : diagHeight;
+            int blockBottom = y + h;
             if (my >= blockTop && my < blockBottom) {
                 hit = i;
                 break;
@@ -217,13 +240,27 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
             Uint16 mod = SDL_GetModState();
             bool additive = (mod & KMOD_CTRL) || (mod & KMOD_GUI) || (mod & KMOD_SHIFT);
             if (refs[hit].isHeader) {
-                // select entire block
+                // shift-click collapses/expands that file
+                bool shift = (mod & KMOD_SHIFT) != 0;
+                if (shift && refs[hit].fileIndex >= 0 && refs[hit].fileIndex < (int)(sizeof(fileCollapsed)/sizeof(fileCollapsed[0]))) {
+                    fileCollapsed[refs[hit].fileIndex] = !fileCollapsed[refs[hit].fileIndex];
+                    // refresh selection to just this header
+                    clear_selected();
+                    toggle_selected(hit, false);
+                    return;
+                }
+
                 bool add = additive;
+                toggle_selected(hit, add);
+                add = true;
                 for (int i = 0; i < flatCount; ++i) {
                     if (refs[i].fileIndex == refs[hit].fileIndex && !refs[i].isHeader) {
                         toggle_selected(i, add);
-                        add = true; // subsequent toggles additive
+                        add = true;
                     }
+                }
+                if (dbl) {
+                    jump_to_first_diag_for_file(refs[hit].fileIndex);
                 }
             } else {
                 toggle_selected(hit, additive);
@@ -242,11 +279,12 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
         FlatDiagRef refs[512];
         flatCount = flatten_diagnostics(refs, 512);
         int my = event->motion.y;
-        int y = firstY;
+        int y = firstY - (int)scroll_state_get_offset(errors_get_scroll_state());
         int hit = -1;
         for (int i = 0; i < flatCount; ++i) {
             int blockTop = y;
-            int blockBottom = y + lineHeight * 2;
+            int h = refs[i].isHeader ? headerHeight : diagHeight;
+            int blockBottom = y + h;
             if (my >= blockTop && my < blockBottom) {
                 hit = i;
                 break;

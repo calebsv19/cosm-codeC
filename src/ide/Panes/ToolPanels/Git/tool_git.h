@@ -20,13 +20,23 @@ typedef struct {
 } GitFileEntry;
 
 #define MAX_GIT_ENTRIES 512
+#define MAX_GIT_LOG_ENTRIES 128
+#define GIT_LOG_LINE_MAX 512
 
 extern GitFileEntry gitFiles[MAX_GIT_ENTRIES];
 extern int gitFileCount;
 extern char currentGitBranch[64];
 
+typedef struct {
+    char hash[16];        // short hash
+    char message[256];    // subject line
+} GitLogEntry;
+
+extern GitLogEntry gitLogEntries[MAX_GIT_LOG_ENTRIES];
+extern int gitLogCount;
+
 // Run git status and branch to populate current git state
 void refreshGitStatus(void);
+void refreshGitLog(int maxEntries);
 
 #endif // TOOL_GIT_H
-

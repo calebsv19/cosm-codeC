@@ -10,12 +10,12 @@ handled by the base files in this folder.
 | `input_tool_panel.h/c` | Routes mouse/keyboard events that affect the shared chrome. |
 | `command_tool_panel.h/c` | Dispatches high-level commands that apply to whichever tool is active. |
 
-## Specialized Tools
+## Specialized Tools (current)
 
 - [`Project/`](Project/README.md) — Project tree, file management, drag-and-drop into editor views.
-- [`Tasks/`](Tasks/README.md) — Simple task list with keyboard shortcuts for task CRUD.
+- [`Tasks/`](Tasks/README.md) — Task list with keyboard shortcuts for task CRUD.
 - [`Libraries/`](Libraries/README.md) — Placeholder for library inspector (currently minimal).
-- [`BuildOutput/`](BuildOutput/README.md) — Displays compiler output and provides clear/scroll commands.
-- [`Errors/`](Errors/README.md) — Future error list pane (stub for now).
-- [`Assets/`](Assets/README.md) — Asset browser placeholder.
-- [`Git/`](Git/README.md) — Git status view stub.
+- [`BuildOutput/`](BuildOutput/README.md) — Streams build terminal output and parsed errors/warnings.
+- [`Errors/`](Errors/README.md) — Analysis diagnostics grouped per file, multi-select, jump-to-file.
+- [`Assets/`](Assets/README.md) — Asset browser grouped by type (images/audio/data/other), scrollable, text-like files open in editor.
+- [`Git/`](Git/README.md) — Git changes grouped by status plus collapsible git log, scrollable/selection-aware.

@@ -1,14 +1,14 @@
 # Git Tool Panel
 
-Stub UI for visualising Git status. Implements the same pane skeleton so it
-can grow into a fully-featured view.
+Git panel showing status + git log in a shared tree renderer. Sections are
+collapsible; entries are scrollable and selectable (actions are still minimal).
 
 | File | Responsibility |
 | --- | --- |
-| `tool_git.h/c` | Pane initialisation and placeholder data wiring. |
-| `render_tool_git.h/c` | Renders the current Git status tree (placeholder). |
-| `input_git.c` / `input_tool_git.h` | Mouse/keyboard handlers (minimal). |
-| `command_tool_git.h/c` | Command bus actions (refresh, stage, commit – currently stubs). |
-| `tree_git_adapter.h/c` | Helper intended to map Git status entries into the shared tree renderer. |
+| `tool_git.h/c` | Fetches git status/log, holds model arrays. |
+| `render_tool_git.h/c` | Builds a tree with “Changes” (grouped by status) and “Log” (recent commits), renders with scroll. |
+| `input_git.c` / `input_tool_git.h` | Mouse/scroll handlers; scroll-aware selection, thumb drag. |
+| `command_tool_git.h/c` | Command bus actions (refresh; stage/commit still stubbed). |
+| `tree_git_adapter.h/c` | Converts git model into UITreeNode hierarchy. |
 
-Fill in these stubs when Git integration moves beyond the prototype stage.
+Future: stage/unstage, commit, diff previews, clickable log details.

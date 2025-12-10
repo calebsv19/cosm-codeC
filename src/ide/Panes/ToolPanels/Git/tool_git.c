@@ -11,6 +11,8 @@
 GitFileEntry gitFiles[MAX_GIT_ENTRIES];
 int gitFileCount = 0;
 char currentGitBranch[64] = "unknown";
+GitLogEntry gitLogEntries[MAX_GIT_LOG_ENTRIES];
+int gitLogCount = 0;
 
 void refreshGitStatus() {
     gitFileCount = 0;
@@ -81,3 +83,37 @@ void refreshGitStatus() {
     pclose(pipe);
 }
 
+void refreshGitLog(int maxEntries) {
+    gitLogCount = 0;
+    if (maxEntries <= 0 || maxEntries > MAX_GIT_LOG_ENTRIES) {
+        maxEntries = MAX_GIT_LOG_ENTRIES;
+    }
+
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "cd %s && git log --oneline -n %d", projectPath, maxEntries);
+    FILE* pipe = popen(cmd, "r");
+    if (!pipe) {
+        fprintf(stderr, "[GitError] Failed to run git log\n");
+        return;
+    }
+
+    char line[GIT_LOG_LINE_MAX];
+    while (fgets(line, sizeof(line), pipe) && gitLogCount < maxEntries) {
+        // Expected format: "<hash> <subject...>"
+        char* nl = strchr(line, '\n');
+        if (nl) *nl = '\0';
+        if (line[0] == '\0') continue;
+
+        char* space = strchr(line, ' ');
+        if (!space) continue;
+        *space = '\0';
+
+        GitLogEntry* e = &gitLogEntries[gitLogCount++];
+        strncpy(e->hash, line, sizeof(e->hash) - 1);
+        e->hash[sizeof(e->hash) - 1] = '\0';
+
+        snprintf(e->message, sizeof(e->message), "%s", space + 1);
+    }
+
+    pclose(pipe);
+}

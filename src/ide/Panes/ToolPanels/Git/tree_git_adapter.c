@@ -3,20 +3,22 @@
 #include <string.h>
 #include <stdlib.h>
 
-static UITreeNode* createStatusSection(const char* label, TreeNodeColor color) {
+static UITreeNode* createSection(const char* label, TreeNodeColor color, bool expanded) {
     UITreeNode* node = createTreeNode(label, TREE_NODE_SECTION, color, NULL, NULL);
-    node->isExpanded = true;
+    node->isExpanded = expanded;
     return node;
 }
 
-UITreeNode* convertGitStatusToTree(void) {
-    UITreeNode* root = createTreeNode("Git Changes", TREE_NODE_SECTION, NODE_COLOR_SECTION, NULL, NULL);
+UITreeNode* convertGitModelToTree(void) {
+    UITreeNode* root = createTreeNode("Git", TREE_NODE_SECTION, NODE_COLOR_SECTION, NULL, NULL);
 
-    UITreeNode* staged = createStatusSection("Staged", NODE_COLOR_STAGED);
-    UITreeNode* modified = createStatusSection("Modified", NODE_COLOR_MODIFIED);
-    UITreeNode* added = createStatusSection("Added", NODE_COLOR_ADDED);
-    UITreeNode* deleted = createStatusSection("Deleted", NODE_COLOR_DELETED);
-    UITreeNode* untracked = createStatusSection("Untracked", NODE_COLOR_UNTRACKED);
+    // Changes section
+    UITreeNode* changesRoot = createSection("Changes", NODE_COLOR_SECTION, true);
+    UITreeNode* staged = createSection("Staged", NODE_COLOR_STAGED, true);
+    UITreeNode* modified = createSection("Modified", NODE_COLOR_MODIFIED, true);
+    UITreeNode* added = createSection("Added", NODE_COLOR_ADDED, true);
+    UITreeNode* deleted = createSection("Deleted", NODE_COLOR_DELETED, true);
+    UITreeNode* untracked = createSection("Untracked", NODE_COLOR_UNTRACKED, true);
 
     for (int i = 0; i < gitFileCount; i++) {
         GitFileEntry* f = &gitFiles[i];
@@ -32,16 +34,32 @@ UITreeNode* convertGitStatusToTree(void) {
         }
     }
 
-    if (staged->childCount)    addChildNode(root, staged);    else freeTreeNodeRecursive(staged);
-    if (modified->childCount)  addChildNode(root, modified);  else freeTreeNodeRecursive(modified);
-    if (added->childCount)     addChildNode(root, added);     else freeTreeNodeRecursive(added);
-    if (deleted->childCount)   addChildNode(root, deleted);   else freeTreeNodeRecursive(deleted);
-    if (untracked->childCount) addChildNode(root, untracked); else freeTreeNodeRecursive(untracked);
+    if (staged->childCount)    addChildNode(changesRoot, staged);    else freeTreeNodeRecursive(staged);
+    if (modified->childCount)  addChildNode(changesRoot, modified);  else freeTreeNodeRecursive(modified);
+    if (added->childCount)     addChildNode(changesRoot, added);     else freeTreeNodeRecursive(added);
+    if (deleted->childCount)   addChildNode(changesRoot, deleted);   else freeTreeNodeRecursive(deleted);
+    if (untracked->childCount) addChildNode(changesRoot, untracked); else freeTreeNodeRecursive(untracked);
 
-    printf("[GitTree] root has %d children\n", root->childCount);
-	for (int i = 0; i < root->childCount; i++) {
-	    printf("  [%d] section: %s\n", i, root->children[i]->label);
-	}
+    if (changesRoot->childCount) {
+        addChildNode(root, changesRoot);
+    } else {
+        freeTreeNodeRecursive(changesRoot);
+    }
+
+    // Log section
+    UITreeNode* logRoot = createSection("Log", NODE_COLOR_SECTION, false);
+    for (int i = 0; i < gitLogCount; ++i) {
+        GitLogEntry* e = &gitLogEntries[i];
+        char label[320];
+        snprintf(label, sizeof(label), "%s %s", e->hash, e->message);
+        UITreeNode* n = createTreeNode(label, TREE_NODE_FILE, NODE_COLOR_DEFAULT, e->hash, e);
+        addChildNode(logRoot, n);
+    }
+    if (logRoot->childCount) {
+        addChildNode(root, logRoot);
+    } else {
+        freeTreeNodeRecursive(logRoot);
+    }
 
     return root;
 }
@@ -49,4 +67,3 @@ UITreeNode* convertGitStatusToTree(void) {
 void freeGitTree(UITreeNode* root) {
     freeTreeNodeRecursive(root);
 }
-

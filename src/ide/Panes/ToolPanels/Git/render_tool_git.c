@@ -5,6 +5,7 @@
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_pipeline.h"
 #include "ide/UI/Trees/tree_renderer.h"
+#include "ide/UI/scroll_manager.h"
 
 
 
@@ -15,8 +16,12 @@ extern int mouseX;
 extern int mouseY;
 
 // === Static Tree Cache ===
-static UITreeNode* gitTree = NULL;
-static bool needsRefresh = true;
+UITreeNode* gitTree = NULL;
+bool needsRefresh = true;
+PaneScrollState gitScroll;
+bool gitScrollInit = false;
+SDL_Rect gitScrollTrack = {0};
+SDL_Rect gitScrollThumb = {0};
 
 void resetGitTree(void) {
     if (gitTree) {
@@ -29,14 +34,20 @@ void resetGitTree(void) {
 void renderGitPanel(UIPane* pane) {
     if (needsRefresh) {
         refreshGitStatus();  // Now runs before the tree is built
+        refreshGitLog(20);
         resetGitTree();      // Clears any existing tree
         needsRefresh = false;
     }
 
     if (!gitTree) {
-        gitTree = convertGitStatusToTree();
+        gitTree = convertGitModelToTree();
+    }
+
+    if (!gitScrollInit) {
+        scroll_state_init(&gitScroll, NULL);
+        gitScrollInit = true;
     }
 
     handleTreeMouseMove(mouseX, mouseY);
-    renderTreePanel(pane, gitTree);
+    renderTreePanelWithScroll(pane, gitTree, &gitScroll, &gitScrollTrack, &gitScrollThumb);
 }

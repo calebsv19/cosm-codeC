@@ -671,14 +671,6 @@ OpenFile* openFileInView(EditorView* view, const char* filePath) {
         return NULL;
     }
 
-    // Run initial analysis on open buffer so diagnostics appear immediately.
-    size_t snapLen = 0;
-    char* snapshot = getBufferSnapshot(file->buffer, &snapLen);
-    if (snapshot) {
-        ide_analyze_buffer_for_file(file->filePath, snapshot, snapLen);
-        free(snapshot);
-    }
-    
     memset(&file->state, 0, sizeof(EditorState));
     file->state.draggingReturnedToPane = true;
     file->isModified = false;

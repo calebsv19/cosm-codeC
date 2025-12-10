@@ -12,6 +12,7 @@
 #include "ide/Panes/ToolPanels/Tasks/task_json_helper.h"
 #include "ide/Panes/ToolPanels/Tasks/tool_tasks.h"
 #include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
+#include "ide/Panes/ToolPanels/Assets/tool_assets.h"
 #include "ide/Plugin/plugin_interface.h"
 #include "ide/UI/ui_state.h"
 #include "ide/UI/scroll_manager.h"
@@ -272,6 +273,7 @@ bool initializeSystem() {
     initProjectPaths();
     loadInitialWorkspace();
     analysis_scan_workspace(projectPath);
+    initAssetManagerPanel();
     initTerminal();
 
     const char* workspace = getWorkspacePath();

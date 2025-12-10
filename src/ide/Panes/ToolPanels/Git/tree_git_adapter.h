@@ -3,11 +3,10 @@
 
 #include "ide/UI/Trees/ui_tree_node.h"
 
-// Converts the current `gitFiles[]` to a tree structure for display
-UITreeNode* convertGitStatusToTree(void);
+// Converts the current git model (status + log) to a tree structure for display
+UITreeNode* convertGitModelToTree(void);
 
 // Frees the generated tree
 void freeGitTree(UITreeNode* root);
 
 #endif
-

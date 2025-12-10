@@ -16,6 +16,8 @@
 #include "ide/Panes/Terminal/terminal.h"
 #include "ide/Panes/Popup/popup_pane.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
+#include "ide/Panes/ToolPanels/Assets/tool_assets.h"
+#include "ide/Panes/ToolPanels/Git/render_tool_git.h"
 
 #include "ide/UI/layout.h"
 #include "ide/UI/resize.h"
@@ -121,6 +123,8 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     if (pendingProjectRefresh) {
         refreshProjectDirectory();
         analysis_scan_workspace(projectPath);
+        initAssetManagerPanel();
+        resetGitTree();
         pendingProjectRefresh = false;
     }
 

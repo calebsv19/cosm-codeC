@@ -1,13 +1,14 @@
 # Errors Tool Panel
 
-Placeholder panel intended to surface compiler or diagnostics errors. The
-structure matches other tool panels so future work can drop in real data.
+Diagnostics panel showing analysis errors/warnings grouped per file. Supports
+collapse/expand, scrolling, multi-select/copy, and double-click to jump to
+file/line.
 
 | File | Responsibility |
 | --- | --- |
-| `tool_errors.h/c` | Initialises the pane and holds stub data structures for error entries. |
-| `render_tool_errors.h/c` | Renders placeholder text (ready to render real error lists). |
-| `input_tool_errors.h/c` | Handles focus/scroll input (currently minimal). |
-| `command_tool_errors.h/c` | Command bus glue for future actions (e.g. jump to error). |
+| `tool_errors.h/c` | Stores flattened diagnostics, selection state, collapse flags, jump-to-file. |
+| `render_tool_errors.h/c` | Renders grouped file headers + messages with clip/scroll and scrollbar. |
+| `input_tool_errors.h/c` | Mouse/scroll input (wheel + thumb drag), selection ranges, double-click navigation. |
+| `command_tool_errors.h/c` | Command bus glue (minimal today). |
 
-When diagnostics land in `core/Diagnostics`, channel them through this pane.
+Fed by `core/Analysis` diagnostics; build output panel is separate for compiler logs.

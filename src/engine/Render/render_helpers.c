@@ -18,9 +18,11 @@ static int s_clip_top = 0;
 #endif
 
 void drawText(int x, int y, const char* text) {
-    if (!text || text[0] == '\0') return;
+    drawTextWithFont(x, y, text, getActiveFont());
+}
 
-    TTF_Font* font = getActiveFont();
+void drawTextWithFont(int x, int y, const char* text, TTF_Font* font) {
+    if (!text || text[0] == '\0') return;
     if (!font) return;
 
     RenderContext* ctx = getRenderContext();

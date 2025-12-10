@@ -153,7 +153,8 @@ bool scroll_state_is_dragging(const PaneScrollState* state) {
 bool scroll_state_handle_mouse_wheel(PaneScrollState* state, const SDL_Event* event) {
     if (!state || !event || event->type != SDL_MOUSEWHEEL) return false;
     if (!scroll_state_can_scroll(state)) return false;
-    float lines = (float)event->wheel.y;
+    float lines = (event->wheel.preciseY != 0.0f) ? (float)event->wheel.preciseY
+                                                  : (float)event->wheel.y;
     if (event->wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
         lines = -lines;
     }

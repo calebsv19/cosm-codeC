@@ -1,14 +1,14 @@
 # Assets Tool Panel
 
-Explorer for project assets (textures, audio, etc.). Currently a stub but
-shares the common tool-panel architecture so it can be fleshed out later.
+Explorer for project assets (textures, audio, data, other). Scans the current
+workspace, groups by type, supports collapse/scroll, and opens text-like files
+in the editor.
 
 | File | Responsibility |
 | --- | --- |
-| `tool_assets.h/c` | Pane setup and placeholder data for asset entries. |
-| `render_tool_assets.h/c` | Renders the asset list. (Note: an accidental `render_tool_assets.c'` duplicate exists; planned clean-up will remove it.) |
-| `input_tool_assets.h/c` | Handles keyboard/mouse navigation (stub). |
-| `command_tool_assets.h/c` | Command bus actions like refresh/preview (currently minimal). |
+| `tool_assets.h/c` | Scans workspace (skips .git/ide_files/build), classifies assets, stores catalog. |
+| `render_tool_assets.h/c` | Renders grouped lists with clip + scrollbar, selection highlight, count caps. |
+| `input_tool_assets.h/c` | Mouse/scroll input; double-click to open text-like assets. |
+| `command_tool_assets.h/c` | Refresh hooks (currently minimal). |
 
-Once the asset browser is feature-complete this README should be updated with
-the real data flow.
+Future: image/audio preview hooks, per-bucket scrolling, file watcher refresh.
