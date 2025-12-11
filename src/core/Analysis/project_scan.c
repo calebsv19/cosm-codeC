@@ -8,6 +8,7 @@
 
 #include "fisics_frontend.h"
 #include "core/Analysis/analysis_store.h"
+#include "core/Analysis/include_path_resolver.h"
 
 static char* read_file(const char* path, size_t* outLen) {
     if (outLen) *outLen = 0;
@@ -47,6 +48,9 @@ static int should_skip_dir(const char* name) {
            strcmp(name, ".git") == 0;
 }
 
+static char** g_includePaths = NULL;
+static size_t g_includePathCount = 0;
+
 static void scan_dir(const char* root) {
     DIR* dir = opendir(root);
     if (!dir) return;
@@ -74,7 +78,11 @@ static void scan_dir(const char* root) {
 
             // Run analysis on the in-memory buffer so we get diagnostics without
             // requiring a separate disk read inside the frontend.
-            bool ok = fisics_analyze_buffer(child, buf, len, &res);
+            FisicsFrontendOptions opts = {0};
+            opts.include_paths = (const char* const*)g_includePaths;
+            opts.include_path_count = g_includePathCount;
+
+            bool ok = fisics_analyze_buffer(child, buf, len, &opts, &res);
             (void)ok; // Even if false, the result may still contain diagnostics.
 
             // Upsert per-file diagnostics; store will copy strings and manage lifetime.
@@ -90,7 +98,11 @@ static void scan_dir(const char* root) {
 void analysis_scan_workspace(const char* root) {
     if (!root || !*root) return;
     analysis_store_clear();
+    g_includePathCount = gather_include_paths(root, &g_includePaths);
     scan_dir(root);
+    free_include_paths(g_includePaths, g_includePathCount);
+    g_includePaths = NULL;
+    g_includePathCount = 0;
     analysis_store_flatten_to_engine();
     analysis_store_save(root);
 }

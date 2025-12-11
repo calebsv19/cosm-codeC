@@ -8,6 +8,8 @@
 #include "core/Analysis/analysis_store.h"
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "ide/Panes/Editor/editor_view.h"
+#include "core/Analysis/include_path_resolver.h"
+#include "app/GlobalInfo/project.h"
 
 typedef struct {
     char* filePath;
@@ -38,15 +40,6 @@ static void free_symbol_cache(void) {
     }
     free(g_symbols.symbols);
     memset(&g_symbols, 0, sizeof(g_symbols));
-}
-
-static DiagnosticSeverity map_severity(DiagKind kind) {
-    switch (kind) {
-        case DIAG_WARNING: return DIAG_SEVERITY_WARNING;
-        case DIAG_NOTE:    return DIAG_SEVERITY_INFO;
-        case DIAG_ERROR:
-        default:           return DIAG_SEVERITY_ERROR;
-    }
 }
 
 static void cache_tokens(const char* filePath, const FisicsTokenSpan* spans, size_t count) {
@@ -92,7 +85,13 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
     FisicsAnalysisResult result;
     memset(&result, 0, sizeof(result));
 
-    bool ok = fisics_analyze_buffer(filePath, contents, length, &result);
+    char** incs = NULL;
+    size_t incCount = gather_include_paths(projectPath, &incs);
+    FisicsFrontendOptions opts = {0};
+    opts.include_paths = (const char* const*)incs;
+    opts.include_path_count = incCount;
+
+    bool ok = fisics_analyze_buffer(filePath, contents, length, &opts, &result);
     (void)ok; // ok may be false but still yield diagnostics
 
     analysis_store_upsert(filePath, result.diagnostics, result.diag_count);
@@ -102,6 +101,7 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
     cache_symbols(filePath, result.symbols, result.symbol_count);
 
     fisics_free_analysis_result(&result);
+    free_include_paths(incs, incCount);
 }
 
 void ide_analyze_open_file(OpenFile* file) {

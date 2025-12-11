@@ -14,7 +14,6 @@ void renderPopupQueueContents() {
     if (!ctx || !ctx->renderer) return;
 
     SDL_Renderer* renderer = ctx->renderer;
-    bool drewAnything = false;
 
     if (isPopupVisible()) {
         int count = getPopupCount();
@@ -22,7 +21,6 @@ void renderPopupQueueContents() {
             Popup* popup = getPopupAt(i);
             if (!popup || !popup->visible || !popup->message) continue;
             renderSinglePopup(popup, renderer, i);
-            drewAnything = true;
         }
     }
 
@@ -30,7 +28,6 @@ void renderPopupQueueContents() {
         int winW = 0, winH = 0;
         SDL_GetWindowSize(ctx->window, &winW, &winH);
         renderRenamePopup(renderer, winW, winH);
-        drewAnything = true;
     }
 }
 

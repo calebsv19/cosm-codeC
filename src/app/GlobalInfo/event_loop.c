@@ -18,10 +18,12 @@
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
 #include "ide/Panes/ToolPanels/Assets/tool_assets.h"
 #include "ide/Panes/ToolPanels/Git/render_tool_git.h"
+#include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
 
 #include "ide/UI/layout.h"
 #include "ide/UI/resize.h"
 #include "engine/Render/render_pipeline.h"
+#include "core/Analysis/library_index.h"
 
 
 // TimerHud extension
@@ -123,6 +125,8 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     if (pendingProjectRefresh) {
         refreshProjectDirectory();
         analysis_scan_workspace(projectPath);
+        library_index_build_workspace(projectPath);
+        rebuildLibraryFlatRows();
         initAssetManagerPanel();
         resetGitTree();
         pendingProjectRefresh = false;

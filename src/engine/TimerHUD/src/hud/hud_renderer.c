@@ -21,7 +21,6 @@
 
 static uint64_t last_update_time_ns = 0;
 static char cached_lines[MAX_HUD_LINES][256];
-static SDL_Rect cached_sizes[MAX_HUD_LINES];
 static int cached_line_count = 0;
 
 void hud_init(void) {

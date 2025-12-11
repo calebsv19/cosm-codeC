@@ -25,6 +25,7 @@
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/Analysis/project_scan.h"
 #include "core/Analysis/analysis_store.h"
+#include "core/Analysis/library_index.h"
 
 #include "Parser/language_parser.h"
 
@@ -273,6 +274,7 @@ bool initializeSystem() {
     initProjectPaths();
     loadInitialWorkspace();
     analysis_scan_workspace(projectPath);
+    library_index_build_workspace(projectPath);
     initAssetManagerPanel();
     initTerminal();
 
