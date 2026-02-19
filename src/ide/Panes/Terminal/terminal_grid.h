@@ -21,6 +21,16 @@ typedef struct {
     uint32_t cur_fg;
     uint32_t cur_bg;
     uint8_t cur_attrs;
+
+    // Persistent parser state across feed() calls.
+    uint8_t parser_state; // 0=text, 1=esc, 2=csi, 3=osc, 4=osc_esc
+    char csi_buf[128];
+    int csi_len;
+
+    // Stateful UTF-8 decoder across feed() calls.
+    uint32_t utf8_codepoint;
+    uint8_t utf8_expected;
+    uint8_t utf8_seen;
 } TermGrid;
 
 // Lifecycle

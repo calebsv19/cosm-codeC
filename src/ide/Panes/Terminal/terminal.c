@@ -36,6 +36,7 @@ typedef struct {
     bool inUse;
     bool isBuild;
     bool isRun;
+    int historyRows;
 } TerminalSession;
 
 #define MAX_TERMINAL_SESSIONS 8
@@ -65,6 +66,12 @@ typedef struct {
 } TerminalSelectionState;
 
 static TerminalSelectionState g_selection = {0};
+enum {
+    TERMINAL_SCROLLBACK_EXTRA_ROWS = 4000,
+    TERMINAL_INITIAL_ROWS = 1024,
+    TERMINAL_INITIAL_COLS = 120,
+};
+
 static const PaneScrollConfig kTerminalScrollConfig = {
     .line_height_px = TERMINAL_LINE_HEIGHT,
     .deceleration_px = 0.0f,
@@ -86,13 +93,49 @@ static void ensure_terminal_scroll_state(void) {
     }
 }
 
+static void terminal_feed_bytes(TerminalSession* s, const char* bytes, size_t len) {
+    if (!s || !bytes || len == 0) return;
+    term_emulator_feed(&s->grid, bytes, len);
+    if (s->historyRows < 1) s->historyRows = 1;
+    for (size_t i = 0; i < len; ++i) {
+        if (bytes[i] == '\n') {
+            s->historyRows++;
+        }
+    }
+}
+
+static int terminal_last_used_row_for_session(const TerminalSession* s) {
+    if (!s || !s->grid.cells || s->grid.rows <= 0) return -1;
+    for (int r = s->grid.rows - 1; r >= 0; --r) {
+        for (int c = 0; c < s->grid.cols; ++c) {
+            TermCell* cell = term_grid_cell((TermGrid*)&s->grid, r, c);
+            char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
+            if (ch != ' ') {
+                return r;
+            }
+        }
+    }
+    return -1;
+}
+
+static int terminal_session_content_rows(TerminalSession* s) {
+    if (!s || !s->grid.cells || s->grid.rows <= 0) return 1;
+    int rows = 1;
+    if (s->historyRows > rows) rows = s->historyRows;
+    int lastRowUsed = terminal_last_used_row_for_session(s);
+    if (lastRowUsed >= 0 && (lastRowUsed + 1) > rows) rows = lastRowUsed + 1;
+    int cursorRows = s->grid.cursor_row + 1;
+    if (cursorRows > rows) rows = cursorRows;
+    if (rows > s->grid.rows) rows = s->grid.rows;
+    return rows;
+}
+
 static void terminal_jump_to_bottom(void) {
     TerminalSession* s = active_session();
     if (!s) return;
     ensure_terminal_scroll_state();
     PaneScrollState* scroll = &s->scrollState;
-    int lastRowUsed = terminal_last_used_row();
-    int contentRows = (lastRowUsed >= 0) ? (lastRowUsed + 1) : 1;
+    int contentRows = terminal_session_content_rows(s);
     float contentHeight = (float)s->cellHeight * (float)contentRows;
     scroll_state_set_content_height(scroll, contentHeight);
     float maxOffset = contentHeight - scroll->viewport_height_px;
@@ -168,13 +211,14 @@ int terminal_create_interactive(const char* start_dir) {
     int idx = g_session_count++;
     TerminalSession* s = &g_sessions[idx];
     memset(s, 0, sizeof(*s));
-    s->gridRows = 512;
-    s->gridCols = 120;
+    s->gridRows = TERMINAL_INITIAL_ROWS;
+    s->gridCols = TERMINAL_INITIAL_COLS;
     s->cellWidth = 8;
     s->cellHeight = TERMINAL_LINE_HEIGHT;
     s->lastViewportW = -1;
     s->lastViewportH = -1;
     s->followOutput = true;
+    s->historyRows = 1;
     s->inUse = true;
     s->id = g_next_id++;
     snprintf(s->name, sizeof(s->name), "Term %d", termNumber);
@@ -255,7 +299,7 @@ void terminal_append_to_session(int index, const char* text) {
     if (!text) return;
     if (index < 0 || index >= g_session_count) return;
     TerminalSession* s = &g_sessions[index];
-    term_emulator_feed(&s->grid, text, strlen(text));
+    terminal_feed_bytes(s, text, strlen(text));
 }
 
 void terminal_clear_session(int index) {
@@ -268,6 +312,7 @@ void terminal_clear_session(int index) {
     }
     s->scrollState.offset_px = 0.0f;
     s->scrollState.target_offset_px = 0.0f;
+    s->historyRows = 1;
 }
 
 int terminal_line_length(int row, bool trim_trailing) {
@@ -316,6 +361,11 @@ int terminal_last_used_row(void) {
         }
     }
     return -1;
+}
+
+int terminal_content_rows(void) {
+    TerminalSession* s = active_session();
+    return terminal_session_content_rows(s);
 }
 
 static void clamp_selection_position(int* line, int* column) {
@@ -373,7 +423,7 @@ void printToTerminal(const char* text) {
     size_t len = strlen(text);
     TerminalSession* s = active_session();
     if (!s) return;
-    term_emulator_feed(&s->grid, text, len);
+    terminal_feed_bytes(s, text, len);
 }
 
 void clearTerminal() {
@@ -384,6 +434,7 @@ void clearTerminal() {
     s->scrollState.offset_px = 0.0f;
     s->scrollState.target_offset_px = 0.0f;
     term_grid_clear(&s->grid);
+    s->historyRows = 1;
     s->lastViewportW = -1;
     s->lastViewportH = -1;
 }
@@ -541,19 +592,8 @@ static void terminal_flush_backend_output(void) {
         if (raw) {
             memcpy(raw, data + s->backendConsumed, chunkLen);
             raw[chunkLen] = '\0';
-            // Debug: log incoming chunk and cursor state
-            printf("[TerminalDebug] Chunk (%zu bytes): \"", chunkLen);
-            for (size_t i = 0; i < chunkLen; ++i) {
-                unsigned char c = (unsigned char)raw[i];
-                if (c == '\n') printf("\\n");
-                else if (c == '\r') printf("\\r");
-                else if (c == '\t') printf("\\t");
-                else if (c < 32 || c > 126) printf("\\x%02X", c);
-                else putchar(c);
-            }
-            printf("\"\n");
             // Feed raw bytes to emulator
-            term_emulator_feed(&s->grid, raw, chunkLen);
+            terminal_feed_bytes(s, raw, chunkLen);
             if (s->isBuild) {
                 build_diagnostics_feed_chunk(raw, chunkLen);
             }
@@ -638,21 +678,27 @@ void terminal_resize_grid_for_pane(int width_px, int height_px) {
     s->lastViewportW = width_px;
     s->lastViewportH = height_px;
     // Use font metrics to compute cols/rows; fall back to defaults.
-    TTF_Font* font = getActiveFont();
+    TTF_Font* font = getTerminalFont();
     int cellW = s->cellWidth;
     int cellH = s->cellHeight;
     if (font) {
         int h = 0, w = 0;
         if (TTF_SizeText(font, "Mg", &w, &h) == 0) {
-            cellH = h;
+            cellH = TTF_FontLineSkip(font);
+            if (cellH <= 0) cellH = h;
         } else {
             cellH = TTF_FontLineSkip(font);
         }
-        int mW = getTextWidth("M");
-        int wW = getTextWidth("W");
-        int spaceW = getTextWidth(" ");
-        cellW = mW > wW ? mW : wW;
-        if (spaceW > cellW) cellW = spaceW;
+        int minx = 0, maxx = 0, miny = 0, maxy = 0, advance = 0;
+        if (TTF_GlyphMetrics(font, 'M', &minx, &maxx, &miny, &maxy, &advance) == 0 && advance > 0) {
+            cellW = advance;
+        } else {
+            int mW = getTextWidthWithFont("M", font);
+            int wW = getTextWidthWithFont("W", font);
+            int spaceW = getTextWidthWithFont(" ", font);
+            cellW = mW > wW ? mW : wW;
+            if (spaceW > cellW) cellW = spaceW;
+        }
     }
     if (cellW <= 0) cellW = 8;
     if (cellH <= 0) cellH = 16;
@@ -662,7 +708,7 @@ void terminal_resize_grid_for_pane(int width_px, int height_px) {
     if (viewRows < 5) viewRows = s->gridRows;
 
     // Keep plenty of scrollback rows beyond the visible area.
-    const int scrollbackExtra = 512;
+    const int scrollbackExtra = TERMINAL_SCROLLBACK_EXTRA_ROWS;
     int desiredRows = viewRows + scrollbackExtra;
     if (desiredRows < s->gridRows) desiredRows = s->gridRows; // don't shrink and lose scrollback
     s->gridCols = viewCols;
@@ -680,13 +726,14 @@ static int terminal_create_task(const char* name, bool isBuild, bool isRun) {
     int idx = g_session_count++;
     TerminalSession* s = &g_sessions[idx];
     memset(s, 0, sizeof(*s));
-    s->gridRows = 512;
-    s->gridCols = 120;
+    s->gridRows = TERMINAL_INITIAL_ROWS;
+    s->gridCols = TERMINAL_INITIAL_COLS;
     s->cellWidth = 8;
     s->cellHeight = TERMINAL_LINE_HEIGHT;
     s->lastViewportW = -1;
     s->lastViewportH = -1;
     s->followOutput = true;
+    s->historyRows = 1;
     s->inUse = true;
     s->isBuild = isBuild;
     s->isRun = isRun;

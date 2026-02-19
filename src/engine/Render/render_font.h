@@ -24,6 +24,6 @@ bool loadFontByID(FontID id);
 
 // Font accessor
 TTF_Font* getActiveFont();
+TTF_Font* getTerminalFont();
 
 #endif
-

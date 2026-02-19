@@ -5,16 +5,56 @@
 
 
 static TTF_Font* globalFont = NULL;
+static TTF_Font* terminalFont = NULL;
+
+static void loadTerminalMonospaceFont(void) {
+    if (terminalFont) {
+        TTF_CloseFont(terminalFont);
+        terminalFont = NULL;
+    }
+
+    const char* candidates[] = {
+        "include/fonts/JetBrainsMono/JetBrainsMono-Regular.ttf",
+        "include/fonts/FiraCode/FiraCode-Regular.ttf",
+        "/System/Library/Fonts/Menlo.ttc",
+        "/System/Library/Fonts/Supplemental/Courier New.ttf",
+        "/Library/Fonts/Courier New.ttf",
+    };
+    const int candidateCount = (int)(sizeof(candidates) / sizeof(candidates[0]));
+    const int terminalSize = 13;
+
+    for (int i = 0; i < candidateCount; ++i) {
+        TTF_Font* f = TTF_OpenFont(candidates[i], terminalSize);
+        if (f) {
+            TTF_SetFontStyle(f, TTF_STYLE_NORMAL);
+            TTF_SetFontHinting(f, TTF_HINTING_LIGHT);
+            TTF_SetFontKerning(f, 0);
+            terminalFont = f;
+            printf("Loaded terminal font: %s\n", candidates[i]);
+            return;
+        }
+    }
+
+    fprintf(stderr, "Warning: no monospace terminal font found; falling back to active UI font.\n");
+}
 
 bool initFontSystem() {
     if (TTF_Init() == -1) {
         fprintf(stderr, "Failed to initialize SDL_ttf: %s\n", TTF_GetError());
         return false;
     }
-    return loadFontByID(FONT_MONTSERRAT_MEDIUM);
+    if (!loadFontByID(FONT_MONTSERRAT_MEDIUM)) {
+        return false;
+    }
+    loadTerminalMonospaceFont();
+    return true;
 }
 
 void shutdownFontSystem() {
+    if (terminalFont) {
+        TTF_CloseFont(terminalFont);
+        terminalFont = NULL;
+    }
     if (globalFont) {
         TTF_CloseFont(globalFont);
         globalFont = NULL;
@@ -24,6 +64,10 @@ void shutdownFontSystem() {
 
 TTF_Font* getActiveFont() {
     return globalFont;
+}
+
+TTF_Font* getTerminalFont() {
+    return terminalFont ? terminalFont : globalFont;
 }
 
 bool loadFontByID(FontID id) {
@@ -75,4 +119,3 @@ bool loadFontByID(FontID id) {
     printf("Loaded font: %s\n", fontPath);
     return true;
 }
-

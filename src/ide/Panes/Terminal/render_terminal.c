@@ -1,6 +1,7 @@
 #include "ide/Panes/Terminal/render_terminal.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"  // renderUIPane, drawText
+#include "engine/Render/render_font.h"
 #include "app/GlobalInfo/system_control.h"
 #include "app/GlobalInfo/core_state.h"
 
@@ -12,7 +13,48 @@
 #include "ide/Panes/PaneInfo/pane.h"
 
 #include <SDL2/SDL.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
+
+#define TERM_ATTR_BOLD      (1 << 0)
+#define TERM_ATTR_UNDERLINE (1 << 1)
+
+static SDL_Color packed_rgba_to_sdl(uint32_t packed) {
+    SDL_Color c;
+    c.r = (Uint8)((packed >> 24) & 0xFFu);
+    c.g = (Uint8)((packed >> 16) & 0xFFu);
+    c.b = (Uint8)((packed >> 8) & 0xFFu);
+    c.a = (Uint8)(packed & 0xFFu);
+    return c;
+}
+
+static int encode_codepoint_utf8(uint32_t cp, char out[4]) {
+    if (cp <= 0x7Fu) {
+        out[0] = (char)cp;
+        return 1;
+    }
+    if (cp <= 0x7FFu) {
+        out[0] = (char)(0xC0u | ((cp >> 6) & 0x1Fu));
+        out[1] = (char)(0x80u | (cp & 0x3Fu));
+        return 2;
+    }
+    if (cp <= 0xFFFFu) {
+        out[0] = (char)(0xE0u | ((cp >> 12) & 0x0Fu));
+        out[1] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+        out[2] = (char)(0x80u | (cp & 0x3Fu));
+        return 3;
+    }
+    if (cp <= 0x10FFFFu) {
+        out[0] = (char)(0xF0u | ((cp >> 18) & 0x07u));
+        out[1] = (char)(0x80u | ((cp >> 12) & 0x3Fu));
+        out[2] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+        out[3] = (char)(0x80u | (cp & 0x3Fu));
+        return 4;
+    }
+    out[0] = '?';
+    return 1;
+}
 
 void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* core) {
 
@@ -139,9 +181,7 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
 
     PaneScrollState* scroll = terminal_get_scroll_state();
     scroll_state_set_viewport(scroll, (float)viewport.h);
-    // Use last used row to size scroll content so we don't pad with empty rows
-    int lastRowUsed = terminal_last_used_row();
-    int contentRows = (lastRowUsed >= 0) ? (lastRowUsed + 1) : 1;
+    int contentRows = terminal_content_rows();
     int cellH = terminal_cell_height();
     int cellW = terminal_cell_width();
     float contentHeight = (float)cellH * (float)contentRows;
@@ -159,13 +199,13 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     float offset = scroll_state_get_offset(scroll);
     int firstRow = (cellH > 0) ? (int)(offset / (float)cellH) : 0;
     if (firstRow < 0) firstRow = 0;
-    if (firstRow > grid->rows) firstRow = grid->rows;
+    if (firstRow > contentRows) firstRow = contentRows;
     float intraLineOffset = offset - (float)firstRow * (float)cellH;
 
     pushClipRect(&viewport);
 
     int rowsToRender = (viewport.h > 0 && cellH > 0)
-        ? ((viewport.h + cellH - 1) / cellH)
+        ? ((viewport.h + cellH - 1) / cellH + 1)
         : grid->rows;
     int cols = grid->cols;
     if (!grid->cells || grid->rows <= 0 || grid->cols <= 0) {
@@ -174,52 +214,112 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     }
     int selStartLine = 0, selStartCol = 0, selEndLine = 0, selEndCol = 0;
     bool hasSelection = terminal_get_selection_bounds(&selStartLine, &selStartCol, &selEndLine, &selEndCol);
+    TTF_Font* font = getTerminalFont();
+    int fontHeight = font ? TTF_FontHeight(font) : cellH;
+    if (fontHeight <= 0) fontHeight = cellH;
+    int textYOffset = (cellH - fontHeight) / 2;
+    if (textYOffset < 0) textYOffset = 0;
+    char* runBuf = (char*)malloc((size_t)cols * 4u + 1u);
+    for (int r = 0; r < rowsToRender; ++r) {
+        int rowIndex = firstRow + r;
+        if (rowIndex >= contentRows || rowIndex >= grid->rows) break;
 
-    char* lineBuf = (char*)malloc((size_t)cols + 1);
-    if (lineBuf) {
-        for (int r = 0; r < rowsToRender; ++r) {
-            int rowIndex = firstRow + r;
-            if (rowIndex >= grid->rows) break;
+        float drawYf = (float)viewport.y + (float)r * (float)cellH - intraLineOffset;
+        if (drawYf < (float)viewport.y) continue;
+        if (drawYf >= (float)(viewport.y + viewport.h)) break;
 
-            float drawYf = (float)viewport.y + (float)r * (float)cellH - intraLineOffset;
-            if (drawYf < (float)viewport.y) continue; // avoid drawing rows that would clip above
-            if (drawYf >= (float)(viewport.y + viewport.h)) break;
+        int drawY = (int)drawYf;
 
-            int drawY = (int)drawYf;
-            int lastNonSpace = -1;
-            for (int c = 0; c < cols; ++c) {
-                TermCell* cell = term_grid_cell(grid, rowIndex, c);
-                char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
-                if (ch >= 0x20 && ch < 0x7F) {
-                    lineBuf[c] = ch;
-                    if (ch != ' ') lastNonSpace = c;
-                } else {
-                    lineBuf[c] = ' ';
-                }
+        // Cell background runs from TermCell.bg.
+        for (int c = 0; c < cols; ) {
+            TermCell* first = term_grid_cell(grid, rowIndex, c);
+            uint32_t bg = first ? first->bg : 0x000000FFu;
+            int start = c++;
+            while (c < cols) {
+                TermCell* next = term_grid_cell(grid, rowIndex, c);
+                uint32_t nextBg = next ? next->bg : 0x000000FFu;
+                if (nextBg != bg) break;
+                c++;
             }
-            int renderLen = (lastNonSpace >= 0) ? lastNonSpace + 1 : 0;
-            lineBuf[renderLen] = '\0';
-            // Selection highlight using grid coords
-            if (hasSelection && rowIndex >= selStartLine && rowIndex <= selEndLine) {
-                int startCol = (rowIndex == selStartLine) ? selStartCol : 0;
-                int endCol = (rowIndex == selEndLine) ? selEndCol : cols;
-                if (startCol < 0) startCol = 0;
-                if (endCol < startCol) endCol = startCol;
-                if (endCol > cols) endCol = cols;
-                if (startCol != endCol) {
-                    int startX = viewport.x + startCol * cellW;
-                    int width = (endCol - startCol) * cellW;
-                    SDL_Rect highlight = { startX, drawY, width, cellH };
-                    SDL_SetRenderDrawColor(renderer, 80, 120, 200, 100);
-                    SDL_RenderFillRect(renderer, &highlight);
-                }
-            }
-            if (renderLen > 0) {
-                drawText(viewport.x, drawY, lineBuf);
+            SDL_Color bgColor = packed_rgba_to_sdl(bg);
+            SDL_Rect bgRect = {
+                viewport.x + start * cellW,
+                drawY,
+                (c - start) * cellW,
+                cellH
+            };
+            SDL_SetRenderDrawColor(renderer, bgColor.r, bgColor.g, bgColor.b, bgColor.a);
+            SDL_RenderFillRect(renderer, &bgRect);
+        }
+
+        // Selection highlight using grid coords.
+        if (hasSelection && rowIndex >= selStartLine && rowIndex <= selEndLine) {
+            int startCol = (rowIndex == selStartLine) ? selStartCol : 0;
+            int endCol = (rowIndex == selEndLine) ? selEndCol : cols;
+            if (startCol < 0) startCol = 0;
+            if (endCol < startCol) endCol = startCol;
+            if (endCol > cols) endCol = cols;
+            if (startCol != endCol) {
+                int startX = viewport.x + startCol * cellW;
+                int width = (endCol - startCol) * cellW;
+                SDL_Rect highlight = { startX, drawY, width, cellH };
+                SDL_SetRenderDrawColor(renderer, 80, 120, 200, 100);
+                SDL_RenderFillRect(renderer, &highlight);
             }
         }
-        free(lineBuf);
+
+        // Foreground text runs from TermCell.fg/attrs.
+        if (!font || !runBuf) continue;
+        for (int c = 0; c < cols; ) {
+            TermCell* tc = term_grid_cell(grid, rowIndex, c);
+            uint32_t cp = tc ? tc->ch : (uint32_t)' ';
+            if (cp == 0u || cp == (uint32_t)' ') {
+                c++;
+                continue;
+            }
+
+            uint32_t fg = tc->fg;
+            uint8_t attrs = tc->attrs;
+            int runStart = c;
+            int outLen = 0;
+            while (c < cols) {
+                TermCell* cur = term_grid_cell(grid, rowIndex, c);
+                uint32_t curCp = cur ? cur->ch : (uint32_t)' ';
+                uint32_t curFg = cur ? cur->fg : fg;
+                uint8_t curAttrs = cur ? cur->attrs : attrs;
+                if (curFg != fg || curAttrs != attrs) break;
+
+                if (curCp == 0u) curCp = (uint32_t)' ';
+                char enc[4];
+                int encLen = encode_codepoint_utf8(curCp, enc);
+                if (outLen + encLen >= cols * 4) break;
+                for (int i = 0; i < encLen; ++i) {
+                    runBuf[outLen++] = enc[i];
+                }
+                c++;
+            }
+            runBuf[outLen] = '\0';
+            if (outLen > 0) {
+                SDL_Color fgColor = packed_rgba_to_sdl(fg);
+                int drawX = viewport.x + runStart * cellW;
+                int textY = drawY + textYOffset;
+                bool bold = (attrs & TERM_ATTR_BOLD) != 0;
+                drawTextUTF8WithFontColor(drawX, textY, runBuf, font, fgColor, bold);
+
+                if ((attrs & TERM_ATTR_UNDERLINE) != 0) {
+                    SDL_Rect underline = {
+                        drawX,
+                        drawY + (cellH > 2 ? (cellH - 2) : 0),
+                        (c - runStart) * cellW,
+                        1
+                    };
+                    SDL_SetRenderDrawColor(renderer, fgColor.r, fgColor.g, fgColor.b, fgColor.a);
+                    SDL_RenderFillRect(renderer, &underline);
+                }
+            }
+        }
     }
+    if (runBuf) free(runBuf);
 
     popClipRect();
 
@@ -256,29 +356,17 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         if (caretCol < 0) caretCol = 0;
         if (caretCol > cols) caretCol = cols;
 
-        // Build a row slice up to caretCol to measure width with proportional font.
-        int caretLen = caretCol;
-        if (caretLen > cols) caretLen = cols;
-        char* caretBuf = (char*)malloc((size_t)caretLen + 1);
-        int caretWidthPx = 0;
-        if (caretBuf) {
-            for (int c = 0; c < caretLen; ++c) {
-                TermCell* cell = term_grid_cell(grid, caretRow, c);
-                char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
-                caretBuf[c] = (ch >= 0x20 && ch < 0x7F) ? ch : ' ';
-            }
-            caretBuf[caretLen] = '\0';
-            caretWidthPx = getTextWidth(caretBuf);
-            free(caretBuf);
-        }
-
-        int caretX = viewport.x + caretWidthPx;
+        int caretX = viewport.x + caretCol * cellW;
         int caretY = viewport.y + (caretRow - firstRow) * cellH - (int)intraLineOffset;
-        int caretW = (cellW > 0) ? (cellW / 4) : 4;
-        int caretH = 3;
-        caretY += (cellH > caretH) ? (cellH - caretH) : 0;
-        SDL_Rect caret = { caretX, caretY, caretW, caretH };
-        SDL_SetRenderDrawColor(renderer, 200, 200, 220, 220);
-        SDL_RenderFillRect(renderer, &caret);
+        int caretW = 2;
+        if (caretW > cellW) caretW = cellW;
+        int caretH = cellH - 2;
+        if (caretH < 2) caretH = 2;
+        caretY += 1;
+        if (caretY >= viewport.y && caretY < viewport.y + viewport.h) {
+            SDL_Rect caret = { caretX, caretY, caretW, caretH };
+            SDL_SetRenderDrawColor(renderer, 200, 200, 220, 220);
+            SDL_RenderFillRect(renderer, &caret);
+        }
     }
 }

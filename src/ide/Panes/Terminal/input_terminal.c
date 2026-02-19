@@ -3,7 +3,6 @@
 #include "core/CommandBus/command_bus.h"
 #include "ide/Panes/Terminal/command_terminal.h"
 #include "ide/Panes/Terminal/terminal.h"
-#include "engine/Render/render_text_helpers.h"
 #include "ide/UI/scroll_manager.h"
 #include "core/InputManager/UserInput/rename_flow.h"
 #include "app/GlobalInfo/core_state.h"
@@ -24,12 +23,28 @@ static void terminal_update_follow_flag(PaneScrollState* scroll) {
     }
 }
 
+static void terminal_scroll_history_lines(float lines) {
+    PaneScrollState* scroll = terminal_get_scroll_state();
+    if (!scroll) return;
+    scroll_state_scroll_lines(scroll, lines);
+    terminal_update_follow_flag(scroll);
+}
+
+static void terminal_scroll_history_page(int direction) {
+    PaneScrollState* scroll = terminal_get_scroll_state();
+    if (!scroll) return;
+    float lineHeight = scroll->line_height_px > 0.0f ? scroll->line_height_px : (float)TERMINAL_LINE_HEIGHT;
+    float pageLines = scroll->viewport_height_px / lineHeight;
+    if (pageLines < 1.0f) pageLines = 1.0f;
+    terminal_scroll_history_lines(pageLines * (float)direction);
+}
+
 static void terminal_compute_position(UIPane* pane, int mouseX, int mouseY, int* outLine, int* outColumn) {
     int cellH = terminal_cell_height();
     int lineHeight = cellH > 0 ? cellH : TERMINAL_LINE_HEIGHT;
     int padding = TERMINAL_PADDING;
-    TermGrid* grid = terminal_active_grid();
-    int totalLines = grid ? grid->rows : 0;
+    int headerH = TERMINAL_HEADER_HEIGHT;
+    int totalLines = terminal_content_rows();
 
     if (totalLines <= 0) {
         *outLine = 0;
@@ -44,7 +59,7 @@ static void terminal_compute_position(UIPane* pane, int mouseX, int mouseY, int*
     if (firstLine > totalLines) firstLine = totalLines;
     float intra = offset - (float)firstLine * (float)lineHeight;
 
-    int localY = mouseY - (pane->y + padding) + (int)intra;
+    int localY = mouseY - (pane->y + padding + headerH) + (int)intra;
     if (localY < 0) localY = 0;
     int lineOffset = (lineHeight > 0) ? localY / lineHeight : 0;
 
@@ -53,37 +68,16 @@ static void terminal_compute_position(UIPane* pane, int mouseX, int mouseY, int*
     if (lineIndex < 0) lineIndex = 0;
 
     int lineLen = terminal_line_length(lineIndex, true);
+    int cellW = terminal_cell_width();
+    if (cellW <= 0) cellW = 8;
 
     int textX = pane->x + padding;
     int localX = mouseX;
     if (localX < textX) localX = textX;
 
-    int col = 0;
-    int prevWidth = 0;
-    char* lineBuf = NULL;
-    if (lineLen > 0) {
-        lineBuf = (char*)malloc((size_t)lineLen + 1);
-        if (lineBuf) {
-            terminal_line_to_string(lineIndex, lineBuf, lineLen + 1, true);
-            while (col < lineLen) {
-                int width = getTextWidthN(lineBuf, col + 1);
-                int charLeft = textX + prevWidth;
-                int charRight = textX + width;
-                if (localX < charRight) {
-                    int leftDist = localX - charLeft;
-                    int rightDist = charRight - localX;
-                    if (rightDist < leftDist) {
-                        col++;
-                    }
-                    break;
-                }
-                prevWidth = width;
-                col++;
-            }
-        }
-    }
+    int col = (localX - textX + (cellW / 2)) / cellW;
+    if (col < 0) col = 0;
     if (col > lineLen) col = lineLen;
-    if (lineBuf) free(lineBuf);
 
     *outLine = lineIndex;
     *outColumn = col;
@@ -151,6 +145,34 @@ void handleTerminalKeyboardInput(UIPane* pane, SDL_Event* event) {
     }
 
     switch (key) {
+        case SDLK_PAGEUP:
+            terminal_set_follow_output(false);
+            terminal_scroll_history_page(+1);
+            break;
+        case SDLK_PAGEDOWN:
+            terminal_set_follow_output(false);
+            terminal_scroll_history_page(-1);
+            break;
+        case SDLK_HOME: {
+            PaneScrollState* scroll = terminal_get_scroll_state();
+            if (scroll) {
+                scroll->offset_px = 0.0f;
+                scroll->target_offset_px = 0.0f;
+                terminal_set_follow_output(false);
+            }
+            break;
+        }
+        case SDLK_END: {
+            PaneScrollState* scroll = terminal_get_scroll_state();
+            if (scroll) {
+                float maxOffset = scroll->content_height_px - scroll->viewport_height_px;
+                if (maxOffset < 0.0f) maxOffset = 0.0f;
+                scroll->offset_px = maxOffset;
+                scroll->target_offset_px = maxOffset;
+                terminal_set_follow_output(true);
+            }
+            break;
+        }
         case SDLK_RETURN: {
             const char cr = '\r';
             terminal_send_text(&cr, 1);

@@ -27,6 +27,7 @@ bool terminal_copy_selection_to_clipboard(void);
 int terminal_line_to_string(int row, char* out, int cap, bool trim_trailing);
 int terminal_line_length(int row, bool trim_trailing);
 int terminal_last_used_row(void);
+int terminal_content_rows(void);
 TermGrid* terminal_active_grid(void);
 int terminal_cell_width(void);
 int terminal_cell_height(void);

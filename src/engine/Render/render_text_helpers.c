@@ -4,10 +4,8 @@
 #include <SDL2/SDL_ttf.h>
 #include <string.h>
 
-int getTextWidth(const char* text) {
+int getTextWidthWithFont(const char* text, TTF_Font* font) {
     if (!text || text[0] == '\0') return 0;
-
-    TTF_Font* font = getActiveFont();
     if (!font) return 0;
 
     int w = 0, h = 0;
@@ -18,11 +16,12 @@ int getTextWidth(const char* text) {
     return w;
 }
 
+int getTextWidth(const char* text) {
+    return getTextWidthWithFont(text, getActiveFont());
+}
 
-int getTextWidthN(const char* text, int n) {
+int getTextWidthNWithFont(const char* text, int n, TTF_Font* font) {
     if (!text || n <= 0) return 0;
-
-    TTF_Font* font = getActiveFont();
     if (!font) return 0;
 
     int len = strnlen(text, n);
@@ -40,6 +39,21 @@ int getTextWidthN(const char* text, int n) {
         return 0;
     }
 
+    return w;
+}
+
+int getTextWidthN(const char* text, int n) {
+    return getTextWidthNWithFont(text, n, getActiveFont());
+}
+
+int getTextWidthUTF8WithFont(const char* text, TTF_Font* font) {
+    if (!text || text[0] == '\0') return 0;
+    if (!font) return 0;
+
+    int w = 0, h = 0;
+    if (TTF_SizeUTF8(font, text, &w, &h) != 0) {
+        return 0;
+    }
     return w;
 }
 

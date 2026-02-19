@@ -10,12 +10,10 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
-#if !USE_VULKAN
 #define CLIP_STACK_MAX 16
 static SDL_Rect s_clip_stack[CLIP_STACK_MAX];
 static bool s_clip_enabled_stack[CLIP_STACK_MAX];
 static int s_clip_top = 0;
-#endif
 
 void drawText(int x, int y, const char* text) {
     drawTextWithFont(x, y, text, getActiveFont());
@@ -40,7 +38,7 @@ void drawTextWithFont(int x, int y, const char* text, TTF_Font* font) {
     VkRendererTexture vkTexture = {0};
     SDL_Rect srcRect = {0, 0, surface->w, surface->h};
     if (vk_renderer_upload_sdl_surface_with_filter(renderer, surface, &vkTexture,
-                                                   VK_FILTER_NEAREST) == VK_SUCCESS) {
+                                                   VK_FILTER_LINEAR) == VK_SUCCESS) {
         vk_renderer_draw_texture(renderer, &vkTexture, &srcRect, &dst);
         vk_renderer_queue_texture_destroy(renderer, &vkTexture);
     }
@@ -48,6 +46,49 @@ void drawTextWithFont(int x, int y, const char* text, TTF_Font* font) {
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
     if (texture) {
         SDL_RenderCopy(renderer, texture, NULL, &dst);
+        SDL_DestroyTexture(texture);
+    }
+#endif
+
+    SDL_FreeSurface(surface);
+}
+
+void drawTextUTF8WithFontColor(int x, int y, const char* text, TTF_Font* font,
+                               SDL_Color color, bool bold) {
+    if (!text || text[0] == '\0') return;
+    if (!font) return;
+
+    RenderContext* ctx = getRenderContext();
+    if (!ctx || !ctx->renderer) return;
+
+    SDL_Renderer* renderer = ctx->renderer;
+    SDL_Surface* surface = TTF_RenderUTF8_Blended(font, text, color);
+    if (!surface) return;
+
+    SDL_Rect dst = {x, y, surface->w, surface->h};
+
+#if USE_VULKAN
+    VkRendererTexture vkTexture = {0};
+    SDL_Rect srcRect = {0, 0, surface->w, surface->h};
+    if (vk_renderer_upload_sdl_surface_with_filter(renderer, surface, &vkTexture,
+                                                   VK_FILTER_LINEAR) == VK_SUCCESS) {
+        vk_renderer_draw_texture(renderer, &vkTexture, &srcRect, &dst);
+        if (bold) {
+            SDL_Rect dst2 = dst;
+            dst2.x += 1;
+            vk_renderer_draw_texture(renderer, &vkTexture, &srcRect, &dst2);
+        }
+        vk_renderer_queue_texture_destroy(renderer, &vkTexture);
+    }
+#else
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if (texture) {
+        SDL_RenderCopy(renderer, texture, NULL, &dst);
+        if (bold) {
+            SDL_Rect dst2 = dst;
+            dst2.x += 1;
+            SDL_RenderCopy(renderer, texture, NULL, &dst2);
+        }
         SDL_DestroyTexture(texture);
     }
 #endif
@@ -186,9 +227,6 @@ void drawSelectableText(const SelectableTextOptions* options) {
 void pushClipRect(const SDL_Rect* rect) {
     RenderContext* ctx = getRenderContext();
     if (!ctx || !ctx->renderer) return;
-#if USE_VULKAN
-    (void)rect;
-#else
     if (s_clip_top < CLIP_STACK_MAX) {
         SDL_Rect current = {0, 0, 0, 0};
         SDL_RenderGetClipRect(ctx->renderer, &current);
@@ -198,15 +236,11 @@ void pushClipRect(const SDL_Rect* rect) {
         s_clip_top++;
     }
     SDL_RenderSetClipRect(ctx->renderer, rect);
-#endif
 }
 
 void popClipRect(void) {
     RenderContext* ctx = getRenderContext();
     if (!ctx || !ctx->renderer) return;
-#if USE_VULKAN
-    (void)ctx;
-#else
     if (s_clip_top <= 0) {
         SDL_RenderSetClipRect(ctx->renderer, NULL);
         return;
@@ -217,5 +251,4 @@ void popClipRect(void) {
     } else {
         SDL_RenderSetClipRect(ctx->renderer, &s_clip_stack[s_clip_top]);
     }
-#endif
 }

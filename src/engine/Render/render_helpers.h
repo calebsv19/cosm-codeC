@@ -4,6 +4,7 @@
 #include "engine/Render/renderer_backend.h"
 #include "core/TextSelection/text_selection_manager.h"
 #include <SDL2/SDL_ttf.h>
+#include <stdbool.h>
 
 struct UIPane;
 
@@ -21,6 +22,8 @@ typedef struct SelectableTextOptions {
 // Draw text with default styling
 void drawText(int x, int y, const char* text);
 void drawTextWithFont(int x, int y, const char* text, TTF_Font* font);
+void drawTextUTF8WithFontColor(int x, int y, const char* text, TTF_Font* font,
+                               SDL_Color color, bool bold);
 
 // Draw clipped text within a max width
 void drawClippedText(int x, int y, const char* text, int maxWidth);
