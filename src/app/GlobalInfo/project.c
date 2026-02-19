@@ -70,6 +70,56 @@ static void addChildEntry(DirEntry* parent, DirEntry* child) {
     parent->children[parent->childCount++] = child;
 }
 
+static int entry_priority_root(const DirEntry* entry) {
+    if (!entry || !entry->name) return 3;
+    if (strcmp(entry->name, "src") == 0) return 0;
+    if (strcmp(entry->name, "include") == 0) return 1;
+    return 2;
+}
+
+static int compare_entries_core(const DirEntry* left, const DirEntry* right, bool isRoot) {
+    if (left && right && left->type != right->type) {
+        return (left->type == ENTRY_FOLDER) ? -1 : 1;
+    }
+
+    if (isRoot) {
+        int lp = entry_priority_root(left);
+        int rp = entry_priority_root(right);
+        if (lp != rp) return (lp < rp) ? -1 : 1;
+    }
+
+    const char* ln = left && left->name ? left->name : "";
+    const char* rn = right && right->name ? right->name : "";
+    return strcasecmp(ln, rn);
+}
+
+#if defined(__APPLE__)
+static int compare_entries_bsd(void* ctx, const void* a, const void* b) {
+    const DirEntry* left = *(const DirEntry* const*)a;
+    const DirEntry* right = *(const DirEntry* const*)b;
+    bool isRoot = ctx != NULL;
+    return compare_entries_core(left, right, isRoot);
+}
+#else
+static int compare_entries_glibc(const void* a, const void* b, void* ctx) {
+    const DirEntry* left = *(const DirEntry* const*)a;
+    const DirEntry* right = *(const DirEntry* const*)b;
+    bool isRoot = ctx != NULL;
+    return compare_entries_core(left, right, isRoot);
+}
+#endif
+
+static void sort_dir_entries(DirEntry* entry) {
+    if (!entry || entry->childCount < 2) return;
+    bool isRoot = (entry->parent == NULL);
+#if defined(__APPLE__)
+    qsort_r(entry->children, (size_t)entry->childCount, sizeof(DirEntry*),
+            (void*)(isRoot ? entry : NULL), compare_entries_bsd);
+#else
+    qsort_r(entry->children, (size_t)entry->childCount, sizeof(DirEntry*),
+            compare_entries_glibc, (void*)(isRoot ? entry : NULL));
+#endif
+}
 
 
 
@@ -141,6 +191,7 @@ static DirEntry* loadProjectDirectoryInternal(const char* path, DirEntry* parent
     }
 
     closedir(dir);
+    sort_dir_entries(root);
     return root;
 }
 

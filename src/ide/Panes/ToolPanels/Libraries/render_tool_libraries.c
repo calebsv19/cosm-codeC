@@ -4,7 +4,7 @@
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"
 
-#include "core/Analysis/library_index.h"
+#include "core/Analysis/analysis_status.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
 #include "ide/UI/scroll_manager.h"
 #include <SDL2/SDL.h>
@@ -39,6 +39,24 @@ void renderLibrariesPanel(UIPane* pane) {
     int contentH = pane->h - headerHeight;
     if (contentH < 0) contentH = 0;
     int viewBottom = contentY + contentH;
+
+    // Status indicator in header area (not clipped)
+    AnalysisStatusSnapshot snap = {0};
+    analysis_status_snapshot(&snap);
+    char statusBuf[128] = {0};
+    if (snap.updating) {
+        snprintf(statusBuf, sizeof(statusBuf), "Updating...");
+    } else if (snap.last_error[0]) {
+        snprintf(statusBuf, sizeof(statusBuf), "Analysis error");
+    } else if (snap.has_cache) {
+        snprintf(statusBuf, sizeof(statusBuf), "(cached)");
+    }
+    if (statusBuf[0]) {
+        int tw = getTextWidth(statusBuf);
+        int tx = pane->x + pane->w - tw - 16;
+        int ty = pane->y + 8;
+        drawText(tx, ty, statusBuf);
+    }
 
     SDL_Rect clip = { pane->x, contentY, pane->w, contentH };
     pushClipRect(&clip);
@@ -94,16 +112,10 @@ void renderLibrariesPanel(UIPane* pane) {
 
         char line[1024];
         if (row->type == LIB_NODE_BUCKET) {
-            const LibraryBucket* b = library_index_get_bucket((size_t)row->bucketIndex);
-            int count = b ? (int)b->header_count : 0;
+            int count = row->bucketHeaderCount;
             snprintf(line, sizeof(line), "%s%s (%d)", prefix, bucket_label((LibraryBucketKind)row->bucketIndex), count);
         } else if (row->type == LIB_NODE_HEADER) {
-            const LibraryHeader* h = NULL;
-            if (row->bucketIndex >= 0) {
-                const LibraryBucket* b = library_index_get_bucket((size_t)row->bucketIndex);
-                h = library_index_get_header(b, (size_t)row->headerIndex);
-            }
-            const char* kindGlyph = h ? ((h->kind == LIB_INCLUDE_KIND_SYSTEM) ? "<>" : "\"\"") : "";
+            const char* kindGlyph = (row->includeKind == LIB_INCLUDE_KIND_SYSTEM) ? "<>" : "\"\"";
             const char* unresolved = (row->bucketIndex == LIB_BUCKET_UNRESOLVED) ? " [!]" : "";
             snprintf(line, sizeof(line), "%s%s %s%s", prefix, kindGlyph,
                      row->labelPrimary ? row->labelPrimary : "(header)", unresolved);

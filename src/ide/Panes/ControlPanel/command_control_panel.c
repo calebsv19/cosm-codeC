@@ -23,9 +23,13 @@ void handleControlPanelCommand(UIPane* pane, InputCommandMetadata meta) {
             printf("[ControlPanel] Toggled Inline Errors\n");
             break;
 
+        case COMMAND_TOGGLE_SHOW_MACROS:
+            toggleShowMacros();
+            printf("[ControlPanel] Toggled Show Macros\n");
+            break;
+
         default:
             printf("[ControlPanel] Unknown command: %d\n", meta.cmd);
             break;
     }
 }
-

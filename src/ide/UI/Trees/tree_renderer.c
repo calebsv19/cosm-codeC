@@ -36,7 +36,13 @@ void handleTreeMouseMove(int x, int y) {
     getCoreState()->mouseY = y;
 }
 
-static void renderTreeRecursive(UITreeNode* node, int x, int* y, int maxY) {
+static void renderTreeRecursive(UITreeNode* node,
+                                int x,
+                                int* y,
+                                int maxY,
+                                int mouseX,
+                                int mouseY,
+                                bool allowHover) {
     if (!node || *y > maxY) return;
 
     int lineHeight = 22;
@@ -65,8 +71,11 @@ static void renderTreeRecursive(UITreeNode* node, int x, int* y, int maxY) {
         lineHeight
     };
 
-    int my = getCoreState()->mouseY;
-    bool isHovered = (my >= drawY && my < drawY + lineHeight);
+    bool isHovered = allowHover && (mouseY >= drawY && mouseY < drawY + lineHeight);
+    if (isHovered) {
+        isHovered = (mouseX >= textBox.x && mouseX <= (textBox.x + textBox.w) &&
+                     mouseY >= textBox.y && mouseY <= (textBox.y + textBox.h));
+    }
 
     //  Draw hover outline
     if (isHovered) {
@@ -92,7 +101,13 @@ static void renderTreeRecursive(UITreeNode* node, int x, int* y, int maxY) {
     // Recurse into children if expanded
     if ((node->type == TREE_NODE_FOLDER || node->type == TREE_NODE_SECTION) && node->isExpanded) {
         for (int i = 0; i < node->childCount; i++) {
-            renderTreeRecursive(node->children[i], x, y, maxY);
+            renderTreeRecursive(node->children[i],
+                                x,
+                                y,
+                                maxY,
+                                mouseX,
+                                mouseY,
+                                allowHover);
         }
     }
 }
@@ -104,9 +119,19 @@ void renderTreePanel(UIPane* pane, UITreeNode* root) {
     int x = pane->x + 12;
     int y = pane->y + 30;
     int maxY = pane->y + pane->h;
+    int mx = getCoreState()->mouseX;
+    int my = getCoreState()->mouseY;
+    bool allowHover = (mx >= pane->x && mx <= pane->x + pane->w &&
+                       my >= pane->y && my <= pane->y + pane->h);
 
     hoveredNode = NULL;
-    renderTreeRecursive(root, x, &y, maxY);
+    renderTreeRecursive(root,
+                        x,
+                        &y,
+                        maxY,
+                        mx,
+                        my,
+                        allowHover);
 }
 
 void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
@@ -127,9 +152,12 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
 
     // Count visible rows
     int visibleLines = 0;
-    // quick DFS count
-    UITreeNode* stack[1024];
-    int sp = 0;
+    UITreeNode** stack = NULL;
+    size_t sp = 0;
+    size_t stackCap = 0;
+    stackCap = 128;
+    stack = (UITreeNode**)malloc(stackCap * sizeof(UITreeNode*));
+    if (!stack) return;
     stack[sp++] = root;
     while (sp > 0) {
         UITreeNode* n = stack[--sp];
@@ -137,6 +165,16 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
         visibleLines++;
         if ((n->type == TREE_NODE_FOLDER || n->type == TREE_NODE_SECTION) && n->isExpanded) {
             for (int i = n->childCount - 1; i >= 0; --i) {
+                if (sp >= stackCap) {
+                    size_t newCap = stackCap * 2;
+                    UITreeNode** grown = (UITreeNode**)realloc(stack, newCap * sizeof(UITreeNode*));
+                    if (!grown) {
+                        free(stack);
+                        return;
+                    }
+                    stack = grown;
+                    stackCap = newCap;
+                }
                 stack[sp++] = n->children[i];
             }
         }
@@ -157,7 +195,16 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
     // So we inline a trimmed version here:
     // We'll perform a stack walk similar to above but drawing with offset.
     sp = 0;
+    if (stackCap == 0) {
+        stackCap = 128;
+        stack = (UITreeNode**)malloc(stackCap * sizeof(UITreeNode*));
+        if (!stack) { popClipRect(); return; }
+    }
     stack[sp++] = root;
+    int mx = getCoreState()->mouseX;
+    int my = getCoreState()->mouseY;
+    bool mouseInsidePane = (mx >= pane->x && mx <= pane->x + pane->w &&
+                            my >= contentTop && my <= maxY);
     while (sp > 0) {
         UITreeNode* n = stack[--sp];
         if (!n) continue;
@@ -170,7 +217,11 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
             int drawX = x + indent;
 
             RenderContext* ctx = getRenderContext();
-            if (!ctx || !ctx->renderer) { popClipRect(); return; }
+            if (!ctx || !ctx->renderer) {
+                free(stack);
+                popClipRect();
+                return;
+            }
             SDL_Renderer* renderer = ctx->renderer;
 
             const char* prefix = "";
@@ -183,8 +234,9 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
             int textWidth = getTextWidth(line);
             SDL_Rect textBox = { drawX - 6, drawY - 1, textWidth + 12, lineHeight };
 
-            int my = getCoreState()->mouseY;
-            bool isHovered = (my >= drawY && my < drawY + lineHeight);
+            bool isHovered = mouseInsidePane &&
+                             (my >= drawY && my < drawY + lineHeight) &&
+                             (mx >= textBox.x && mx <= (textBox.x + textBox.w));
 
             if (isHovered) {
                 hoveredNode = n;
@@ -205,12 +257,24 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
 
         if ((n->type == TREE_NODE_FOLDER || n->type == TREE_NODE_SECTION) && n->isExpanded) {
             for (int i = n->childCount - 1; i >= 0; --i) {
+                if (sp >= stackCap) {
+                    size_t newCap = stackCap * 2;
+                    UITreeNode** grown = (UITreeNode**)realloc(stack, newCap * sizeof(UITreeNode*));
+                    if (!grown) {
+                        free(stack);
+                        popClipRect();
+                        return;
+                    }
+                    stack = grown;
+                    stackCap = newCap;
+                }
                 stack[sp++] = n->children[i];
             }
         }
     }
 
     popClipRect();
+    free(stack);
 
     bool showScrollbar = scroll_state_can_scroll(scroll) && viewportH > 0;
     if (showScrollbar) {
@@ -267,8 +331,11 @@ void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, PaneScrollState* 
     float offset = scroll_state_get_offset(scroll);
 
     // Walk visible nodes with the same layout as renderTreePanelWithScroll
-    UITreeNode* stack[1024];
-    int sp = 0;
+    UITreeNode** stack = NULL;
+    size_t sp = 0;
+    size_t stackCap = 128;
+    stack = (UITreeNode**)malloc(stackCap * sizeof(UITreeNode*));
+    if (!stack) return;
     stack[sp++] = root;
     int y = contentTop - (int)offset;
 
@@ -286,12 +353,25 @@ void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, PaneScrollState* 
 
         if ((n->type == TREE_NODE_FOLDER || n->type == TREE_NODE_SECTION) && n->isExpanded) {
             for (int i = n->childCount - 1; i >= 0; --i) {
+                if (sp >= stackCap) {
+                    size_t newCap = stackCap * 2;
+                    UITreeNode** grown = (UITreeNode**)realloc(stack, newCap * sizeof(UITreeNode*));
+                    if (!grown) {
+                        free(stack);
+                        return;
+                    }
+                    stack = grown;
+                    stackCap = newCap;
+                }
                 stack[sp++] = n->children[i];
             }
         }
     }
 
-    if (!hit) return;
+    if (!hit) {
+        free(stack);
+        return;
+    }
 
     selectedNode = hit;
 
@@ -304,4 +384,5 @@ void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, PaneScrollState* 
             hit->isExpanded = !hit->isExpanded;
         }
     }
+    free(stack);
 }

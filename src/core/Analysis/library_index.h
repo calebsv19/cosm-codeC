@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#include "core/Analysis/include_path_resolver.h"
+
 // Buckets correspond to where an include was resolved (or not).
 typedef enum {
     LIB_BUCKET_PROJECT = 0,
@@ -46,6 +48,12 @@ typedef struct {
 void library_index_reset(void);                 // Clear all buckets/headers/usages
 void library_index_begin(const char* project_root); // Set project root used for relative paths
 void library_index_finalize(void);              // Sort headers/usages after population
+// Synchronization helpers (call to guard reads during background analysis).
+void library_index_lock(void);
+void library_index_unlock(void);
+// Persistence (ide_files/library_index.json). Safe to call even if no data exists.
+void library_index_save(const char* workspace_root);
+void library_index_load(const char* workspace_root);
 
 // Mutation
 void library_index_add_include(const char* source_path,
@@ -68,6 +76,7 @@ typedef struct {
 void library_index_get_last_build_stats(LibraryIndexBuildStats* outStats);
 
 // Queries (read-only views; pointers remain valid until next reset/begin)
+// Call library_index_lock/library_index_unlock to guard multi-step reads.
 size_t library_index_bucket_count(void);
 const LibraryBucket* library_index_get_bucket(size_t index);
 
@@ -79,5 +88,6 @@ const LibraryUsage* library_index_get_usage(const LibraryHeader* header, size_t 
 
 // Build helpers
 void library_index_build_workspace(const char* project_root);
+void library_index_build_workspace_with_flags(const char* project_root, const BuildFlagSet* flags);
 
 #endif // LIBRARY_INDEX_H

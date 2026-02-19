@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <dirent.h>
 #include <limits.h>
 
 typedef struct WatchedFile {
@@ -16,6 +17,27 @@ typedef struct WatchedFile {
 static WatchedFile* head = NULL;
 static char watchedWorkspacePath[PATH_MAX];
 static time_t workspaceLastModified = 0;
+
+static time_t compute_workspace_stamp(const char* root) {
+    if (!root || !*root) return 0;
+    DIR* dir = opendir(root);
+    if (!dir) return 0;
+
+    time_t latest = 0;
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+        if (strcmp(entry->d_name, "ide_files") == 0) continue;
+
+        char fullPath[PATH_MAX];
+        snprintf(fullPath, sizeof(fullPath), "%s/%s", root, entry->d_name);
+        struct stat st;
+        if (stat(fullPath, &st) != 0) continue;
+        if (st.st_mtime > latest) latest = st.st_mtime;
+    }
+    closedir(dir);
+    return latest;
+}
 
 void initFileWatcher() {
     head = NULL;
@@ -89,14 +111,13 @@ void pollFileWatcher() {
     }
 
     if (watchedWorkspacePath[0] != '\0') {
-        struct stat dirStat;
-        if (stat(watchedWorkspacePath, &dirStat) == 0) {
-            if (workspaceLastModified == 0) {
-                workspaceLastModified = dirStat.st_mtime;
-            } else if (dirStat.st_mtime != workspaceLastModified) {
-                workspaceLastModified = dirStat.st_mtime;
-                pendingProjectRefresh = true;
-            }
+        time_t stamp = compute_workspace_stamp(watchedWorkspacePath);
+        if (stamp == 0) return;
+        if (workspaceLastModified == 0) {
+            workspaceLastModified = stamp;
+        } else if (stamp != workspaceLastModified) {
+            workspaceLastModified = stamp;
+            pendingProjectRefresh = true;
         }
     }
 }

@@ -3,6 +3,7 @@
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/Analysis/fisics_bridge.h"
 #include "core/Analysis/analysis_store.h"
+#include "core/Analysis/analysis_symbols_store.h"
 #include "app/GlobalInfo/project.h"
 
 #include <stdio.h>
@@ -86,6 +87,7 @@ void tickSaveQueue() {
         printf("[SaveQueue] Analyzing: %s (%zu bytes)\n", item->filePath, item->length);
         ide_analyze_buffer_for_file(item->filePath, item->contents, item->length);
         analysis_store_save(projectPath);
+        analysis_symbols_store_save(projectPath);
     } else {
         printf("[SaveQueue] FAILED to save: %s\n", item->filePath);
     }

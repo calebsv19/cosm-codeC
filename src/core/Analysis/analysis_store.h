@@ -22,6 +22,10 @@ void analysis_store_upsert(const char* filePath,
                            const FisicsDiagnostic* fisicsDiags,
                            size_t diagCount);
 
+// Synchronization helpers (lock around multi-step reads in UI).
+void analysis_store_lock(void);
+void analysis_store_unlock(void);
+
 // Count of files with diagnostics.
 size_t analysis_store_file_count(void);
 

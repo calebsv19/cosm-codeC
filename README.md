@@ -33,6 +33,8 @@ developed as part of a broader ecosystem for simulation, compiler development, a
 
 - **SDL-based rendering**  
   SDL2/SDL_ttf renderer with custom clipping, scrollbars, and shared tree renderer.
+- **Optional Vulkan renderer layer**  
+  Drop-in Vulkan backend (`src/engine/Render/vk_renderer_ref`) that remaps `SDL_Render*` calls via macros.
 
 ---
 
@@ -49,6 +51,7 @@ You can still build and run to explore the UI!
 
 - SDL2  
 - SDL2_ttf  
+- Vulkan SDK/loader (optional; required when building with Vulkan enabled)
 - A C compiler (e.g., gcc or clang)
 
 ### Build & Run
@@ -59,6 +62,10 @@ cd custom-c-ide
 make
 ./ide
 ```
+
+Vulkan is enabled by default. If you don't have Vulkan installed, set
+`USE_VULKAN` to `0` in `src/build_config.h` and remove `-lvulkan` from the
+top-level `makefile` (or set `VULKAN_LIBS=` when invoking `make`).
 
 --- or ---
 

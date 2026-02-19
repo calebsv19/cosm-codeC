@@ -1,13 +1,24 @@
 #include "core/Analysis/analysis_store.h"
 
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <sys/stat.h>
 
 static AnalysisFileDiagnostics* g_files = NULL;
 static size_t g_file_count = 0;
 static size_t g_file_cap = 0;
 static uint64_t g_stamp_counter = 0;
+static pthread_mutex_t g_analysis_store_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void analysis_store_lock(void) {
+    pthread_mutex_lock(&g_analysis_store_mutex);
+}
+
+void analysis_store_unlock(void) {
+    pthread_mutex_unlock(&g_analysis_store_mutex);
+}
 
 static void free_entry(AnalysisFileDiagnostics* f) {
     if (!f) return;
@@ -22,7 +33,7 @@ static void free_entry(AnalysisFileDiagnostics* f) {
     f->count = 0;
 }
 
-void analysis_store_clear(void) {
+static void analysis_store_clear_locked(void) {
     for (size_t i = 0; i < g_file_count; ++i) {
         free_entry(&g_files[i]);
     }
@@ -31,6 +42,12 @@ void analysis_store_clear(void) {
     g_file_count = 0;
     g_file_cap = 0;
     g_stamp_counter = 0;
+}
+
+void analysis_store_clear(void) {
+    analysis_store_lock();
+    analysis_store_clear_locked();
+    analysis_store_unlock();
 }
 
 static DiagnosticSeverity map_severity(DiagKind kind) {
@@ -42,9 +59,9 @@ static DiagnosticSeverity map_severity(DiagKind kind) {
     }
 }
 
-void analysis_store_upsert(const char* filePath,
-                           const FisicsDiagnostic* fisicsDiags,
-                           size_t diagCount) {
+static void analysis_store_upsert_locked(const char* filePath,
+                                         const FisicsDiagnostic* fisicsDiags,
+                                         size_t diagCount) {
     if (!filePath) return;
 
     // Remove existing entry for this path
@@ -104,6 +121,14 @@ void analysis_store_upsert(const char* filePath,
     g_file_count++;
 }
 
+void analysis_store_upsert(const char* filePath,
+                           const FisicsDiagnostic* fisicsDiags,
+                           size_t diagCount) {
+    analysis_store_lock();
+    analysis_store_upsert_locked(filePath, fisicsDiags, diagCount);
+    analysis_store_unlock();
+}
+
 size_t analysis_store_file_count(void) {
     return g_file_count;
 }
@@ -113,7 +138,7 @@ const AnalysisFileDiagnostics* analysis_store_file_at(size_t idx) {
     return &g_files[idx];
 }
 
-void analysis_store_flatten_to_engine(void) {
+static void analysis_store_flatten_to_engine_locked(void) {
     clearDiagnostics();
     for (size_t i = 0; i < g_file_count; ++i) {
         AnalysisFileDiagnostics* f = &g_files[i];
@@ -127,11 +152,17 @@ void analysis_store_flatten_to_engine(void) {
     }
 }
 
+void analysis_store_flatten_to_engine(void) {
+    analysis_store_lock();
+    analysis_store_flatten_to_engine_locked();
+    analysis_store_unlock();
+}
+
 // Persistence helpers
 #include <json-c/json.h>
 #include <sys/stat.h>
 
-void analysis_store_save(const char* workspaceRoot) {
+static void ensure_cache_dir(const char* workspaceRoot) {
     if (!workspaceRoot || !*workspaceRoot) return;
     char dir[1024];
     snprintf(dir, sizeof(dir), "%s/ide_files", workspaceRoot);
@@ -139,9 +170,15 @@ void analysis_store_save(const char* workspaceRoot) {
     if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
         mkdir(dir, 0755);
     }
+}
+
+void analysis_store_save(const char* workspaceRoot) {
+    if (!workspaceRoot || !*workspaceRoot) return;
+    ensure_cache_dir(workspaceRoot);
     char path[1024];
     snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
 
+    analysis_store_lock();
     json_object* arr = json_object_new_array();
     for (size_t i = 0; i < g_file_count; ++i) {
         AnalysisFileDiagnostics* f = &g_files[i];
@@ -170,25 +207,35 @@ void analysis_store_save(const char* workspaceRoot) {
         fclose(f);
     }
     json_object_put(arr);
+    analysis_store_unlock();
 }
 
 void analysis_store_load(const char* workspaceRoot) {
-    analysis_store_clear();
-    if (!workspaceRoot || !*workspaceRoot) return;
+    analysis_store_lock();
+    analysis_store_clear_locked();
+    if (!workspaceRoot || !*workspaceRoot) {
+        analysis_store_unlock();
+        return;
+    }
     char path[1024];
     snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
     FILE* f = fopen(path, "r");
-    if (!f) return;
+    if (!f) {
+        analysis_store_unlock();
+        return;
+    }
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
     if (len <= 0 || len > (32 * 1024 * 1024)) {
         fclose(f);
+        analysis_store_unlock();
         return;
     }
     char* buf = malloc((size_t)len + 1);
     if (!buf) {
         fclose(f);
+        analysis_store_unlock();
         return;
     }
     fread(buf, 1, (size_t)len, f);
@@ -199,6 +246,7 @@ void analysis_store_load(const char* workspaceRoot) {
     free(buf);
     if (!root || !json_object_is_type(root, json_type_array)) {
         if (root) json_object_put(root);
+        analysis_store_unlock();
         return;
     }
 
@@ -237,7 +285,7 @@ void analysis_store_load(const char* workspaceRoot) {
                 tmp[d].message = m ? strdup(m) : NULL;
             }
         }
-        analysis_store_upsert(pathStr, tmp, dcount);
+        analysis_store_upsert_locked(pathStr, tmp, dcount);
         for (size_t d = 0; d < dcount; ++d) {
             free(tmp[d].message);
         }
@@ -248,4 +296,5 @@ void analysis_store_load(const char* workspaceRoot) {
         }
     }
     json_object_put(root);
+    analysis_store_unlock();
 }

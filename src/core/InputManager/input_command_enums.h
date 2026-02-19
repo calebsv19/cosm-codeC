@@ -77,6 +77,7 @@ typedef enum {
     // --- Control Panel Specific
     COMMAND_TOGGLE_LIVE_PARSE,
     COMMAND_TOGGLE_SHOW_ERRORS,
+    COMMAND_TOGGLE_SHOW_MACROS,
 
     // --- Task Panel Specific ---
     COMMAND_DELETE_TASK,
@@ -92,6 +93,7 @@ typedef enum {
     COMMAND_STAGE_SELECTED_FILE,
     COMMAND_COMMIT_CHANGES,
     COMMAND_REFRESH_LIBRARY,
+    COMMAND_CLEAR_ANALYSIS_CACHE,
 
     // --- Error Panel Specific ---
     COMMAND_JUMP_TO_FIRST_ERROR,

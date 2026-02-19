@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <json-c/json.h>
 
 static AssetCatalog gCatalog = {0};
 static bool selected[1024];
@@ -210,6 +211,129 @@ void assets_toggle_collapse(AssetCategory cat) {
     gCatalog.categories[cat].collapsed = !gCatalog.categories[cat].collapsed;
 }
 
+// Persistence helpers
+static void ensure_ide_dir(const char* workspace) {
+    if (!workspace || !*workspace) return;
+    char dir[PATH_MAX];
+    snprintf(dir, sizeof(dir), "%s/ide_files", workspace);
+    struct stat st;
+    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        mkdir(dir, 0755);
+    }
+}
+
+void assets_save_catalog(const char* workspaceRoot) {
+    if (!workspaceRoot || !*workspaceRoot) return;
+    ensure_ide_dir(workspaceRoot);
+    json_object* root = json_object_new_object();
+    json_object* cats = json_object_new_array();
+    for (int c = 0; c < ASSET_CATEGORY_COUNT; ++c) {
+        AssetCategoryList* list = &gCatalog.categories[c];
+        json_object* jc = json_object_new_object();
+        json_object_object_add(jc, "category", json_object_new_int(list->category));
+        json_object_object_add(jc, "collapsed", json_object_new_boolean(list->collapsed));
+        json_object* items = json_object_new_array();
+        for (int i = 0; i < list->count; ++i) {
+            AssetEntry* e = &list->items[i];
+            json_object* je = json_object_new_object();
+            json_object_object_add(je, "name", json_object_new_string(e->name ? e->name : ""));
+            json_object_object_add(je, "rel", json_object_new_string(e->relPath ? e->relPath : ""));
+            json_object_object_add(je, "abs", json_object_new_string(e->absPath ? e->absPath : ""));
+            json_object_array_add(items, je);
+        }
+        json_object_object_add(jc, "items", items);
+        json_object_array_add(cats, jc);
+    }
+    json_object_object_add(root, "categories", cats);
+    json_object_object_add(root, "total", json_object_new_int(gCatalog.totalCount));
+
+    const char* serialized = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/ide_files/assets_catalog.json", workspaceRoot);
+    FILE* f = fopen(path, "w");
+    if (f && serialized) {
+        fputs(serialized, f);
+        fclose(f);
+    } else if (f) {
+        fclose(f);
+    }
+    json_object_put(root);
+}
+
+void assets_load_catalog(const char* workspaceRoot) {
+    clear_catalog();
+    if (!workspaceRoot || !*workspaceRoot) return;
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/ide_files/assets_catalog.json", workspaceRoot);
+    FILE* f = fopen(path, "r");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (len <= 0 || len > (32 * 1024 * 1024)) {
+        fclose(f);
+        return;
+    }
+    char* buf = malloc((size_t)len + 1);
+    if (!buf) {
+        fclose(f);
+        return;
+    }
+    fread(buf, 1, (size_t)len, f);
+    buf[len] = '\0';
+    fclose(f);
+
+    json_object* root = json_tokener_parse(buf);
+    free(buf);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root) json_object_put(root);
+        return;
+    }
+
+    json_object* jcats = NULL;
+    if (json_object_object_get_ex(root, "categories", &jcats) &&
+        jcats && json_object_is_type(jcats, json_type_array)) {
+        size_t catCount = json_object_array_length(jcats);
+        for (size_t ci = 0; ci < catCount && ci < ASSET_CATEGORY_COUNT; ++ci) {
+            json_object* jc = json_object_array_get_idx(jcats, ci);
+            if (!jc || !json_object_is_type(jc, json_type_object)) continue;
+            json_object* jitems=NULL,* jcoll=NULL,* jcat=NULL;
+            json_object_object_get_ex(jc, "items", &jitems);
+            json_object_object_get_ex(jc, "collapsed", &jcoll);
+            json_object_object_get_ex(jc, "category", &jcat);
+            AssetCategoryList* list = &gCatalog.categories[ci];
+            list->category = jcat ? (AssetCategory)json_object_get_int(jcat) : (AssetCategory)ci;
+            list->collapsed = jcoll ? json_object_get_boolean(jcoll) : false;
+            if (!jitems || !json_object_is_type(jitems, json_type_array)) continue;
+            size_t itemCount = json_object_array_length(jitems);
+            for (size_t ii = 0; ii < itemCount; ++ii) {
+                json_object* je = json_object_array_get_idx(jitems, ii);
+                if (!je || !json_object_is_type(je, json_type_object)) continue;
+                json_object* jname=NULL,* jrel=NULL,* jabs=NULL;
+                json_object_object_get_ex(je, "name", &jname);
+                json_object_object_get_ex(je, "rel", &jrel);
+                json_object_object_get_ex(je, "abs", &jabs);
+                const char* name = jname ? json_object_get_string(jname) : NULL;
+                const char* rel = jrel ? json_object_get_string(jrel) : NULL;
+                const char* abs = jabs ? json_object_get_string(jabs) : NULL;
+                add_asset(workspaceRoot, abs ? abs : "", rel ? rel : "", name ? name : "", list->category);
+            }
+        }
+    }
+
+    json_object* jtotal = NULL;
+    if (json_object_object_get_ex(root, "total", &jtotal)) {
+        gCatalog.totalCount = json_object_get_int(jtotal);
+    } else {
+        // Recompute totalCount in case it wasn't stored or was stale.
+        gCatalog.totalCount = 0;
+        for (int c = 0; c < ASSET_CATEGORY_COUNT; ++c) {
+            gCatalog.totalCount += gCatalog.categories[c].count;
+        }
+    }
+
+    json_object_put(root);
+}
 static bool is_text_ext(const char* extLower) {
     if (!extLower) return false;
     return (!strcmp(extLower, ".json") || !strcmp(extLower, ".ini") || !strcmp(extLower, ".cfg") ||

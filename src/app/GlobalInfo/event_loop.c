@@ -13,6 +13,7 @@
 #include "core/CommandBus/command_bus.h"
 #include "core/Watcher/file_watcher.h"
 #include "core/Analysis/project_scan.h"
+#include "core/Analysis/analysis_status.h"
 #include "ide/Panes/Terminal/terminal.h"
 #include "ide/Panes/Popup/popup_pane.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
@@ -24,10 +25,13 @@
 #include "ide/UI/resize.h"
 #include "engine/Render/render_pipeline.h"
 #include "core/Analysis/library_index.h"
+#include "core/Analysis/analysis_cache.h"
+#include "core/Analysis/analysis_job.h"
+#include "app/GlobalInfo/workspace_prefs.h"
 
 
 // TimerHud extension
-#include "engine/TimerHUD/src/api/time_scope.h"
+#include "timer_hud/time_scope.h"
 
 
 //      ================================================
@@ -62,6 +66,14 @@ static void tickBackgroundSystems() {
     pollFileWatcher();
     terminal_tick_backend();
     // tickDiagnosticsEngine(dt), tickUndoSystem(dt), etc.
+    analysis_job_poll();
+}
+
+static void run_analysis_refresh_if_needed(void) {
+    if (analysis_refresh_running() || !analysis_refresh_pending()) return;
+    const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
+    const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
+    start_async_workspace_analysis(projectPath, buildArgs);
 }
 
 
@@ -101,6 +113,7 @@ static void checkRenderFrame(FrameContext* ctx, Uint64 now) {
 void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     IDECoreState* core = getCoreState();
     const bool timerHudActive = core->timerHudEnabled;
+    static bool lastAnalysisRunning = false;
 
     if (timerHudActive) ts_start_timer("SystemLoop");
 
@@ -117,6 +130,12 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
 
     if (timerHudActive) ts_start_timer("BackgroundTick");
     tickBackgroundSystems();
+    run_analysis_refresh_if_needed();
+    bool analysisRunning = analysis_refresh_running();
+    if (lastAnalysisRunning && !analysisRunning) {
+        rebuildLibraryFlatRows();
+    }
+    lastAnalysisRunning = analysisRunning;
     if (timerHudActive) ts_stop_timer("BackgroundTick");
 
     
@@ -124,8 +143,8 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
 
     if (pendingProjectRefresh) {
         refreshProjectDirectory();
-        analysis_scan_workspace(projectPath);
-        library_index_build_workspace(projectPath);
+        analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
+        analysis_request_refresh();
         rebuildLibraryFlatRows();
         initAssetManagerPanel();
         resetGitTree();

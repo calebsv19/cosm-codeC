@@ -9,11 +9,12 @@
 
 #include "fisics_frontend.h"
 #include "core/Analysis/include_path_resolver.h"
+#include "app/GlobalInfo/workspace_prefs.h"
 
 static LibraryIndexBuildStats g_lastBuildStats = {0};
 static int g_libraryDebugLogging = 0;
-static char** g_includePaths = NULL;
-static size_t g_includePathCount = 0;
+static BuildFlagSet g_buildFlags = {0};
+static const BuildFlagSet* g_activeFlags = NULL;
 
 // Simple file read (mirrors project_scan); 32MB cap.
 static char* read_file(const char* path, size_t* outLen) {
@@ -98,8 +99,11 @@ static void scan_dir(const char* root) {
             FisicsAnalysisResult res;
             memset(&res, 0, sizeof(res));
             FisicsFrontendOptions opts = {0};
-            opts.include_paths = (const char* const*)g_includePaths;
-            opts.include_path_count = g_includePathCount;
+            const BuildFlagSet* flags = g_activeFlags ? g_activeFlags : &g_buildFlags;
+            opts.include_paths = (const char* const*)flags->include_paths;
+            opts.include_path_count = flags->include_count;
+            opts.macro_defines = (const char* const*)flags->macro_defines;
+            opts.macro_define_count = flags->macro_count;
 
             bool ok = fisics_analyze_buffer(child, buf, len, &opts, &res);
             if (!ok) g_lastBuildStats.analysis_failures++;
@@ -139,16 +143,22 @@ void library_index_build_workspace(const char* project_root) {
     }
 
     library_index_begin(project_root);
-    g_includePathCount = gather_include_paths(project_root, &g_includePaths);
+    const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
+    const char* flags = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
+    gather_build_flags(project_root, flags, &g_buildFlags);
+    g_activeFlags = &g_buildFlags;
     if (!project_root || !*project_root) {
         library_index_finalize();
+        g_activeFlags = NULL;
+        free_build_flag_set(&g_buildFlags);
+        g_buildFlags = (BuildFlagSet){0};
         return;
     }
     scan_dir(project_root);
     library_index_finalize();
-    free_include_paths(g_includePaths, g_includePathCount);
-    g_includePaths = NULL;
-    g_includePathCount = 0;
+    g_activeFlags = NULL;
+    free_build_flag_set(&g_buildFlags);
+    g_buildFlags = (BuildFlagSet){0};
 
     if (g_libraryDebugLogging) {
         printf("[LibraryIndex] build complete root=%s files:%zu analyzed:%zu includes:%zu read_fail:%zu analysis_fail:%zu\n",
@@ -164,4 +174,22 @@ void library_index_build_workspace(const char* project_root) {
 void library_index_get_last_build_stats(LibraryIndexBuildStats* outStats) {
     if (!outStats) return;
     *outStats = g_lastBuildStats;
+}
+
+void library_index_build_workspace_with_flags(const char* project_root, const BuildFlagSet* flags) {
+    if (!flags) return;
+    memset(&g_lastBuildStats, 0, sizeof(g_lastBuildStats));
+    g_libraryDebugLogging = 0;
+    const char* debugEnv = getenv("LIBRARY_INDEX_DEBUG");
+    if (debugEnv && *debugEnv && debugEnv[0] != '0') {
+        g_libraryDebugLogging = 1;
+    }
+
+    library_index_begin(project_root);
+    g_activeFlags = flags;
+    if (project_root && *project_root) {
+        scan_dir(project_root);
+    }
+    library_index_finalize();
+    g_activeFlags = NULL;
 }

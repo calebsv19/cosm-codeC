@@ -5,8 +5,10 @@
 #include "ide/Panes/ToolPanels/Errors/tool_errors.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/Analysis/analysis_store.h"
+#include "core/Analysis/analysis_status.h"
 #include "engine/Render/render_pipeline.h"
 #include "ide/UI/scroll_manager.h"
+#include "engine/Render/render_text_helpers.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -14,18 +16,10 @@
 
 // Forward from tool_errors.c
 bool is_error_selected(int idx);
+TTF_Font* get_error_font(void);
+void errors_get_layout_metrics(const UIPane* pane, int* contentTop, int* headerHeight, int* diagHeight, int* lineHeight);
 static SDL_Rect gErrorScrollTrack = {0};
 static SDL_Rect gErrorScrollThumb = {0};
-static TTF_Font* gErrorSmallFont = NULL;
-
-static TTF_Font* get_error_font(void) {
-    if (gErrorSmallFont) return gErrorSmallFont;
-    gErrorSmallFont = TTF_OpenFont("include/fonts/Montserrat/Montserrat-Regular.ttf", 12);
-    if (!gErrorSmallFont) {
-        fprintf(stderr, "Failed to load error panel font: %s\n", TTF_GetError());
-    }
-    return gErrorSmallFont;
-}
 
 void renderErrorsPanel(UIPane* pane) {
     static bool scrollInit = false;
@@ -34,28 +28,44 @@ void renderErrorsPanel(UIPane* pane) {
         scrollInit = true;
     }
 
+    int contentTop = 0;
+    int headerHeight = 0;
+    int diagHeight = 0;
+    int lineHeight = 0;
+    errors_get_layout_metrics(pane, &contentTop, &headerHeight, &diagHeight, &lineHeight);
     TTF_Font* font = get_error_font();
     int paddingX = 12;
-    int paddingY = 24;
-    int lineHeight = font ? TTF_FontHeight(font) : 16;
-    int headerHeight = lineHeight;
-    int diagHeight = lineHeight * 2;
-
     int x = pane->x + paddingX;
-    int contentTop = pane->y + paddingY;
     int viewportH = pane->h - (contentTop - pane->y);
     if (viewportH < 0) viewportH = 0;
     PaneScrollState* scroll = errors_get_scroll_state();
     scroll_state_set_viewport(scroll, (float)viewportH);
 
-    size_t files = analysis_store_file_count();
-    if (files == 0) {
+    AnalysisStatusSnapshot snap = {0};
+    analysis_status_snapshot(&snap);
+    char statusBuf[128] = {0};
+    if (snap.updating) {
+        snprintf(statusBuf, sizeof(statusBuf), "Updating...");
+    } else if (snap.last_error[0]) {
+        snprintf(statusBuf, sizeof(statusBuf), "Analysis error");
+    } else if (snap.has_cache) {
+        snprintf(statusBuf, sizeof(statusBuf), "(cached)");
+    }
+    if (statusBuf[0]) {
+        int tw = getTextWidth(statusBuf);
+        int tx = pane->x + pane->w - tw - 16;
+        int ty = pane->y + 8;
+        drawTextWithFont(tx, ty, statusBuf, font ? font : getActiveFont());
+    }
+
+    analysis_store_lock();
+    FlatDiagRef refs[512];
+    int flatCount = flatten_diagnostics(refs, 512);
+    if (flatCount == 0) {
+        analysis_store_unlock();
         drawTextWithFont(x, contentTop, "(No errors or warnings)", font ? font : getActiveFont());
         return;
     }
-
-    FlatDiagRef refs[512];
-    int flatCount = flatten_diagnostics(refs, 512);
 
     float contentHeight = 0.0f;
     for (int i = 0; i < flatCount; ++i) {
@@ -130,4 +140,5 @@ void renderErrorsPanel(UIPane* pane) {
     }
 
     errors_set_scroll_rects(gErrorScrollTrack, gErrorScrollThumb);
+    analysis_store_unlock();
 }

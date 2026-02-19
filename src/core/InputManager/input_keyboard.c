@@ -83,6 +83,12 @@ void handleKeyboardInput(SDL_Event* event,
         return;
     }
 
+    // Cmd/Ctrl + Shift + C → Clear analysis cache
+    if ((mod & (KMOD_CTRL | KMOD_GUI)) && (mod & KMOD_SHIFT) && key == SDLK_c) {
+        enqueueTargetedCommand(uiState ? uiState->menuBar : NULL, COMMAND_CLEAR_ANALYSIS_CACHE, (SDL_Keymod)mod);
+        return;
+    }
+
     // === FALLBACK: Send key to currently focused pane ===
     UIPane* focused = core ? core->focusedPane : NULL;
     if (focused && focused->inputHandler && focused->inputHandler->onKeyboard) {

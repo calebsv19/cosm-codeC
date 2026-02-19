@@ -1,0 +1,28 @@
+#ifndef ANALYSIS_SYMBOLS_STORE_H
+#define ANALYSIS_SYMBOLS_STORE_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "fisics_frontend.h"
+
+typedef struct {
+    char* path;
+    FisicsSymbol* symbols;
+    size_t count;
+    uint64_t stamp;
+} AnalysisFileSymbols;
+
+void analysis_symbols_store_clear(void);
+
+void analysis_symbols_store_upsert(const char* filePath,
+                                   const FisicsSymbol* symbols,
+                                   size_t symbolCount);
+
+size_t analysis_symbols_store_file_count(void);
+const AnalysisFileSymbols* analysis_symbols_store_file_at(size_t idx);
+
+void analysis_symbols_store_save(const char* workspaceRoot);
+void analysis_symbols_store_load(const char* workspaceRoot);
+
+#endif // ANALYSIS_SYMBOLS_STORE_H

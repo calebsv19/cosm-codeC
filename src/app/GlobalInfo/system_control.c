@@ -25,7 +25,12 @@
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/Analysis/project_scan.h"
 #include "core/Analysis/analysis_store.h"
+#include "core/Analysis/analysis_symbols_store.h"
+#include "core/Analysis/analysis_token_store.h"
 #include "core/Analysis/library_index.h"
+#include "core/Analysis/analysis_cache.h"
+#include "core/Analysis/include_path_resolver.h"
+#include "core/Analysis/analysis_status.h"
 
 #include "Parser/language_parser.h"
 
@@ -263,8 +268,26 @@ bool initializeSystem() {
     initLanguageParser();
     initBuildSystem();
     initBuildOutputPanelState();
+    analysis_status_init();
     build_diagnostics_load(projectPath);
-    analysis_store_load(projectPath);
+    const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
+    const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
+    bool loadedCache = analysis_cache_load_errors(projectPath, buildArgs);
+    if (!loadedCache) {
+        analysis_store_load(projectPath);
+    }
+    bool loadedSymbols = analysis_cache_load_symbols(projectPath, buildArgs);
+    if (!loadedSymbols) {
+        analysis_symbols_store_load(projectPath);
+    }
+    bool loadedTokens = analysis_cache_load_tokens(projectPath, buildArgs);
+    if (!loadedTokens) {
+        analysis_token_store_load(projectPath);
+    }
+    if (analysis_cache_load_library(projectPath, buildArgs)) {
+        loadedCache = true;
+    }
+    analysis_status_set_has_cache(loadedCache || loadedSymbols || loadedTokens);
 
     initPluginSystem();
 
@@ -273,8 +296,8 @@ bool initializeSystem() {
 
     initProjectPaths();
     loadInitialWorkspace();
-    analysis_scan_workspace(projectPath);
-    library_index_build_workspace(projectPath);
+    analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
+    analysis_request_refresh();
     initAssetManagerPanel();
     initTerminal();
 
@@ -288,9 +311,21 @@ bool initializeSystem() {
 
 void shutdownSystem(UIPane** panes, int paneCount) {
     // Persist last build diagnostics for next session.
+    const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
+    const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
     build_diagnostics_save(projectPath);
     diagnostics_save(projectPath);
     analysis_store_save(projectPath);
+    analysis_symbols_store_save(projectPath);
+    analysis_token_store_save(projectPath);
+    library_index_save(projectPath);
+    BuildFlagSet tmpFlags = {0};
+    gather_build_flags(projectPath, buildArgs, &tmpFlags);
+    analysis_cache_save_build_flags(&tmpFlags, projectPath);
+    free_build_flag_set(&tmpFlags);
+    analysis_cache_save_metadata(projectPath, buildArgs);
+    analysis_cache_save_symbols(projectPath);
+    analysis_cache_save_tokens(projectPath);
 
     terminal_shutdown_shell();
 

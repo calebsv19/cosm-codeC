@@ -60,6 +60,10 @@ bool assets_category_collapsed(AssetCategory cat);
 // Text-like check for double-click open behavior
 bool assets_is_text_like(const AssetEntry* e);
 
+// Persistence (ide_files/assets_catalog.json)
+void assets_save_catalog(const char* workspaceRoot);
+void assets_load_catalog(const char* workspaceRoot);
+
 void handleAssetManagerEvent(UIPane* pane, SDL_Event* event);
 
 #define ASSET_RENDER_LIMIT_PER_BUCKET 50

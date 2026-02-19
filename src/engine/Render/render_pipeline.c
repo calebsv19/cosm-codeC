@@ -27,7 +27,8 @@
 
 
 // TimerHud extension
-#include "engine/TimerHUD/src/api/time_scope.h"
+#include "engine/Render/timer_hud_adapter.h"
+#include "timer_hud/time_scope.h"
 
 
 #include <SDL2/SDL.h>
@@ -35,9 +36,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
-
-#define VK_RENDERER_ENABLE_SDL_COMPAT
-#include "engine/Render/vk_renderer_ref/src/vk_renderer_compat_sdl.h"
 
 #if !defined(VK_RENDERER_DEBUG_ENABLED)
 #if defined(VK_RENDERER_DEBUG) && VK_RENDERER_DEBUG
@@ -121,6 +119,7 @@ void setRenderContext(VkRenderer* renderer, SDL_Window* window,
 
 bool initRenderPipeline() {
     if (getCoreState()->timerHudEnabled) {
+        timer_hud_register_backend();
         ts_init();
     }
     return initFontSystem();
@@ -353,7 +352,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
         ts_stop_timer("Render");
 
         if (ts_settings.hud_enabled) {
-            ts_render(ctx->renderer);
+            ts_render();
         }
     }
 

@@ -12,6 +12,21 @@
 
 LibraryPanelState g_libraryPanelState = {0};
 
+static void clear_flat_rows(LibraryPanelState* st) {
+    if (!st || !st->flatRows) return;
+    for (int i = 0; i < st->flatCount; ++i) {
+        free(st->flatRows[i].labelPrimary);
+        free(st->flatRows[i].labelSecondary);
+        st->flatRows[i].labelPrimary = NULL;
+        st->flatRows[i].labelSecondary = NULL;
+    }
+}
+
+static char* dup_label(const char* text) {
+    if (!text || !*text) return NULL;
+    return strdup(text);
+}
+
 static int ensure_header_expand_capacity(int bucketIndex, size_t count) {
     if (bucketIndex < 0 || bucketIndex >= LIB_BUCKET_COUNT) return 0;
     size_t cur = g_libraryPanelState.headerExpandedCount[bucketIndex];
@@ -56,10 +71,12 @@ bool library_row_is_selected(int idx) {
 
 void rebuildLibraryFlatRows(void) {
     LibraryPanelState* st = &g_libraryPanelState;
+    clear_flat_rows(st);
     st->flatCount = 0;
 
     // Reserve space (rough heuristic)
     int estimated = 0;
+    library_index_lock();
     for (size_t b = 0; b < library_index_bucket_count(); ++b) {
         const LibraryBucket* bucket = library_index_get_bucket(b);
         if (!bucket || bucket->header_count == 0) continue;
@@ -73,7 +90,10 @@ void rebuildLibraryFlatRows(void) {
         int newCap = (st->flatCapacity == 0) ? (estimated + 16) : (st->flatCapacity * 2);
         if (newCap < estimated) newCap = estimated + 16;
         LibraryFlatRow* tmp = realloc(st->flatRows, newCap * sizeof(LibraryFlatRow));
-        if (!tmp) return;
+        if (!tmp) {
+            library_index_unlock();
+            return;
+        }
         st->flatRows = tmp;
         st->flatCapacity = newCap;
         bool* selTmp = realloc(st->selected, newCap * sizeof(bool));
@@ -98,6 +118,7 @@ void rebuildLibraryFlatRows(void) {
         row->headerIndex = -1;
         row->usageIndex = -1;
         row->depth = 0;
+        row->bucketHeaderCount = (int)bucket->header_count;
 
         // Bucket labels will be rendered based on bucketIndex; no primary string needed here.
         bool bucketOpen = st->bucketExpanded[b];
@@ -116,8 +137,9 @@ void rebuildLibraryFlatRows(void) {
             hrow->headerIndex = (int)h;
             hrow->usageIndex = -1;
             hrow->depth = 1;
-            hrow->labelPrimary = header->name;
-            hrow->labelSecondary = header->resolved_path;
+            hrow->labelPrimary = dup_label(header->name);
+            hrow->labelSecondary = dup_label(header->resolved_path);
+            hrow->includeKind = header->kind;
 
             bool headerOpen = (h < st->headerExpandedCount[b]) ? st->headerExpanded[b][h] : false;
             if (!headerOpen) continue;
@@ -132,10 +154,13 @@ void rebuildLibraryFlatRows(void) {
                 urow->headerIndex = (int)h;
                 urow->usageIndex = (int)u;
                 urow->depth = 2;
-                urow->labelPrimary = usage->source_path;
+                urow->labelPrimary = dup_label(usage->source_path);
+                urow->usageLine = usage->line;
+                urow->usageColumn = usage->column;
             }
         }
     }
+    library_index_unlock();
 
     if (st->selectedRow >= st->flatCount) st->selectedRow = -1;
     if (st->hoveredRow >= st->flatCount) st->hoveredRow = -1;
@@ -194,33 +219,28 @@ static void toggle_header(int bucketIndex, int headerIndex) {
 
 static void open_usage(const LibraryFlatRow* row) {
     if (!row || row->type != LIB_NODE_USAGE) return;
-    const LibraryBucket* bucket = library_index_get_bucket((size_t)row->bucketIndex);
-    if (!bucket) return;
-    const LibraryHeader* header = library_index_get_header(bucket, (size_t)row->headerIndex);
-    if (!header) return;
-    const LibraryUsage* usage = library_index_get_usage(header, (size_t)row->usageIndex);
-    if (!usage) return;
+    if (!row->labelPrimary) return;
 
     IDECoreState* core = getCoreState();
     if (!core || !core->activeEditorView) return;
 
     // Build full path if the stored path is relative.
     char fullPath[1024];
-    if (usage->source_path && usage->source_path[0] == '/') {
-        snprintf(fullPath, sizeof(fullPath), "%s", usage->source_path);
+    if (row->labelPrimary[0] == '/') {
+        snprintf(fullPath, sizeof(fullPath), "%s", row->labelPrimary);
     } else {
-        snprintf(fullPath, sizeof(fullPath), "%s/%s", projectPath, usage->source_path ? usage->source_path : "");
+        snprintf(fullPath, sizeof(fullPath), "%s/%s", projectPath, row->labelPrimary);
     }
     OpenFile* file = openFileInView(core->activeEditorView, fullPath);
     if (!file || !file->buffer) return;
 
-    int targetRow = usage->line > 0 ? usage->line - 1 : 0;
+    int targetRow = row->usageLine > 0 ? row->usageLine - 1 : 0;
     if (targetRow >= file->buffer->lineCount) targetRow = file->buffer->lineCount - 1;
     if (targetRow < 0) targetRow = 0;
     int lineLen = file->buffer->lines && file->buffer->lines[targetRow]
                       ? (int)strlen(file->buffer->lines[targetRow])
                       : 0;
-    int targetCol = usage->column > 0 ? usage->column - 1 : 0;
+    int targetCol = row->usageColumn > 0 ? row->usageColumn - 1 : 0;
     if (targetCol > lineLen) targetCol = lineLen;
 
     file->state.cursorRow = targetRow;
@@ -249,17 +269,13 @@ void copy_selected_rows(void) {
         if (row->type == LIB_NODE_BUCKET) {
             snprintf(line, sizeof(line), "[Bucket] %s", bucket_label_local((LibraryBucketKind)row->bucketIndex));
         } else if (row->type == LIB_NODE_HEADER) {
-            const LibraryBucket* b = library_index_get_bucket((size_t)row->bucketIndex);
-            const LibraryHeader* h = library_index_get_header(b, (size_t)row->headerIndex);
-            const char* kindGlyph = h ? ((h->kind == LIB_INCLUDE_KIND_SYSTEM) ? "<>" : "\"\"") : "";
+            const char* kindGlyph = (row->includeKind == LIB_INCLUDE_KIND_SYSTEM) ? "<>" : "\"\"";
             snprintf(line, sizeof(line), "[Header] %s %s", kindGlyph, row->labelPrimary ? row->labelPrimary : "(header)");
         } else if (row->type == LIB_NODE_USAGE) {
-            const LibraryBucket* b = library_index_get_bucket((size_t)row->bucketIndex);
-            const LibraryHeader* h = library_index_get_header(b, (size_t)row->headerIndex);
-            const LibraryUsage* u = library_index_get_usage(h, (size_t)row->usageIndex);
-            int lineNum = u ? u->line : 0;
-            int colNum = u ? u->column : 0;
-            snprintf(line, sizeof(line), "[Use] %s:%d:%d", row->labelPrimary ? row->labelPrimary : "(usage)", lineNum, colNum);
+            snprintf(line, sizeof(line), "[Use] %s:%d:%d",
+                     row->labelPrimary ? row->labelPrimary : "(usage)",
+                     row->usageLine,
+                     row->usageColumn);
         }
 
         size_t add = strlen(line);

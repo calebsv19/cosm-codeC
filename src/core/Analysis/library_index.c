@@ -1,12 +1,26 @@
 #include "core/Analysis/library_index.h"
 
 #include <limits.h>
+#include <pthread.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+#include <json-c/json.h>
 
 static LibraryBucket g_buckets[LIB_BUCKET_COUNT];
 static char g_project_root[PATH_MAX];
+static pthread_mutex_t g_library_index_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void library_index_lock(void) {
+    pthread_mutex_lock(&g_library_index_mutex);
+}
+
+void library_index_unlock(void) {
+    pthread_mutex_unlock(&g_library_index_mutex);
+}
 
 static void free_usage(LibraryUsage* u) {
     if (!u) return;
@@ -25,7 +39,7 @@ static void free_header(LibraryHeader* h) {
     memset(h, 0, sizeof(*h));
 }
 
-static void free_buckets(void) {
+static void free_buckets_locked(void) {
     for (size_t b = 0; b < LIB_BUCKET_COUNT; ++b) {
         LibraryBucket* bucket = &g_buckets[b];
         for (size_t h = 0; h < bucket->header_count; ++h) {
@@ -39,13 +53,19 @@ static void free_buckets(void) {
     }
 }
 
-void library_index_reset(void) {
-    free_buckets();
+static void library_index_reset_locked(void) {
+    free_buckets_locked();
     memset(g_project_root, 0, sizeof(g_project_root));
 }
 
-void library_index_begin(const char* project_root) {
-    library_index_reset();
+void library_index_reset(void) {
+    library_index_lock();
+    library_index_reset_locked();
+    library_index_unlock();
+}
+
+static void library_index_begin_locked(const char* project_root) {
+    library_index_reset_locked();
     if (project_root && *project_root) {
         strncpy(g_project_root, project_root, sizeof(g_project_root) - 1);
         g_project_root[sizeof(g_project_root) - 1] = '\0';
@@ -53,6 +73,12 @@ void library_index_begin(const char* project_root) {
     for (size_t i = 0; i < LIB_BUCKET_COUNT; ++i) {
         g_buckets[i].kind = (LibraryBucketKind)i;
     }
+}
+
+void library_index_begin(const char* project_root) {
+    library_index_lock();
+    library_index_begin_locked(project_root);
+    library_index_unlock();
 }
 
 static const char* skip_root_prefix(const char* path) {
@@ -122,13 +148,13 @@ static bool add_usage_to_header(LibraryHeader* header,
     return u->source_path != NULL;
 }
 
-void library_index_add_include(const char* source_path,
-                               const char* include_name,
-                               const char* resolved_path,
-                               LibraryIncludeKind kind,
-                               LibraryBucketKind origin,
-                               int line,
-                               int column) {
+static void library_index_add_include_locked(const char* source_path,
+                                             const char* include_name,
+                                             const char* resolved_path,
+                                             LibraryIncludeKind kind,
+                                             LibraryBucketKind origin,
+                                             int line,
+                                             int column) {
     if (!include_name || !source_path) return;
     LibraryBucket* bucket = bucket_for_kind(origin);
     if (!bucket) return;
@@ -146,6 +172,18 @@ void library_index_add_include(const char* source_path,
 
     if (!header) return;
     add_usage_to_header(header, rel, line, column);
+}
+
+void library_index_add_include(const char* source_path,
+                               const char* include_name,
+                               const char* resolved_path,
+                               LibraryIncludeKind kind,
+                               LibraryBucketKind origin,
+                               int line,
+                               int column) {
+    library_index_lock();
+    library_index_add_include_locked(source_path, include_name, resolved_path, kind, origin, line, column);
+    library_index_unlock();
 }
 
 static int cmp_headers(const void* a, const void* b) {
@@ -171,7 +209,7 @@ static int cmp_usages(const void* a, const void* b) {
     return (ua->column < ub->column) ? -1 : (ua->column > ub->column);
 }
 
-void library_index_finalize(void) {
+static void library_index_finalize_locked(void) {
     for (size_t b = 0; b < LIB_BUCKET_COUNT; ++b) {
         LibraryBucket* bucket = &g_buckets[b];
         if (bucket->header_count > 1) {
@@ -184,6 +222,12 @@ void library_index_finalize(void) {
             }
         }
     }
+}
+
+void library_index_finalize(void) {
+    library_index_lock();
+    library_index_finalize_locked();
+    library_index_unlock();
 }
 
 // Query helpers
@@ -213,4 +257,179 @@ size_t library_index_usage_count(const LibraryHeader* header) {
 const LibraryUsage* library_index_get_usage(const LibraryHeader* header, size_t usage_index) {
     if (!header || usage_index >= header->usage_count) return NULL;
     return &header->usages[usage_index];
+}
+
+// Persistence
+
+static void ensure_cache_dir(const char* workspace_root) {
+    if (!workspace_root || !*workspace_root) return;
+    char dir[PATH_MAX];
+    snprintf(dir, sizeof(dir), "%s/ide_files", workspace_root);
+    struct stat st;
+    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        mkdir(dir, 0755);
+    }
+}
+
+void library_index_save(const char* workspace_root) {
+    if (!workspace_root || !*workspace_root) return;
+    ensure_cache_dir(workspace_root);
+
+    library_index_lock();
+    json_object* root = json_object_new_object();
+    json_object_object_add(root, "project_root", json_object_new_string(g_project_root));
+
+    json_object* buckets = json_object_new_array();
+    for (size_t b = 0; b < LIB_BUCKET_COUNT; ++b) {
+        const LibraryBucket* bucket = &g_buckets[b];
+        json_object* jb = json_object_new_object();
+        json_object_object_add(jb, "kind", json_object_new_int(bucket->kind));
+        json_object* headers = json_object_new_array();
+        for (size_t h = 0; h < bucket->header_count; ++h) {
+            const LibraryHeader* header = &bucket->headers[h];
+            json_object* jh = json_object_new_object();
+            json_object_object_add(jh, "name", json_object_new_string(header->name ? header->name : ""));
+            json_object_object_add(jh, "resolved_path", json_object_new_string(header->resolved_path ? header->resolved_path : ""));
+            json_object_object_add(jh, "kind", json_object_new_int(header->kind));
+            json_object_object_add(jh, "origin", json_object_new_int(header->origin));
+            json_object* usages = json_object_new_array();
+            for (size_t u = 0; u < header->usage_count; ++u) {
+                const LibraryUsage* usage = &header->usages[u];
+                json_object* ju = json_object_new_object();
+                json_object_object_add(ju, "source", json_object_new_string(usage->source_path ? usage->source_path : ""));
+                json_object_object_add(ju, "line", json_object_new_int(usage->line));
+                json_object_object_add(ju, "col", json_object_new_int(usage->column));
+                json_object_array_add(usages, ju);
+            }
+            json_object_object_add(jh, "usages", usages);
+            json_object_array_add(headers, jh);
+        }
+        json_object_object_add(jb, "headers", headers);
+        json_object_array_add(buckets, jb);
+    }
+    json_object_object_add(root, "buckets", buckets);
+
+    const char* serialized = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/ide_files/library_index.json", workspace_root);
+    FILE* f = fopen(path, "w");
+    if (f && serialized) {
+        fputs(serialized, f);
+        fclose(f);
+    } else if (f) {
+        fclose(f);
+    }
+    json_object_put(root);
+    library_index_unlock();
+}
+
+void library_index_load(const char* workspace_root) {
+    library_index_lock();
+    library_index_reset_locked();
+    if (!workspace_root || !*workspace_root) {
+        library_index_unlock();
+        return;
+    }
+
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/ide_files/library_index.json", workspace_root);
+    FILE* f = fopen(path, "r");
+    if (!f) {
+        library_index_unlock();
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (len <= 0 || len > (32 * 1024 * 1024)) {
+        fclose(f);
+        library_index_unlock();
+        return;
+    }
+    char* buf = malloc((size_t)len + 1);
+    if (!buf) {
+        fclose(f);
+        library_index_unlock();
+        return;
+    }
+    fread(buf, 1, (size_t)len, f);
+    buf[len] = '\0';
+    fclose(f);
+
+    json_object* root = json_tokener_parse(buf);
+    free(buf);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root) json_object_put(root);
+        library_index_unlock();
+        return;
+    }
+
+    json_object* jroot = NULL;
+    if (json_object_object_get_ex(root, "project_root", &jroot)) {
+        const char* pr = json_object_get_string(jroot);
+        library_index_begin_locked(pr && *pr ? pr : workspace_root);
+    } else {
+        library_index_begin_locked(workspace_root);
+    }
+
+    json_object* jbuckets = NULL;
+    if (json_object_object_get_ex(root, "buckets", &jbuckets) &&
+        jbuckets && json_object_is_type(jbuckets, json_type_array)) {
+        size_t bcount = json_object_array_length(jbuckets);
+        for (size_t bi = 0; bi < bcount; ++bi) {
+            json_object* jb = json_object_array_get_idx(jbuckets, bi);
+            if (!jb || !json_object_is_type(jb, json_type_object)) continue;
+            json_object* jheaders = NULL;
+            json_object* jkind = NULL;
+            LibraryBucketKind bucketKind = (LibraryBucketKind)bi;
+            if (json_object_object_get_ex(jb, "kind", &jkind)) {
+                bucketKind = (LibraryBucketKind)json_object_get_int(jkind);
+            }
+            if (!json_object_object_get_ex(jb, "headers", &jheaders) ||
+                !jheaders || !json_object_is_type(jheaders, json_type_array)) {
+                continue;
+            }
+            size_t hcount = json_object_array_length(jheaders);
+            for (size_t hi = 0; hi < hcount; ++hi) {
+                json_object* jh = json_object_array_get_idx(jheaders, hi);
+                if (!jh || !json_object_is_type(jh, json_type_object)) continue;
+                json_object* jname=NULL,* jres=NULL,* jkindH=NULL,* jorig=NULL,* jusages=NULL;
+                json_object_object_get_ex(jh, "name", &jname);
+                json_object_object_get_ex(jh, "resolved_path", &jres);
+                json_object_object_get_ex(jh, "kind", &jkindH);
+                json_object_object_get_ex(jh, "origin", &jorig);
+                json_object_object_get_ex(jh, "usages", &jusages);
+                const char* name = jname ? json_object_get_string(jname) : NULL;
+                const char* resolved = jres ? json_object_get_string(jres) : NULL;
+                LibraryIncludeKind kind = jkindH ? (LibraryIncludeKind)json_object_get_int(jkindH)
+                                                 : LIB_INCLUDE_KIND_LOCAL;
+                LibraryBucketKind origin = jorig ? (LibraryBucketKind)json_object_get_int(jorig)
+                                                 : bucketKind;
+                if (!name || !*name) continue;
+                if (!jusages || !json_object_is_type(jusages, json_type_array)) continue;
+                size_t ucount = json_object_array_length(jusages);
+                for (size_t ui = 0; ui < ucount; ++ui) {
+                    json_object* ju = json_object_array_get_idx(jusages, ui);
+                    if (!ju || !json_object_is_type(ju, json_type_object)) continue;
+                    json_object* jsrc=NULL,* jline=NULL,* jcol=NULL;
+                    json_object_object_get_ex(ju, "source", &jsrc);
+                    json_object_object_get_ex(ju, "line", &jline);
+                    json_object_object_get_ex(ju, "col", &jcol);
+                    const char* src = jsrc ? json_object_get_string(jsrc) : NULL;
+                    int line = jline ? json_object_get_int(jline) : 0;
+                    int col = jcol ? json_object_get_int(jcol) : 0;
+                    library_index_add_include_locked(src ? src : "",
+                                                     name,
+                                                     (resolved && *resolved) ? resolved : NULL,
+                                                     kind,
+                                                     origin,
+                                                     line,
+                                                     col);
+                }
+            }
+        }
+    }
+    library_index_finalize_locked();
+    json_object_put(root);
+    library_index_unlock();
 }

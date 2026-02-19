@@ -1,12 +1,18 @@
 #include "ide/Panes/ControlPanel/render_control_panel.h"
 #include "engine/Render/render_pipeline.h"  // renderUIPane, drawText
 #include "engine/Render/render_helpers.h"
+#include "engine/Render/render_text_helpers.h"
 
 #include "../ControlPanel/control_panel.h"
 
 #include "app/GlobalInfo/system_control.h"
+#include "app/GlobalInfo/core_state.h"
+#include "app/GlobalInfo/project.h"
 
 #include "ide/Panes/PaneInfo/pane.h"
+#include "ide/Panes/Editor/editor_view.h"
+#include "ide/UI/Trees/tree_renderer.h"
+#include "core/Analysis/analysis_status.h"
 
 #include <SDL2/SDL.h>
 
@@ -23,6 +29,26 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
 
     // Panel title
     drawText(x, y, pane->title);
+    AnalysisStatusSnapshot snap = {0};
+    analysis_status_snapshot(&snap);
+    if (snap.updating || snap.last_error[0] || snap.has_cache) {
+        char statusBuf[128] = {0};
+        if (snap.updating) {
+            snprintf(statusBuf, sizeof(statusBuf), "Updating...");
+        } else if (snap.last_error[0]) {
+            snprintf(statusBuf, sizeof(statusBuf), "Analysis error");
+        } else if (snap.status == ANALYSIS_STATUS_FRESH) {
+            snprintf(statusBuf, sizeof(statusBuf), "Loaded");
+        } else if (snap.has_cache) {
+            snprintf(statusBuf, sizeof(statusBuf), "(cached)");
+        }
+        if (statusBuf[0]) {
+            int tw = getTextWidth(statusBuf);
+            int tx = pane->x + pane->w - tw - 16;
+            int ty = pane->y + 8;
+            drawText(tx, ty, statusBuf);
+        }
+    }
     y += 28;
 
     // Search bar label
@@ -50,7 +76,31 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     drawText(x + 12, y, isShowInlineErrorsEnabled() ? "[x] Show Errors Inline" : "[ ] Show Errors Inline");
     y += 20;
 
-    // Placeholder for more controls
-    drawText(x, y + 12, "...more controls soon");
-}
+    // Toggle 3
+    drawText(x + 12, y, isShowMacrosEnabled() ? "[x] Show Macros" : "[ ] Show Macros");
+    y += 20;
 
+    int listTop = control_panel_get_symbol_list_top(pane);
+    int listHeight = (pane->y + pane->h) - listTop;
+    if (listHeight < 0) listHeight = 0;
+
+    OpenFile* activeFile = NULL;
+    if (core && core->activeEditorView) {
+        activeFile = getActiveOpenFile(core->activeEditorView);
+    }
+    const char* activePath = activeFile ? activeFile->filePath : NULL;
+    control_panel_refresh_symbol_tree(projectRoot, activePath);
+
+    UITreeNode* tree = control_panel_get_symbol_tree();
+    PaneScrollState* scroll = control_panel_get_symbol_scroll();
+    SDL_Rect* track = control_panel_get_symbol_scroll_track();
+    SDL_Rect* thumb = control_panel_get_symbol_scroll_thumb();
+
+    UIPane listPane = *pane;
+    listPane.y = listTop;
+    listPane.h = listHeight;
+
+    if (tree) {
+        renderTreePanelWithScroll(&listPane, tree, scroll, track, thumb);
+    }
+}

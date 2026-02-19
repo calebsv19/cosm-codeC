@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <SDL2/SDL_ttf.h>
 
 static bool selected[512];
 static bool dragging = false;
@@ -24,6 +25,33 @@ PaneScrollState* errors_get_scroll_state(void) { return &errorScroll; }
 SDL_Rect errors_get_scroll_track_rect(void) { return errorScrollTrack; }
 SDL_Rect errors_get_scroll_thumb_rect(void) { return errorScrollThumb; }
 void errors_set_scroll_rects(SDL_Rect track, SDL_Rect thumb) { errorScrollTrack = track; errorScrollThumb = thumb; }
+
+// Shared font/layout
+static TTF_Font* gErrorSmallFont = NULL;
+TTF_Font* get_error_font(void) {
+    if (gErrorSmallFont) return gErrorSmallFont;
+    gErrorSmallFont = TTF_OpenFont("include/fonts/Montserrat/Montserrat-Regular.ttf", 12);
+    if (!gErrorSmallFont) {
+        fprintf(stderr, "Failed to load error panel font: %s\n", TTF_GetError());
+    }
+    return gErrorSmallFont;
+}
+
+void errors_get_layout_metrics(const UIPane* pane,
+                               int* contentTop,
+                               int* headerHeight,
+                               int* diagHeight,
+                               int* lineHeight) {
+    TTF_Font* font = get_error_font();
+    int lh = font ? TTF_FontHeight(font) : 16;
+    if (lineHeight) *lineHeight = lh;
+    if (headerHeight) *headerHeight = lh;
+    if (diagHeight) *diagHeight = lh * 2;
+    if (contentTop && pane) {
+        const int paddingY = 24;
+        *contentTop = pane->y + paddingY;
+    }
+}
 
 int getSelectedErrorDiag(void) {
     for (int i = 0; i < (int)(sizeof(selected) / sizeof(selected[0])); ++i) {
@@ -151,12 +179,16 @@ static void copy_diag(const Diagnostic* d) {
 }
 
 static void copy_selected_block(void) {
+    analysis_store_lock();
     FlatDiagRef refs[512];
     flatCount = flatten_diagnostics(refs, 512);
     size_t cap = 2048;
     size_t len = 0;
     char* out = malloc(cap);
-    if (!out) return;
+    if (!out) {
+        analysis_store_unlock();
+        return;
+    }
     out[0] = '\0';
 
     bool any = false;
@@ -182,7 +214,11 @@ static void copy_selected_block(void) {
         if (len + add + 1 > cap) {
             cap = (len + add + 1) * 2;
             char* tmp = realloc(out, cap);
-            if (!tmp) { free(out); return; }
+            if (!tmp) {
+                free(out);
+                analysis_store_unlock();
+                return;
+            }
             out = tmp;
         }
         memcpy(out + len, line, add);
@@ -197,14 +233,16 @@ static void copy_selected_block(void) {
         if (sel >= 0 && sel < flatCount) copy_diag(refs[sel].diag);
     }
     free(out);
+    analysis_store_unlock();
 }
 
 void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
-    const int lineHeight = 20;
-    const int headerHeight = lineHeight;
-    const int diagHeight = lineHeight * 2;
-    const int firstY = pane->y + 32;
+    int firstY = 0;
+    int headerHeight = 0;
+    int diagHeight = 0;
+    int lineHeight = 0;
+    errors_get_layout_metrics(pane, &firstY, &headerHeight, &diagHeight, &lineHeight);
     static Uint32 lastClickTicks = 0;
     static int lastClickIndex = -1;
     const Uint32 doubleClickMs = 400;
@@ -217,6 +255,7 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
     }
 
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
+        analysis_store_lock();
         FlatDiagRef refs[512];
         flatCount = flatten_diagnostics(refs, 512);
         int my = event->button.y;
@@ -247,6 +286,7 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
                     // refresh selection to just this header
                     clear_selected();
                     toggle_selected(hit, false);
+                    analysis_store_unlock();
                     return;
                 }
 
@@ -270,12 +310,15 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
             if (dbl) {
                 jump_to_diag(refs[hit].diag);
             }
+            analysis_store_unlock();
         } else {
             clear_selected();
             dragging = false;
             dragAnchor = -1;
+            analysis_store_unlock();
         }
     } else if (event->type == SDL_MOUSEMOTION && dragging) {
+        analysis_store_lock();
         FlatDiagRef refs[512];
         flatCount = flatten_diagnostics(refs, 512);
         int my = event->motion.y;
@@ -294,6 +337,7 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
         if (hit >= 0 && dragAnchor >= 0) {
             select_range(dragAnchor, hit);
         }
+        analysis_store_unlock();
     } else if (event->type == SDL_MOUSEBUTTONUP && event->button.button == SDL_BUTTON_LEFT) {
         dragging = false;
         dragAnchor = -1;

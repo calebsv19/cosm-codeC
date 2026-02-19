@@ -12,4 +12,4 @@ Common rendering helpers plus optional reference back ends live here.
 
 ## Subdirectories
 
-- [`vk_renderer_ref/`](vk_renderer_ref/README.md) — Standalone Vulkan renderer reference used for experiments and validation.
+- `shared/vk_renderer/` — Standalone Vulkan renderer library (headers in `include/`, sources in `src/`, shaders in `shaders/`) used as an optional SDL backend.

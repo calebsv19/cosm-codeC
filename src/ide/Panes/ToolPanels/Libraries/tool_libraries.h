@@ -19,8 +19,12 @@ typedef struct {
     int headerIndex; // -1 if not applicable
     int usageIndex;  // -1 if not applicable
     int depth;       // for indent
-    const char* labelPrimary;
-    const char* labelSecondary; // optional (e.g., resolved path or status)
+    char* labelPrimary;
+    char* labelSecondary; // optional (e.g., resolved path or status)
+    LibraryIncludeKind includeKind;
+    int usageLine;
+    int usageColumn;
+    int bucketHeaderCount;
 } LibraryFlatRow;
 
 #define LIBRARY_ROW_HEIGHT 20

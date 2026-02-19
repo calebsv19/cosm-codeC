@@ -6,10 +6,13 @@
 
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/Analysis/analysis_store.h"
+#include "core/Analysis/analysis_symbols_store.h"
+#include "core/Analysis/analysis_token_store.h"
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/Analysis/include_path_resolver.h"
 #include "app/GlobalInfo/project.h"
+#include "app/GlobalInfo/workspace_prefs.h"
 
 typedef struct {
     char* filePath;
@@ -37,6 +40,20 @@ static void free_symbol_cache(void) {
     for (size_t i = 0; i < g_symbols.count; ++i) {
         free((char*)g_symbols.symbols[i].name);
         free((char*)g_symbols.symbols[i].file_path);
+        free((char*)g_symbols.symbols[i].parent_name);
+        free((char*)g_symbols.symbols[i].return_type);
+        if (g_symbols.symbols[i].param_types) {
+            for (size_t p = 0; p < g_symbols.symbols[i].param_count; ++p) {
+                free((char*)g_symbols.symbols[i].param_types[p]);
+            }
+            free(g_symbols.symbols[i].param_types);
+        }
+        if (g_symbols.symbols[i].param_names) {
+            for (size_t p = 0; p < g_symbols.symbols[i].param_count; ++p) {
+                free((char*)g_symbols.symbols[i].param_names[p]);
+            }
+            free(g_symbols.symbols[i].param_names);
+        }
     }
     free(g_symbols.symbols);
     memset(&g_symbols, 0, sizeof(g_symbols));
@@ -75,6 +92,35 @@ static void cache_symbols(const char* filePath, const FisicsSymbol* symbols, siz
         if (symbols[i].file_path) {
             g_symbols.symbols[i].file_path = strdup(symbols[i].file_path);
         }
+        if (symbols[i].parent_name) {
+            g_symbols.symbols[i].parent_name = strdup(symbols[i].parent_name);
+        }
+        if (symbols[i].return_type) {
+            g_symbols.symbols[i].return_type = strdup(symbols[i].return_type);
+        }
+        g_symbols.symbols[i].param_types = NULL;
+        g_symbols.symbols[i].param_count = symbols[i].param_count;
+        if (symbols[i].param_types && symbols[i].param_count > 0) {
+            g_symbols.symbols[i].param_types = (const char**)calloc(symbols[i].param_count, sizeof(char*));
+            if (g_symbols.symbols[i].param_types) {
+                for (size_t p = 0; p < symbols[i].param_count; ++p) {
+                    if (symbols[i].param_types[p]) {
+                        ((char**)g_symbols.symbols[i].param_types)[p] = strdup(symbols[i].param_types[p]);
+                    }
+                }
+            }
+        }
+        g_symbols.symbols[i].param_names = NULL;
+        if (symbols[i].param_names && symbols[i].param_count > 0) {
+            g_symbols.symbols[i].param_names = (const char**)calloc(symbols[i].param_count, sizeof(char*));
+            if (g_symbols.symbols[i].param_names) {
+                for (size_t p = 0; p < symbols[i].param_count; ++p) {
+                    if (symbols[i].param_names[p]) {
+                        ((char**)g_symbols.symbols[i].param_names)[p] = strdup(symbols[i].param_names[p]);
+                    }
+                }
+            }
+        }
     }
     g_symbols.count = count;
 }
@@ -85,23 +131,29 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
     FisicsAnalysisResult result;
     memset(&result, 0, sizeof(result));
 
-    char** incs = NULL;
-    size_t incCount = gather_include_paths(projectPath, &incs);
+    const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
+    const char* flags = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
+    BuildFlagSet flagsSet = {0};
+    gather_build_flags(projectPath, flags, &flagsSet);
     FisicsFrontendOptions opts = {0};
-    opts.include_paths = (const char* const*)incs;
-    opts.include_path_count = incCount;
+    opts.include_paths = (const char* const*)flagsSet.include_paths;
+    opts.include_path_count = flagsSet.include_count;
+    opts.macro_defines = (const char* const*)flagsSet.macro_defines;
+    opts.macro_define_count = flagsSet.macro_count;
 
     bool ok = fisics_analyze_buffer(filePath, contents, length, &opts, &result);
     (void)ok; // ok may be false but still yield diagnostics
 
     analysis_store_upsert(filePath, result.diagnostics, result.diag_count);
+    analysis_symbols_store_upsert(filePath, result.symbols, result.symbol_count);
+    analysis_token_store_upsert(filePath, result.tokens, result.token_count);
     analysis_store_flatten_to_engine();
 
     cache_tokens(filePath, result.tokens, result.token_count);
     cache_symbols(filePath, result.symbols, result.symbol_count);
 
     fisics_free_analysis_result(&result);
-    free_include_paths(incs, incCount);
+    free_build_flag_set(&flagsSet);
 }
 
 void ide_analyze_open_file(OpenFile* file) {

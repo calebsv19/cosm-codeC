@@ -1,6 +1,9 @@
 #include "ide/Panes/Editor/Commands/editor_commands.h"
 #include "ide/Panes/Editor/editor_clipboard.h"
 #include "ide/Panes/Editor/editor_core.h"
+#include "app/GlobalInfo/project.h"
+
+#include <string.h>
 
 
 
@@ -142,6 +145,42 @@ bool handleCommandNavigation(SDL_Keycode key, EditorBuffer* buffer, EditorState*
         default:
             return false;
     }
+}
+
+bool editor_jump_to(EditorView* view, const char* filePath, int line, int column) {
+    if (!view) return false;
+
+    OpenFile* file = NULL;
+    if (filePath && filePath[0]) {
+        char fullPath[1024];
+        if (filePath[0] == '/') {
+            snprintf(fullPath, sizeof(fullPath), "%s", filePath);
+        } else {
+            snprintf(fullPath, sizeof(fullPath), "%s/%s", projectPath, filePath);
+        }
+        file = openFileInView(view, fullPath);
+    } else {
+        file = getActiveOpenFile(view);
+    }
+
+    if (!file || !file->buffer) return false;
+
+    int targetRow = line > 0 ? line - 1 : 0;
+    if (targetRow >= file->buffer->lineCount) targetRow = file->buffer->lineCount - 1;
+    if (targetRow < 0) targetRow = 0;
+    int lineLen = (file->buffer->lines && file->buffer->lines[targetRow])
+                      ? (int)strlen(file->buffer->lines[targetRow])
+                      : 0;
+    int targetCol = column > 0 ? column - 1 : 0;
+    if (targetCol > lineLen) targetCol = lineLen;
+
+    file->state.cursorRow = targetRow;
+    file->state.cursorCol = targetCol;
+    file->state.viewTopRow = (targetRow > 2) ? targetRow - 2 : 0;
+    file->state.selecting = false;
+    file->state.draggingWithMouse = false;
+    setActiveEditorView(view);
+    return true;
 }
 
 

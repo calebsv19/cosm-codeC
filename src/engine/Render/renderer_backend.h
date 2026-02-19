@@ -4,12 +4,8 @@
 #include <SDL2/SDL.h>
 
 #if USE_VULKAN
-#ifndef VK_RENDERER_ENABLE_SDL_COMPAT
-#define VK_RENDERER_ENABLE_SDL_COMPAT
-#endif
-
 #ifndef VK_RENDERER_SHADER_ROOT
-#define VK_RENDERER_SHADER_ROOT "src/engine/Render/vk_renderer_ref"
+#define VK_RENDERER_SHADER_ROOT "shared/vk_renderer"
 #endif
 
 #if defined(__clang__)
@@ -17,13 +13,11 @@
 #pragma clang diagnostic ignored "-Wtypedef-redefinition"
 #endif
 
-#include "engine/Render/vk_renderer_ref/src/vk_renderer.h"
+#include "vk_renderer_sdl.h"
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
-
-#include "engine/Render/vk_renderer_ref/src/vk_renderer_compat_sdl.h"
 
 #ifndef SDL_RenderFillRect
 #error "Vulkan SDL compatibility layer not active: SDL_RenderFillRect macro missing."

@@ -11,4 +11,6 @@ void handleCommandMovement(SDL_Keycode key, EditorBuffer* buffer, EditorState* s
 void handleCommandAction(SDL_Keycode key, EditorBuffer* buffer, EditorState* state, struct EditorView* view, struct UIPane* pane, SDL_Keymod mod);
 bool handleCommandNavigation(SDL_Keycode key, EditorBuffer* buffer, EditorState* state, int paneHeight, bool shiftHeld);
 
+bool editor_jump_to(EditorView* view, const char* filePath, int line, int column);
+
 #endif

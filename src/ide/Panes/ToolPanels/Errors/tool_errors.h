@@ -4,6 +4,7 @@
 #include "ide/Panes/PaneInfo/pane.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
 
 typedef struct {
     const Diagnostic* diag;
@@ -26,5 +27,13 @@ struct PaneScrollState* errors_get_scroll_state(void);
 struct SDL_Rect errors_get_scroll_track_rect(void);
 struct SDL_Rect errors_get_scroll_thumb_rect(void);
 void errors_set_scroll_rects(struct SDL_Rect track, struct SDL_Rect thumb);
+
+// Shared layout helpers so rendering and input stay in sync.
+TTF_Font* get_error_font(void);
+void errors_get_layout_metrics(const UIPane* pane,
+                               int* contentTop,
+                               int* headerHeight,
+                               int* diagHeight,
+                               int* lineHeight);
 
 #endif

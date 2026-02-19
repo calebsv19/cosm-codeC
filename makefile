@@ -5,7 +5,8 @@
   BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
 
   # Shared include/lib search paths
-  INC_DIRS := -I./src -I./include
+  VK_RENDERER_DIR := ../shared/vk_renderer
+  INC_DIRS := -I./src -I./include -I$(VK_RENDERER_DIR)/include
   LIB_DIRS :=
 
   ifneq ($(strip $(BREW_PREFIX)),)
@@ -40,10 +41,10 @@
 
   VULKAN_LIBS := -lvulkan
 
-  ABS_VK_SHADER_ROOT := $(abspath src/engine/Render/vk_renderer_ref)
+  ABS_VK_SHADER_ROOT := $(abspath $(VK_RENDERER_DIR))
 
   # Fisics frontend (compiler) integration
-  FISICS_DIR := ../fisics
+  FISICS_DIR := ../fisiCs
   FISICS_INC := $(FISICS_DIR)/src
   FISICS_LIB := $(FISICS_DIR)/libfisics_frontend.a
   ifeq ($(wildcard $(FISICS_LIB)),)
@@ -62,7 +63,10 @@
   $(warning llvm-config not found; Fisics frontend linking may fail.)
   endif
 
-  CFLAGS  = -g -Wall -std=c99 -MMD -MP $(INC_DIRS) -I$(FISICS_INC) $(LLVM_CFLAGS) -DVK_RENDERER_SHADER_ROOT=\"$(ABS_VK_SHADER_ROOT)\"
+  TIMER_HUD_DIR := ../shared/timer_hud
+  TIMER_HUD_INC := -I$(TIMER_HUD_DIR)/include -I$(TIMER_HUD_DIR)/external
+
+  CFLAGS  = -g -Wall -std=c99 -MMD -MP $(INC_DIRS) -I$(FISICS_INC) $(LLVM_CFLAGS) -DVK_RENDERER_SHADER_ROOT=\"$(ABS_VK_SHADER_ROOT)\" $(TIMER_HUD_INC)
 
   ifeq ($(strip $(VULKAN_RENDER_DEBUG)),1)
   CFLAGS += -DVK_RENDERER_DEBUG=1
@@ -74,12 +78,19 @@
 
   SRC_DIR := src
   BUILD_DIR := build
-  EXCLUDE_DIRS := $(SRC_DIR)/Project
-  EXCLUDE_FILES := $(SRC_DIR)/engine/Render/vk_renderer_ref/main.c
+  EXCLUDE_DIRS := $(SRC_DIR)/Project $(SRC_DIR)/engine/Render/vk_renderer_ref_backup $(SRC_DIR)/engine/TimerHUD_legacy_backup
+  EXCLUDE_FILES :=
 
   SRC_FILES := $(shell find $(SRC_DIR) -type f -name '*.c' $(foreach dir,$(EXCLUDE_DIRS),! -path "$(dir)/*"))
   SRC_FILES := $(filter-out $(EXCLUDE_FILES), $(SRC_FILES))
-  OBJ_FILES := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC_FILES))
+  VK_RENDERER_SRCS := $(shell find $(VK_RENDERER_DIR)/src -type f -name '*.c')
+  TIMER_HUD_SRCS := $(shell find $(TIMER_HUD_DIR)/src -type f -name '*.c')
+  TIMER_HUD_EXTERNAL_SRCS := $(TIMER_HUD_DIR)/external/cJSON.c
+  VK_RENDERER_OBJS := $(patsubst $(VK_RENDERER_DIR)/src/%.c,$(BUILD_DIR)/vk_renderer/%.o,$(VK_RENDERER_SRCS))
+  TIMER_HUD_OBJS := $(patsubst $(TIMER_HUD_DIR)/src/%.c,$(BUILD_DIR)/timer_hud/%.o,$(TIMER_HUD_SRCS))
+  TIMER_HUD_EXTERNAL_OBJS := $(patsubst $(TIMER_HUD_DIR)/external/%.c,$(BUILD_DIR)/timer_hud_external/%.o,$(TIMER_HUD_EXTERNAL_SRCS))
+
+  OBJ_FILES := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC_FILES)) $(VK_RENDERER_OBJS) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS)
   DEP_FILES := $(OBJ_FILES:.o=.d)
 
   OUT = ide
@@ -94,6 +105,24 @@ $(OUT): $(OBJ_FILES) $(FISICS_LIB)
 	@$(CC) -o $@ $^ $(LDFLAGS) || (echo "Linking failed!" && exit 1)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<"
+	@echo "CFLAGS: $(CFLAGS)"
+	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+
+$(BUILD_DIR)/timer_hud/%.o: $(TIMER_HUD_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<"
+	@echo "CFLAGS: $(CFLAGS)"
+	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+
+$(BUILD_DIR)/vk_renderer/%.o: $(VK_RENDERER_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<"
+	@echo "CFLAGS: $(CFLAGS)"
+	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+
+$(BUILD_DIR)/timer_hud_external/%.o: $(TIMER_HUD_DIR)/external/%.c
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@echo "CFLAGS: $(CFLAGS)"
