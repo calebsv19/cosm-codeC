@@ -48,6 +48,7 @@ void submitRename(void);
 void handleRenameTextInput(char ch);
 bool isRenaming(void);
 void setRenameErrorMessage(const char* message);
+bool tickRenameAnimation(Uint32 nowTicks);
 
 // UI
 void renderRenameOverlay(void);

@@ -64,6 +64,18 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
 
     renderUIPane(pane, hovered);
 
+    // Keep terminal visually distinct from generic pane backgrounds.
+    SDL_Rect paneBody = {
+        .x = pane->x + 1,
+        .y = pane->y + 1,
+        .w = pane->w - 2,
+        .h = pane->h - 2
+    };
+    if (paneBody.w > 0 && paneBody.h > 0) {
+        SDL_SetRenderDrawColor(renderer, 12, 12, 14, 255);
+        SDL_RenderFillRect(renderer, &paneBody);
+    }
+
     const int padding = TERMINAL_PADDING;
     const int trackWidth = 6;
     const int trackPadding = 4;
@@ -85,6 +97,11 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     if (viewport.w < 0) viewport.w = 0;
     if (viewport.h < 0) viewport.h = 0;
 
+    if (viewport.w > 0 && viewport.h > 0) {
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        SDL_RenderFillRect(renderer, &viewport);
+    }
+
     // Draw header tabs
     SDL_SetRenderDrawColor(renderer, 40, 40, 50, 255);
     SDL_RenderFillRect(renderer, &header);
@@ -101,7 +118,10 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     SDL_RenderFillRect(renderer, &closeRect);
     SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
     SDL_RenderDrawRect(renderer, &closeRect);
-    drawText(closeRect.x + closeRect.w / 2 - 4, closeRect.y + (closeRect.h - 14) / 2, "x");
+    drawTextWithTier(closeRect.x + closeRect.w / 2 - 4,
+                     closeRect.y + (closeRect.h - 14) / 2,
+                     "x",
+                     CORE_FONT_TEXT_SIZE_CAPTION);
 
     // Plus button for interactive, next to close
     SDL_Rect plus = { closeRect.x + closeRect.w + 6, tabY, headerH - 8, headerH - 8 };
@@ -110,7 +130,10 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     SDL_RenderFillRect(renderer, &plus);
     SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
     SDL_RenderDrawRect(renderer, &plus);
-    drawText(plus.x + 6, plus.y + (plus.h - 14) / 2, "+");
+    drawTextWithTier(plus.x + 6,
+                     plus.y + (plus.h - 14) / 2,
+                     "+",
+                     CORE_FONT_TEXT_SIZE_CAPTION);
     tabX = plus.x + plus.w + 6;
 
     // Render interactive tabs immediately to the right of plus
@@ -201,6 +224,10 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     if (firstRow < 0) firstRow = 0;
     if (firstRow > contentRows) firstRow = contentRows;
     float intraLineOffset = offset - (float)firstRow * (float)cellH;
+    float shortContentPad = 0.0f;
+    if (contentHeight < scroll->viewport_height_px) {
+        shortContentPad = scroll->viewport_height_px - contentHeight;
+    }
 
     pushClipRect(&viewport);
 
@@ -222,13 +249,20 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     char* runBuf = (char*)malloc((size_t)cols * 4u + 1u);
     for (int r = 0; r < rowsToRender; ++r) {
         int rowIndex = firstRow + r;
-        if (rowIndex >= contentRows || rowIndex >= grid->rows) break;
+        if (rowIndex >= grid->rows) break;
 
-        float drawYf = (float)viewport.y + (float)r * (float)cellH - intraLineOffset;
+        float drawYf = (float)viewport.y + shortContentPad + (float)r * (float)cellH - intraLineOffset;
         if (drawYf < (float)viewport.y) continue;
         if (drawYf >= (float)(viewport.y + viewport.h)) break;
 
         int drawY = (int)drawYf;
+
+        if (rowIndex >= contentRows) {
+            SDL_Rect emptyRow = { viewport.x, drawY, cols * cellW, cellH };
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+            SDL_RenderFillRect(renderer, &emptyRow);
+            continue;
+        }
 
         // Cell background runs from TermCell.bg.
         for (int c = 0; c < cols; ) {
@@ -357,7 +391,7 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         if (caretCol > cols) caretCol = cols;
 
         int caretX = viewport.x + caretCol * cellW;
-        int caretY = viewport.y + (caretRow - firstRow) * cellH - (int)intraLineOffset;
+        int caretY = viewport.y + (int)shortContentPad + (caretRow - firstRow) * cellH - (int)intraLineOffset;
         int caretW = 2;
         if (caretW > cellW) caretW = cellW;
         int caretH = cellH - 2;

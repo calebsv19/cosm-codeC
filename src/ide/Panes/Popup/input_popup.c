@@ -4,6 +4,7 @@
 #include "core/InputManager/UserInput/rename_flow.h"
 
 void handlePopupKeyboardInput(UIPane* pane, SDL_Event* event) {
+    (void)pane;
     if (event->type == SDL_KEYDOWN) {
         SDL_Keycode key = event->key.keysym.sym;
 
@@ -17,14 +18,14 @@ void handlePopupKeyboardInput(UIPane* pane, SDL_Event* event) {
             }
         }
     }
-
-    if (event->type == SDL_TEXTINPUT) {
-        if (isRenaming()) {
-            handleRenameTextInput(event->text.text[0]);
-        }
-    }
 }
 
+static void handlePopupTextInput(UIPane* pane, SDL_Event* event) {
+    (void)pane;
+    if (!event || event->type != SDL_TEXTINPUT) return;
+    if (!isRenaming()) return;
+    handleRenameTextInput(event->text.text[0]);
+}
 
 void handlePopupMouseInput(UIPane* pane, SDL_Event* event) {
     (void)pane; (void)event;
@@ -48,5 +49,5 @@ UIPaneInputHandler popupInputHandler = {
     .onMouse = handlePopupMouseInput,
     .onScroll = handlePopupScrollInput,
     .onHover = handlePopupHoverInput,
+    .onTextInput = handlePopupTextInput,
 };
-

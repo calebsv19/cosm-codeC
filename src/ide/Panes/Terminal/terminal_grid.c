@@ -128,6 +128,7 @@ void term_grid_clear(TermGrid* grid) {
     }
     grid->cursor_row = 0;
     grid->cursor_col = 0;
+    grid->used_rows = 1;
 }
 
 void term_grid_clear_line(TermGrid* grid, int row) {
@@ -157,6 +158,7 @@ void term_grid_resize(TermGrid* grid, int rows, int cols) {
     newGrid.cur_attrs = grid->cur_attrs;
     newGrid.cursor_row = grid->cursor_row;
     newGrid.cursor_col = grid->cursor_col;
+    newGrid.used_rows = grid->used_rows;
     newGrid.parser_state = grid->parser_state;
     newGrid.csi_len = grid->csi_len;
     memcpy(newGrid.csi_buf, grid->csi_buf, sizeof(newGrid.csi_buf));
@@ -192,6 +194,9 @@ void term_grid_resize(TermGrid* grid, int rows, int cols) {
     free(grid->cells);
     *grid = newGrid;
     clamp_cursor(grid);
+    if (grid->used_rows < 1) grid->used_rows = 1;
+    if (grid->used_rows > grid->rows) grid->used_rows = grid->rows;
+    if (grid->cursor_row + 1 > grid->used_rows) grid->used_rows = grid->cursor_row + 1;
 }
 
 static void clamp_cursor(TermGrid* grid) {
@@ -223,9 +228,13 @@ static void scroll_up(TermGrid* grid) {
 static void move_cursor_newline(TermGrid* grid) {
     grid->cursor_col = 0;
     grid->cursor_row++;
+    if (grid->cursor_row + 1 > grid->used_rows) {
+        grid->used_rows = grid->cursor_row + 1;
+    }
     if (grid->cursor_row >= grid->rows) {
         scroll_up(grid);
         grid->cursor_row = grid->rows - 1;
+        grid->used_rows = grid->rows;
     }
 }
 
@@ -251,6 +260,9 @@ static void write_codepoint(TermGrid* grid, uint32_t cp) {
         cell->fg = grid->cur_fg;
         cell->bg = grid->cur_bg;
         cell->attrs = grid->cur_attrs;
+    }
+    if (grid->cursor_row + 1 > grid->used_rows) {
+        grid->used_rows = grid->cursor_row + 1;
     }
 
     grid->cursor_col++;
@@ -506,6 +518,10 @@ static void handle_csi(TermGrid* grid, const char* params, int paramLen, char co
             break;
         default:
             break;
+    }
+    if (grid->cursor_row + 1 > grid->used_rows) {
+        grid->used_rows = grid->cursor_row + 1;
+        if (grid->used_rows > grid->rows) grid->used_rows = grid->rows;
     }
 }
 

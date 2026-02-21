@@ -2,8 +2,10 @@
 #include "engine/Render/render_text_helpers.h"
 #include "engine/Render/render_pipeline.h"
 #include "engine/Render/render_helpers.h"
+#include "engine/Render/render_font.h"
 #include "app/GlobalInfo/core_state.h"
 #include "ide/UI/scroll_manager.h"
+#include "fisics_frontend.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +24,42 @@ static SDL_Color statusColors[8] = {
     { 160, 160, 255, 255 }   // SECTION
 };
 
+static int tree_line_height_for_pane(const UIPane* pane) {
+    if (pane && pane->role == PANE_ROLE_CONTROLPANEL) {
+        return 18;
+    }
+    return 22;
+}
+
+static int control_panel_symbol_tier(const UITreeNode* node) {
+    if (!node) return 1;
+
+    // Top-level branches and directories share top tier.
+    if (node->depth <= 2 || node->type == TREE_NODE_FOLDER) {
+        return 0;
+    }
+
+    const FisicsSymbol* sym = (const FisicsSymbol*)node->userData;
+    if (sym && sym->kind == FISICS_SYMBOL_FUNCTION) {
+        // Functions and their params share the same dull tier.
+        return 2;
+    }
+
+    // Files + non-function symbol rows.
+    return 1;
+}
+
+static SDL_Color control_panel_symbol_tone_by_node(const UITreeNode* node) {
+    int tier = control_panel_symbol_tier(node);
+    if (tier == 0) {
+        return (SDL_Color){242, 247, 252, 255}; // directories/top branches
+    }
+    if (tier == 2) {
+        return (SDL_Color){132, 144, 162, 255}; // params
+    }
+    return (SDL_Color){186, 198, 214, 255};     // files + methods
+}
+
 void setTreeColorOverride(TreeNodeColor color, SDL_Color sdlColor) {
     if (color >= 0 && color < 8) {
         statusColors[color] = sdlColor;
@@ -30,6 +68,10 @@ void setTreeColorOverride(TreeNodeColor color, SDL_Color sdlColor) {
 
 UITreeNode* getHoveredTreeNode(void) { return hoveredNode; }
 UITreeNode* getSelectedTreeNode(void) { return selectedNode; }
+void clearTreeSelectionState(void) {
+    hoveredNode = NULL;
+    selectedNode = NULL;
+}
 
 void handleTreeMouseMove(int x, int y) {
     getCoreState()->mouseX = x;
@@ -42,10 +84,10 @@ static void renderTreeRecursive(UITreeNode* node,
                                 int maxY,
                                 int mouseX,
                                 int mouseY,
-                                bool allowHover) {
+                                bool allowHover,
+                                bool controlPanelTone,
+                                int lineHeight) {
     if (!node || *y > maxY) return;
-
-    int lineHeight = 22;
     int indent = node->depth * 20;
     int drawX = x + indent;
     int drawY = *y;
@@ -93,9 +135,11 @@ static void renderTreeRecursive(UITreeNode* node,
     //  Set color by node->color enum
     TreeNodeColor color = node->color;
     SDL_Color col = statusColors[color >= 0 && color < 8 ? color : 0];
+    if (controlPanelTone) {
+        col = control_panel_symbol_tone_by_node(node);
+    }
     SDL_SetRenderDrawColor(renderer, col.r, col.g, col.b, 255);
-
-    drawText(drawX, drawY, line);
+    drawTextUTF8WithFontColor(drawX, drawY, line, getActiveFont(), col, false);
     *y += lineHeight;
 
     // Recurse into children if expanded
@@ -107,7 +151,9 @@ static void renderTreeRecursive(UITreeNode* node,
                                 maxY,
                                 mouseX,
                                 mouseY,
-                                allowHover);
+                                allowHover,
+                                controlPanelTone,
+                                lineHeight);
         }
     }
 }
@@ -116,6 +162,8 @@ static void renderTreeRecursive(UITreeNode* node,
 void renderTreePanel(UIPane* pane, UITreeNode* root) {
     if (!pane || !root) return;
 
+    int lineHeight = tree_line_height_for_pane(pane);
+    bool controlPanelTone = (pane->role == PANE_ROLE_CONTROLPANEL);
     int x = pane->x + 12;
     int y = pane->y + 30;
     int maxY = pane->y + pane->h;
@@ -131,7 +179,9 @@ void renderTreePanel(UIPane* pane, UITreeNode* root) {
                         maxY,
                         mx,
                         my,
-                        allowHover);
+                        allowHover,
+                        controlPanelTone,
+                        lineHeight);
 }
 
 void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
@@ -141,7 +191,8 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
     if (!pane || !root) return;
     if (!scroll) return;
 
-    const int lineHeight = 22;
+    const int lineHeight = tree_line_height_for_pane(pane);
+    const bool controlPanelTone = (pane->role == PANE_ROLE_CONTROLPANEL);
     int paddingX = 12;
     int paddingY = 30;
     int contentTop = pane->y + paddingY;
@@ -251,8 +302,11 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
 
             TreeNodeColor color = n->color;
             SDL_Color col = statusColors[color >= 0 && color < 8 ? color : 0];
+            if (controlPanelTone) {
+                col = control_panel_symbol_tone_by_node(n);
+            }
             SDL_SetRenderDrawColor(renderer, col.r, col.g, col.b, 255);
-            drawText(drawX, drawY, line);
+            drawTextUTF8WithFontColor(drawX, drawY, line, getActiveFont(), col, false);
         }
 
         if ((n->type == TREE_NODE_FOLDER || n->type == TREE_NODE_SECTION) && n->isExpanded) {
@@ -324,7 +378,7 @@ void handleTreeClick(UIPane* pane, int clickX, int clickY) {
 void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, PaneScrollState* scroll, int clickX, int clickY) {
     if (!pane || !root || !scroll) return;
 
-    const int lineHeight = 22;
+    const int lineHeight = tree_line_height_for_pane(pane);
     int paddingX = 12;
     int paddingY = 30;
     int contentTop = pane->y + paddingY;

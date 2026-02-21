@@ -78,6 +78,10 @@ void rebuildLibraryFlatRows(void) {
     int estimated = 0;
     library_index_lock();
     for (size_t b = 0; b < library_index_bucket_count(); ++b) {
+        if (!g_libraryPanelState.includeSystemHeaders &&
+            (int)b == LIB_BUCKET_SYSTEM) {
+            continue;
+        }
         const LibraryBucket* bucket = library_index_get_bucket(b);
         if (!bucket || bucket->header_count == 0) continue;
         estimated += 1 + (int)bucket->header_count;
@@ -108,6 +112,10 @@ void rebuildLibraryFlatRows(void) {
 
     // Populate rows
     for (size_t b = 0; b < library_index_bucket_count(); ++b) {
+        if (!g_libraryPanelState.includeSystemHeaders &&
+            (int)b == LIB_BUCKET_SYSTEM) {
+            continue;
+        }
         const LibraryBucket* bucket = library_index_get_bucket(b);
     if (!bucket || bucket->header_count == 0) continue;
 
@@ -186,6 +194,8 @@ void initLibrariesPanel() {
         g_libraryPanelState.headerExpanded[i] = NULL;
         g_libraryPanelState.headerExpandedCount[i] = 0;
     }
+    g_libraryPanelState.includeSystemHeaders = true;
+    g_libraryPanelState.systemToggleRect = (SDL_Rect){0};
     rebuildLibraryFlatRows();
 }
 
@@ -298,13 +308,28 @@ void copy_selected_rows(void) {
 }
 
 static int row_index_from_position(UIPane* pane, int mouseY) {
-    const int headerHeight = 32;
+    const int headerHeight = LIBRARIES_HEADER_HEIGHT;
     int contentY = pane->y + headerHeight;
     float offset = scroll_state_get_offset(&g_libraryPanelState.scroll);
-    int localY = mouseY - contentY + (int)offset;
+    int localY = mouseY - (contentY + LIBRARIES_LIST_TOP_GAP) + (int)offset;
     if (localY < 0) return -1;
     int idx = localY / LIBRARY_ROW_HEIGHT;
     return (idx >= 0 && idx < g_libraryPanelState.flatCount) ? idx : -1;
+}
+
+bool handleLibraryHeaderClick(UIPane* pane, int clickX, int clickY) {
+    (void)pane;
+    LibraryPanelState* st = &g_libraryPanelState;
+    SDL_Rect r = st->systemToggleRect;
+    if (r.w <= 0 || r.h <= 0) return false;
+
+    bool hit = (clickX >= r.x && clickX <= r.x + r.w &&
+                clickY >= r.y && clickY <= r.y + r.h);
+    if (!hit) return false;
+
+    st->includeSystemHeaders = !st->includeSystemHeaders;
+    rebuildLibraryFlatRows();
+    return true;
 }
 
 void handleLibraryEntryClick(UIPane* pane, int clickX, int clickY) {

@@ -2,7 +2,43 @@
 #include "engine/Render/render_font.h"  		// for getActiveFont()
 
 #include <SDL2/SDL_ttf.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
+
+typedef struct {
+    const TTF_Font* font;
+    const char* text_ptr;
+    int max_width;
+    size_t text_len;
+    unsigned int text_fingerprint;
+    size_t cutoff;
+    int valid;
+} ClampCacheEntry;
+
+#define CLAMP_CACHE_SIZE 256
+static ClampCacheEntry s_clamp_cache[CLAMP_CACHE_SIZE];
+
+static unsigned int clamp_cache_fingerprint(const char* text, size_t len) {
+    unsigned int h = (unsigned int)len * 2166136261u;
+    size_t sample = len < 64 ? len : 64;
+    for (size_t i = 0; i < sample; ++i) {
+        h ^= (unsigned char)text[i];
+        h *= 16777619u;
+    }
+    if (len > sample) {
+        h ^= (unsigned char)text[len - 1];
+        h *= 16777619u;
+    }
+    return h;
+}
+
+static unsigned int clamp_cache_slot(const TTF_Font* font, const char* text, int max_width) {
+    unsigned long long k = (unsigned long long)(uintptr_t)font;
+    k ^= (unsigned long long)(uintptr_t)text;
+    k ^= (unsigned long long)(unsigned int)max_width * 11400714819323198485ull;
+    return (unsigned int)(k % CLAMP_CACHE_SIZE);
+}
 
 int getTextWidthWithFont(const char* text, TTF_Font* font) {
     if (!text || text[0] == '\0') return 0;
@@ -24,20 +60,24 @@ int getTextWidthNWithFont(const char* text, int n, TTF_Font* font) {
     if (!text || n <= 0) return 0;
     if (!font) return 0;
 
-    int len = strnlen(text, n);
+    size_t len = strnlen(text, (size_t)n);
     if (len == 0) return 0;
 
-    // Ensure we never overflow temp
-    if (len >= 1024) len = 1023;
-
     char temp[1024];
-    strncpy(temp, text, len);
-    temp[len] = '\0';
+    char* text_buf = temp;
+    if (len >= sizeof(temp)) {
+        text_buf = (char*)malloc(len + 1);
+        if (!text_buf) return 0;
+    }
+
+    memcpy(text_buf, text, len);
+    text_buf[len] = '\0';
 
     int w = 0, h = 0;
-    if (TTF_SizeText(font, temp, &w, &h) != 0) {
-        return 0;
+    if (TTF_SizeText(font, text_buf, &w, &h) != 0) {
+        w = 0;
     }
+    if (text_buf != temp) free(text_buf);
 
     return w;
 }
@@ -58,19 +98,53 @@ int getTextWidthUTF8WithFont(const char* text, TTF_Font* font) {
 }
 
 size_t getTextClampedLength(const char* text, int maxWidth) {
+    return getTextClampedLengthWithFont(text, maxWidth, getActiveFont());
+}
+
+size_t getTextClampedLengthWithFont(const char* text, int maxWidth, TTF_Font* font) {
     if (!text) return 0;
     if (maxWidth <= 0) return strlen(text);
+    if (!font) return strlen(text);
 
     size_t len = strlen(text);
     if (len == 0) return 0;
-
-    size_t cutoff = len;
-    for (size_t i = 1; i <= len; ++i) {
-        int width = getTextWidthN(text, (int)i);
-        if (width > maxWidth) {
-            cutoff = (i > 0) ? i - 1 : 0;
-            break;
-        }
+    unsigned int fp = clamp_cache_fingerprint(text, len);
+    unsigned int slot = clamp_cache_slot(font, text, maxWidth);
+    ClampCacheEntry* entry = &s_clamp_cache[slot];
+    if (entry->valid &&
+        entry->font == font &&
+        entry->text_ptr == text &&
+        entry->max_width == maxWidth &&
+        entry->text_len == len &&
+        entry->text_fingerprint == fp) {
+        return entry->cutoff;
     }
+
+    size_t cutoff = 0;
+
+    if (getTextWidthNWithFont(text, (int)len, font) <= maxWidth) {
+        cutoff = len;
+    } else {
+        size_t low = 0;
+        size_t high = len;
+        while (low < high) {
+            size_t mid = low + ((high - low + 1) / 2);
+            int width = getTextWidthNWithFont(text, (int)mid, font);
+            if (width <= maxWidth) {
+                low = mid;
+            } else {
+                high = mid - 1;
+            }
+        }
+        cutoff = low;
+    }
+
+    entry->font = font;
+    entry->text_ptr = text;
+    entry->max_width = maxWidth;
+    entry->text_len = len;
+    entry->text_fingerprint = fp;
+    entry->cutoff = cutoff;
+    entry->valid = 1;
     return cutoff;
 }

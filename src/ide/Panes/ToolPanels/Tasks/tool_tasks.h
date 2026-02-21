@@ -15,6 +15,7 @@
 #define TASK_PANEL_TOP_PADDING 32
 #define TASK_BUTTON_HEIGHT 24
 #define TASK_BUTTON_SPACING 8
+#define TASK_TREE_TOP_GAP 4
 #define TASK_LINE_HEIGHT 22
 #define TASK_INDENT_WIDTH 20
 #define TASK_BUTTON_REMOVE_OFFSET 10
@@ -78,4 +79,3 @@ void addTaskChild(TaskNode* parent, TaskNode* child);
 void freeTaskTree(TaskNode* node);
 
 #endif
-

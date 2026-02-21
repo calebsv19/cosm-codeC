@@ -31,7 +31,7 @@ void renderToolPanelContents(UIPane* pane,bool hovered, struct IDECoreState* cor
     IconTool currentIcon = getActiveIcon();
     const char* label = getToolPanelLabel();
     if (currentIcon != ICON_PROJECT_FILES && label) {
-        drawText(pane->x + 8, pane->y + 6, label);
+        drawTextWithTier(pane->x + 8, pane->y + 6, label, CORE_FONT_TEXT_SIZE_TITLE);
     }
 
     // Optional clipping here for future

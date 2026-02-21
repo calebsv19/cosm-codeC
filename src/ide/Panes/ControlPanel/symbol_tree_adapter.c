@@ -1,5 +1,6 @@
 #include "ide/Panes/ControlPanel/symbol_tree_adapter.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +28,27 @@ static const char* kind_label(FisicsSymbolKind kind) {
         case FISICS_SYMBOL_MACRO: return "macro";
         default: return "symbol";
     }
+}
+
+static bool text_contains_ci(const char* haystack, const char* needle) {
+    if (!needle || !needle[0]) return true;
+    if (!haystack || !haystack[0]) return false;
+
+    size_t nlen = strlen(needle);
+    size_t hlen = strlen(haystack);
+    if (nlen > hlen) return false;
+
+    for (size_t i = 0; i + nlen <= hlen; ++i) {
+        size_t j = 0;
+        while (j < nlen) {
+            unsigned char hc = (unsigned char)haystack[i + j];
+            unsigned char nc = (unsigned char)needle[j];
+            if (tolower(hc) != tolower(nc)) break;
+            ++j;
+        }
+        if (j == nlen) return true;
+    }
+    return false;
 }
 
 static bool is_auto_param_name(const char* name) {
@@ -110,6 +132,147 @@ void symbol_tree_cache_note_node(const UITreeNode* node) {
     }
     if (!key) return;
     expansion_cache_set(key, node->isExpanded);
+}
+
+static bool symbol_kind_matches_mode(FisicsSymbolKind kind, SymbolFilterMode mode) {
+    switch (mode) {
+        case SYMBOL_FILTER_MODE_METHODS:
+            return kind == FISICS_SYMBOL_FUNCTION;
+        case SYMBOL_FILTER_MODE_TYPES:
+            return kind == FISICS_SYMBOL_STRUCT ||
+                   kind == FISICS_SYMBOL_UNION ||
+                   kind == FISICS_SYMBOL_ENUM ||
+                   kind == FISICS_SYMBOL_TYPEDEF;
+        case SYMBOL_FILTER_MODE_TAGS:
+            // Tag metadata is not wired yet; keep visibility broad for now.
+            return true;
+        case SYMBOL_FILTER_MODE_SYMBOLS:
+        default:
+            return true;
+    }
+}
+
+static bool is_scope_excluded_bucket(const UITreeNode* node, SymbolFilterScope scope) {
+    if (!node || node->depth != 1 || !node->label) return false;
+    if (strcmp(node->label, "Active File") == 0) {
+        return scope == SYMBOL_FILTER_SCOPE_PROJECT;
+    }
+    if (strcmp(node->label, "Project Files") == 0) {
+        return scope == SYMBOL_FILTER_SCOPE_ACTIVE;
+    }
+    return false;
+}
+
+bool symbol_tree_query_matches_node(const UITreeNode* node,
+                                    const char* query,
+                                    const SymbolFilterOptions* options) {
+    if (!node) return false;
+    if (!query || !query[0]) return true;
+
+    SymbolFilterMode mode = options ? options->mode : SYMBOL_FILTER_MODE_SYMBOLS;
+    bool matchName = options ? options->field_name : true;
+    bool matchType = options ? options->field_type : true;
+    bool matchParams = options ? options->field_params : true;
+    bool matchKind = options ? options->field_kind : true;
+    if (!matchName && !matchType && !matchParams && !matchKind) {
+        matchName = true;
+    }
+
+    const FisicsSymbol* sym = (const FisicsSymbol*)node->userData;
+    if (!sym) {
+        return text_contains_ci(node->label, query);
+    }
+
+    if (!symbol_kind_matches_mode(sym->kind, mode)) {
+        return false;
+    }
+
+    if (matchName) {
+        if (text_contains_ci(sym->name, query) || text_contains_ci(node->label, query)) return true;
+    }
+    if (matchKind && text_contains_ci(kind_label(sym->kind), query)) return true;
+    if (matchType) {
+        if (text_contains_ci(sym->return_type, query) || text_contains_ci(sym->parent_name, query)) return true;
+    }
+    if (matchParams) {
+        for (size_t i = 0; i < sym->param_count; ++i) {
+            const char* pType = (sym->param_types && sym->param_types[i]) ? sym->param_types[i] : NULL;
+            const char* pName = (sym->param_names && sym->param_names[i]) ? sym->param_names[i] : NULL;
+            if (text_contains_ci(pType, query) || text_contains_ci(pName, query)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static bool is_collapsed_active_file_bucket(const UITreeNode* node, const char* query) {
+    if (!node || !query || !query[0]) return false;
+    if (node->depth != 1) return false;
+    if (!node->label || strcmp(node->label, "Active File") != 0) return false;
+    return !node->isExpanded;
+}
+
+static UITreeNode* clone_filtered_node(const UITreeNode* node,
+                                       const char* query,
+                                       const SymbolFilterOptions* options,
+                                       bool* outDescendantMatch) {
+    if (!node) return NULL;
+    if (is_collapsed_active_file_bucket(node, query)) {
+        if (outDescendantMatch) *outDescendantMatch = false;
+        return NULL;
+    }
+    if (options && is_scope_excluded_bucket(node, options->scope)) {
+        if (outDescendantMatch) *outDescendantMatch = false;
+        return NULL;
+    }
+
+    bool selfMatches = symbol_tree_query_matches_node(node, query, options);
+    UITreeNode* clone = createTreeNode(node->label,
+                                       node->type,
+                                       node->color,
+                                       node->fullPath,
+                                       node->userData);
+    if (!clone) return NULL;
+
+    bool kept = selfMatches;
+    bool descendantMatch = false;
+    for (int i = 0; i < node->childCount; ++i) {
+        UITreeNode* childClone = clone_filtered_node(node->children[i], query, options, NULL);
+        if (childClone) {
+            addChildNode(clone, childClone);
+            kept = true;
+            descendantMatch = true;
+        }
+    }
+
+    if (!kept) {
+        freeTreeNodeRecursive(clone);
+        if (outDescendantMatch) *outDescendantMatch = false;
+        return NULL;
+    }
+
+    clone->isExpanded = node->isExpanded;
+    if (query && query[0] &&
+        (clone->type == TREE_NODE_FOLDER || clone->type == TREE_NODE_SECTION) &&
+        descendantMatch) {
+        clone->isExpanded = true;
+    }
+
+    if (outDescendantMatch) *outDescendantMatch = selfMatches || descendantMatch;
+    return clone;
+}
+
+struct UITreeNode* symbol_tree_clone_filtered(const struct UITreeNode* root,
+                                              const char* query,
+                                              const SymbolFilterOptions* options) {
+    if (!root) return NULL;
+    bool matched = false;
+    if (!query || !query[0]) {
+        return clone_filtered_node(root, "", options, &matched);
+    }
+    return clone_filtered_node(root, query, options, &matched);
 }
 
 static const AnalysisFileSymbols* find_symbols_for_path(const char* filePath) {

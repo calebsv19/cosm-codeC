@@ -21,6 +21,7 @@ void analysis_store_clear(void);
 void analysis_store_upsert(const char* filePath,
                            const FisicsDiagnostic* fisicsDiags,
                            size_t diagCount);
+void analysis_store_remove(const char* filePath);
 
 // Synchronization helpers (lock around multi-step reads in UI).
 void analysis_store_lock(void);

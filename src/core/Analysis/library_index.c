@@ -186,6 +186,45 @@ void library_index_add_include(const char* source_path,
     library_index_unlock();
 }
 
+void library_index_remove_source(const char* source_path) {
+    if (!source_path || !*source_path) return;
+    library_index_lock();
+    const char* rel = skip_root_prefix(source_path);
+    if (!rel || !*rel) rel = source_path;
+
+    for (size_t b = 0; b < LIB_BUCKET_COUNT; ++b) {
+        LibraryBucket* bucket = &g_buckets[b];
+        size_t h = 0;
+        while (h < bucket->header_count) {
+            LibraryHeader* header = &bucket->headers[h];
+            size_t u = 0;
+            while (u < header->usage_count) {
+                const char* src = header->usages[u].source_path ? header->usages[u].source_path : "";
+                if (strcmp(src, rel) == 0) {
+                    free_usage(&header->usages[u]);
+                    for (size_t k = u + 1; k < header->usage_count; ++k) {
+                        header->usages[k - 1] = header->usages[k];
+                    }
+                    header->usage_count--;
+                    continue;
+                }
+                u++;
+            }
+
+            if (header->usage_count == 0) {
+                free_header(header);
+                for (size_t k = h + 1; k < bucket->header_count; ++k) {
+                    bucket->headers[k - 1] = bucket->headers[k];
+                }
+                bucket->header_count--;
+                continue;
+            }
+            h++;
+        }
+    }
+    library_index_unlock();
+}
+
 static int cmp_headers(const void* a, const void* b) {
     const LibraryHeader* ha = (const LibraryHeader*)a;
     const LibraryHeader* hb = (const LibraryHeader*)b;

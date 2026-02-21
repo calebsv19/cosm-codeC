@@ -1,6 +1,8 @@
 #ifndef RENDER_FONT_H
 #define RENDER_FONT_H
 
+#include "core_font.h"
+
 #include <stdbool.h>
 #include <SDL2/SDL_ttf.h>
 
@@ -25,5 +27,7 @@ bool loadFontByID(FontID id);
 // Font accessor
 TTF_Font* getActiveFont();
 TTF_Font* getTerminalFont();
+TTF_Font* getUIFontByTier(CoreFontTextSizeTier tier);
+int getUIFontPointSizeByTier(CoreFontTextSizeTier tier);
 
 #endif

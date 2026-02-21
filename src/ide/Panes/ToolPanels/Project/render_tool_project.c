@@ -3,6 +3,7 @@
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
 
@@ -32,6 +33,25 @@ static const PaneScrollConfig s_projectScrollConfig = {
 };
 static SDL_Rect s_projectScrollTrack = {0};
 static SDL_Rect s_projectScrollThumb = {0};
+
+static Uint8 clamp_u8(int v) {
+    if (v < 0) return 0;
+    if (v > 255) return 255;
+    return (Uint8)v;
+}
+
+static SDL_Color darken_color(SDL_Color c, int amount) {
+    return (SDL_Color){
+        clamp_u8((int)c.r - amount),
+        clamp_u8((int)c.g - amount),
+        clamp_u8((int)c.b - amount),
+        c.a
+    };
+}
+
+static bool same_rgb(SDL_Color a, SDL_Color b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b;
+}
 
 static const char* project_entry_display_name(const DirEntry* entry) {
     if (!entry || !entry->path) return "";
@@ -234,7 +254,26 @@ void renderProjectFilesPanel(UIPane* pane) {
     drawText(x + iconBtnSize + 6, y + 4, "Delete Folder");
     y += iconBtnSize + spacing;
 
+    const int treeTopGap = 8;
     int contentTop = y;
+    int treeStartY = contentTop + treeTopGap;
+    int listHeight = (pane->y + pane->h) - contentTop;
+    if (listHeight < 0) listHeight = 0;
+
+    SDL_Color editorBg = ide_shared_theme_background_color();
+    SDL_Color listBg = editorBg;
+    if (same_rgb(listBg, pane->bgColor)) {
+        listBg = darken_color(pane->bgColor, 14);
+    }
+    SDL_Rect treeBg = {
+        pane->x + 1,
+        contentTop,
+        pane->w - 2,
+        listHeight
+    };
+    SDL_SetRenderDrawColor(renderer, listBg.r, listBg.g, listBg.b, 255);
+    SDL_RenderFillRect(renderer, &treeBg);
+
     const int trackWidth = 6;
     const int trackPadding = 4;
 
@@ -251,7 +290,8 @@ void renderProjectFilesPanel(UIPane* pane) {
     scroll_state_set_viewport(scroll, (float)viewport.h);
 
     int visibleLines = project_count_visible_entries(projectRoot);
-    float contentHeight = (float)visibleLines * s_projectScrollConfig.line_height_px;
+    float contentHeight = (float)treeTopGap +
+                          (float)visibleLines * s_projectScrollConfig.line_height_px;
     float effectiveHeight = contentHeight;
     if (scroll->line_height_px > 0.0f && scroll->viewport_height_px > scroll->line_height_px) {
         float slack = scroll->viewport_height_px - scroll->line_height_px;
@@ -274,7 +314,7 @@ void renderProjectFilesPanel(UIPane* pane) {
             .pane = pane,
             .renderer = renderer,
             .offset = scroll_state_get_offset(scroll),
-            .currentY = (float)contentTop,
+            .currentY = (float)treeStartY,
             .viewportTop = (float)viewport.y,
             .viewportBottom = (float)(viewport.y + viewport.h),
             .baseX = x,
@@ -283,7 +323,7 @@ void renderProjectFilesPanel(UIPane* pane) {
         };
         project_render_entry(&renderCtx, projectRoot, 0);
     } else if (viewport.h > 0) {
-        drawText(x, contentTop, "(No project loaded)");
+        drawText(x, treeStartY, "(No project loaded)");
     }
 
     popClipRect();

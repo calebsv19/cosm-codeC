@@ -3,6 +3,7 @@
 #include "engine/Render/render_pipeline.h"
 #include "ide/Panes/ToolPanels/Assets/tool_assets.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 
 #include <SDL2/SDL.h>
 #include <stdio.h>
@@ -12,6 +13,25 @@ static bool gScrollInit = false;
 static SDL_Rect gScrollTrack = {0};
 static SDL_Rect gScrollThumb = {0};
 static const PaneScrollConfig gScrollCfg = { .line_height_px = 18.0f, .deceleration_px = 0.0f, .allow_negative = false };
+
+static Uint8 clamp_u8(int v) {
+    if (v < 0) return 0;
+    if (v > 255) return 255;
+    return (Uint8)v;
+}
+
+static SDL_Color darken_color(SDL_Color c, int amount) {
+    return (SDL_Color){
+        clamp_u8((int)c.r - amount),
+        clamp_u8((int)c.g - amount),
+        clamp_u8((int)c.b - amount),
+        c.a
+    };
+}
+
+static bool same_rgb(SDL_Color a, SDL_Color b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b;
+}
 
 void renderAssetManagerPanel(UIPane* pane) {
     if (!gScrollInit) {
@@ -30,6 +50,20 @@ void renderAssetManagerPanel(UIPane* pane) {
     int viewportH = pane->h - (contentTop - pane->y);
     if (viewportH < 0) viewportH = 0;
     scroll_state_set_viewport(&gScrollState, (float)viewportH);
+
+    SDL_Color editorBg = ide_shared_theme_background_color();
+    SDL_Color listBg = editorBg;
+    if (same_rgb(listBg, pane->bgColor)) {
+        listBg = darken_color(pane->bgColor, 14);
+    }
+    SDL_Rect bodyBg = {
+        pane->x + 1,
+        contentTop,
+        pane->w - 2,
+        viewportH
+    };
+    SDL_SetRenderDrawColor(getRenderContext()->renderer, listBg.r, listBg.g, listBg.b, 255);
+    SDL_RenderFillRect(getRenderContext()->renderer, &bodyBg);
 
     AssetFlatRef refs[1024];
     int count = assets_flatten(refs, 1024);

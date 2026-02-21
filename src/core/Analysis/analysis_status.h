@@ -10,10 +10,21 @@ typedef enum {
     ANALYSIS_STATUS_FRESH
 } AnalysisStatus;
 
+typedef enum {
+    ANALYSIS_REFRESH_MODE_NONE = 0,
+    ANALYSIS_REFRESH_MODE_INCREMENTAL,
+    ANALYSIS_REFRESH_MODE_FULL
+} AnalysisRefreshMode;
+
 typedef struct {
     AnalysisStatus status;
     bool updating;
     bool has_cache;
+    AnalysisRefreshMode refresh_mode;
+    int dirty_files;
+    int removed_files;
+    int dependent_files;
+    int target_files;
     char last_error[256];
 } AnalysisStatusSnapshot;
 
@@ -30,6 +41,11 @@ void analysis_refresh_set_running(bool running);
 // Cache + error tracking
 void analysis_status_set_has_cache(bool has);
 void analysis_status_set_last_error(const char* msg);
+void analysis_status_note_refresh(AnalysisRefreshMode mode,
+                                  int dirty_files,
+                                  int removed_files,
+                                  int dependent_files,
+                                  int target_files);
 void analysis_status_snapshot(AnalysisStatusSnapshot* out);
 
 #endif // ANALYSIS_STATUS_H

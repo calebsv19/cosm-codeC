@@ -63,6 +63,7 @@ void library_index_add_include(const char* source_path,
                                LibraryBucketKind origin,
                                int line,
                                int column);
+void library_index_remove_source(const char* source_path);
 
 typedef struct {
     size_t files_seen;

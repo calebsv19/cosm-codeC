@@ -17,6 +17,32 @@ bool caretVisible = true;
 bool renameErrorVisible = false;
 Uint32 renameErrorStart = 0;
 
+bool tickRenameAnimation(Uint32 nowTicks) {
+    bool changed = false;
+
+    if (!RENAME->active) {
+        return false;
+    }
+
+    Uint32 elapsed = nowTicks - lastCaretBlink;
+    if (caretVisible && elapsed > 550) {
+        caretVisible = false;
+        lastCaretBlink = nowTicks;
+        changed = true;
+    } else if (!caretVisible && elapsed > 250) {
+        caretVisible = true;
+        lastCaretBlink = nowTicks;
+        changed = true;
+    }
+
+    if (renameErrorVisible && (nowTicks - renameErrorStart > 2000)) {
+        renameErrorVisible = false;
+        changed = true;
+    }
+
+    return changed;
+}
+
 void beginRenameWithPrompt(const char* promptLabel,
                            const char* defaultErrorMessage,
                            const char* oldName,
@@ -54,6 +80,7 @@ void beginRenameWithPrompt(const char* promptLabel,
     renameErrorStart = 0;
 
     getCoreState()->popupPaneActive = true;
+    requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
 }
 
 void beginRename(const char* oldName, RenameCallback callback, RenameValidateFn validate, void* context) {
@@ -66,6 +93,7 @@ void cancelRename(void) {
     RENAME->lastError[0] = '\0';
     renameErrorVisible = false;
     RENAME->acceptUnchanged = false;
+    requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
 }
 
 void submitRename(void) {
@@ -78,6 +106,7 @@ void submitRename(void) {
         RENAME->active = false;
         getCoreState()->popupPaneActive = false;
         renameErrorVisible = false;
+        requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
         return;
     }
 
@@ -90,6 +119,7 @@ void submitRename(void) {
         if (RENAME->lastError[0] != '\0') {
             renameErrorVisible = true;
             renameErrorStart = SDL_GetTicks();
+            requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
         } else {
             renameErrorVisible = false;
         }
@@ -105,6 +135,7 @@ void submitRename(void) {
     renameErrorVisible = false;
     RENAME->lastError[0] = '\0';
     RENAME->acceptUnchanged = false;
+    requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
 }
 
 
@@ -135,6 +166,10 @@ void handleRenameTextInput(char ch) {
         renameErrorVisible = false;
         RENAME->lastError[0] = '\0';
     }
+
+    lastCaretBlink = SDL_GetTicks();
+    caretVisible = true;
+    requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
 }
 
 bool isRenaming(void) {

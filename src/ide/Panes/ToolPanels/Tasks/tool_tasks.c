@@ -426,7 +426,9 @@ static bool tryClickRemoveTaskButton(int x, int y, int mx, int my) {
 
 
 static int getTaskTreeStartY(UIPane* pane) {
-    return pane->y + TASK_PANEL_TOP_PADDING + 2 * (TASK_BUTTON_HEIGHT + TASK_BUTTON_SPACING);
+    return pane->y + TASK_PANEL_TOP_PADDING +
+           2 * (TASK_BUTTON_HEIGHT + TASK_BUTTON_SPACING) +
+           TASK_TREE_TOP_GAP;
 }
 
 
@@ -502,6 +504,7 @@ void handleTaskLeftClick(UIPane* pane, SDL_Event* event) {
 
     if (tryClickRemoveTaskButton(x, y, mx, my)) return;
     y += TASK_BUTTON_HEIGHT + TASK_BUTTON_SPACING;
+    y += TASK_TREE_TOP_GAP;
 
     currentY = y;
     bool clickedNode = false;

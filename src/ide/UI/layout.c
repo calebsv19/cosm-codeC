@@ -7,6 +7,7 @@
 #include "ide/Panes/Popup/popup_pane.h"
 
 #include "layout_config.h"
+#include "shared_theme_font_adapter.h"
 #include "ui_state.h"
 #include <SDL2/SDL.h>
 
@@ -24,6 +25,51 @@ UITheme theme = {
 	.border = {255, 255, 255, 255},
 	.text = {255, 255, 255, 255}
 };
+
+static void apply_theme_to_pane(UIPane *pane, UIPaneRole role) {
+    if (!pane) {
+        return;
+    }
+    pane->borderColor = theme.border;
+    switch (role) {
+        case PANE_ROLE_MENUBAR:
+            pane->bgColor = theme.bgMenuBar;
+            break;
+        case PANE_ROLE_EDITOR:
+            pane->bgColor = theme.bgEditor;
+            break;
+        case PANE_ROLE_ICONBAR:
+            pane->bgColor = theme.bgIconBar;
+            break;
+        case PANE_ROLE_TOOLPANEL:
+            pane->bgColor = theme.bgToolBar;
+            break;
+        case PANE_ROLE_CONTROLPANEL:
+            pane->bgColor = theme.bgControlPanel;
+            break;
+        case PANE_ROLE_TERMINAL:
+            pane->bgColor = theme.bgTerminal;
+            break;
+        case PANE_ROLE_POPUP:
+            pane->bgColor = theme.bgPopup;
+            break;
+        default:
+            break;
+    }
+}
+
+static void apply_theme_to_live_panes(UIState *ui) {
+    if (!ui) {
+        return;
+    }
+    apply_theme_to_pane(ui->menuBar, PANE_ROLE_MENUBAR);
+    apply_theme_to_pane(ui->iconBar, PANE_ROLE_ICONBAR);
+    apply_theme_to_pane(ui->toolPanel, PANE_ROLE_TOOLPANEL);
+    apply_theme_to_pane(ui->editorPanel, PANE_ROLE_EDITOR);
+    apply_theme_to_pane(ui->controlPanel, PANE_ROLE_CONTROLPANEL);
+    apply_theme_to_pane(ui->terminalPanel, PANE_ROLE_TERMINAL);
+    apply_theme_to_pane(ui->popup, PANE_ROLE_POPUP);
+}
 
 
 
@@ -124,6 +170,9 @@ void layout_static_panes(UIPane* panes[], int* paneCount) {
 
     LayoutDimensions* layout = getLayoutDimensions();
     UIState* ui = getUIState();
+
+    ide_shared_theme_apply(&theme);
+    apply_theme_to_live_panes(ui);
     *paneCount = 0;
 
     syncPopupPane(panes, paneCount);

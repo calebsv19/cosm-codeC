@@ -2,6 +2,7 @@
 #define CORE_STATE_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <SDL2/SDL.h>
 
 #include "ide/UI/ui_state.h"
@@ -14,6 +15,19 @@ struct EditorView;
 struct EditorViewState;
 struct UIPane;
 struct DirEntry;
+
+typedef enum RenderInvalidationReason {
+    RENDER_INVALIDATION_NONE       = 0u,
+    RENDER_INVALIDATION_INPUT      = 1u << 0,
+    RENDER_INVALIDATION_LAYOUT     = 1u << 1,
+    RENDER_INVALIDATION_THEME      = 1u << 2,
+    RENDER_INVALIDATION_CONTENT    = 1u << 3,
+    RENDER_INVALIDATION_OVERLAY    = 1u << 4,
+    RENDER_INVALIDATION_RESIZE     = 1u << 5,
+    RENDER_INVALIDATION_BACKGROUND = 1u << 6
+} RenderInvalidationReason;
+
+enum { RENDER_INVALIDATION_REASON_BUCKETS = 7 };
 
 typedef struct ProjectDragState {
     struct DirEntry* entry;
@@ -69,6 +83,13 @@ typedef struct IDECoreState {
 
     char workspacePath[1024];
     char runTargetPath[1024];
+
+    // Phase 6.1 invalidation state
+    bool frameInvalidated;
+    bool fullRedrawRequired;
+    uint32_t invalidationReasons;
+    uint64_t frameCounter;
+    uint64_t invalidationReasonCounts[RENDER_INVALIDATION_REASON_BUCKETS];
 } IDECoreState;
 
 // Accessor to global state
@@ -88,5 +109,11 @@ void setWorkspacePath(const char* path);
 const char* getWorkspacePath(void);
 void setRunTargetPath(const char* path);
 const char* getRunTargetPath(void);
+
+void invalidatePane(struct UIPane* pane, uint32_t reasonBits);
+void invalidateAll(struct UIPane** panes, int paneCount, uint32_t reasonBits);
+void requestFullRedraw(uint32_t reasonBits);
+bool consumeFrameInvalidation(uint32_t* outReasonBits, bool* outFullRedraw, uint64_t* outFrameId);
+bool hasFrameInvalidation(void);
 
 #endif // CORE_STATE_H

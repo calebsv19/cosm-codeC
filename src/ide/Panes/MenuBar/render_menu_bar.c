@@ -7,6 +7,7 @@
 
 #include "engine/Render/render_text_helpers.h"
 #include "engine/Render/render_helpers.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/Panes/MenuBar/render_menu_bar.h"
 
 
@@ -185,8 +186,18 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
     };
 
     // Draw box & filename (optional highlight box here if desired)
-    SDL_SetRenderDrawColor(renderer, 80, 80, 80, 100);
-    SDL_RenderFillRect(renderer, &nameBox);
+    {
+        SDL_Color fill = {80, 80, 80, 100};
+        SDL_Color fill_active = {100, 100, 100, 120};
+        SDL_Color border = {255, 255, 255, 255};
+        SDL_Color text = {255, 255, 255, 255};
+        (void)text;
+        ide_shared_theme_button_colors(&fill, &fill_active, &border, &text);
+        SDL_SetRenderDrawColor(renderer, fill_active.r, fill_active.g, fill_active.b, 120);
+        SDL_RenderFillRect(renderer, &nameBox);
+        SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, 140);
+        SDL_RenderDrawRect(renderer, &nameBox);
+    }
     SelectableTextOptions centeredNameOpts = {
         .pane = pane,
         .owner = pane,

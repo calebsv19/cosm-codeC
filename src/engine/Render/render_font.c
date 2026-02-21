@@ -1,4 +1,5 @@
 #include "engine/Render/render_font.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 #include <SDL2/SDL_ttf.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -6,6 +7,50 @@
 
 static TTF_Font* globalFont = NULL;
 static TTF_Font* terminalFont = NULL;
+static TTF_Font* uiTierFonts[CORE_FONT_TEXT_SIZE_COUNT] = {0};
+static int uiTierPoints[CORE_FONT_TEXT_SIZE_COUNT] = {0};
+
+static void closeUiTierFonts(void) {
+    for (int i = 0; i < CORE_FONT_TEXT_SIZE_COUNT; ++i) {
+        if (uiTierFonts[i]) {
+            if (uiTierFonts[i] == globalFont) {
+                globalFont = NULL;
+            }
+            TTF_CloseFont(uiTierFonts[i]);
+            uiTierFonts[i] = NULL;
+        }
+        uiTierPoints[i] = 0;
+    }
+}
+
+static bool loadSharedUiTierFonts(void) {
+    for (int i = 0; i < CORE_FONT_TEXT_SIZE_COUNT; ++i) {
+        char path[256];
+        int point = 0;
+        TTF_Font* f;
+        if (!ide_shared_font_resolve_role(CORE_FONT_ROLE_UI_REGULAR,
+                                          (CoreFontTextSizeTier)i,
+                                          path,
+                                          sizeof(path),
+                                          &point)) {
+            closeUiTierFonts();
+            return false;
+        }
+
+        f = TTF_OpenFont(path, point);
+        if (!f) {
+            fprintf(stderr, "Failed to load shared UI font %s @ %d: %s\n", path, point, TTF_GetError());
+            closeUiTierFonts();
+            return false;
+        }
+
+        uiTierFonts[i] = f;
+        uiTierPoints[i] = point;
+    }
+
+    globalFont = uiTierFonts[CORE_FONT_TEXT_SIZE_BASIC];
+    return globalFont != NULL;
+}
 
 static void loadTerminalMonospaceFont(void) {
     if (terminalFont) {
@@ -38,15 +83,50 @@ static void loadTerminalMonospaceFont(void) {
     fprintf(stderr, "Warning: no monospace terminal font found; falling back to active UI font.\n");
 }
 
+static bool loadSharedTerminalFont(void) {
+    char path[256];
+    int point = 0;
+    TTF_Font* f;
+    if (!ide_shared_font_resolve_role(CORE_FONT_ROLE_UI_MONO,
+                                      CORE_FONT_TEXT_SIZE_BASIC,
+                                      path,
+                                      sizeof(path),
+                                      &point)) {
+        return false;
+    }
+
+    f = TTF_OpenFont(path, point);
+    if (!f) {
+        fprintf(stderr, "Failed to load shared terminal font %s @ %d: %s\n", path, point, TTF_GetError());
+        return false;
+    }
+    TTF_SetFontStyle(f, TTF_STYLE_NORMAL);
+    TTF_SetFontHinting(f, TTF_HINTING_LIGHT);
+    TTF_SetFontKerning(f, 0);
+    terminalFont = f;
+    return true;
+}
+
 bool initFontSystem() {
-    if (TTF_Init() == -1) {
+    if (!TTF_WasInit() && TTF_Init() == -1) {
         fprintf(stderr, "Failed to initialize SDL_ttf: %s\n", TTF_GetError());
         return false;
     }
-    if (!loadFontByID(FONT_MONTSERRAT_MEDIUM)) {
-        return false;
+
+    closeUiTierFonts();
+    if (!loadSharedUiTierFonts()) {
+        if (!loadFontByID(FONT_MONTSERRAT_MEDIUM)) {
+            return false;
+        }
     }
-    loadTerminalMonospaceFont();
+
+    if (terminalFont) {
+        TTF_CloseFont(terminalFont);
+        terminalFont = NULL;
+    }
+    if (!loadSharedTerminalFont()) {
+        loadTerminalMonospaceFont();
+    }
     return true;
 }
 
@@ -55,11 +135,14 @@ void shutdownFontSystem() {
         TTF_CloseFont(terminalFont);
         terminalFont = NULL;
     }
+    closeUiTierFonts();
     if (globalFont) {
         TTF_CloseFont(globalFont);
         globalFont = NULL;
     }
-    TTF_Quit();
+    if (TTF_WasInit()) {
+        TTF_Quit();
+    }
 }
 
 TTF_Font* getActiveFont() {
@@ -68,6 +151,20 @@ TTF_Font* getActiveFont() {
 
 TTF_Font* getTerminalFont() {
     return terminalFont ? terminalFont : globalFont;
+}
+
+TTF_Font* getUIFontByTier(CoreFontTextSizeTier tier) {
+    if ((int)tier < 0 || tier >= CORE_FONT_TEXT_SIZE_COUNT) {
+        return globalFont;
+    }
+    return uiTierFonts[tier] ? uiTierFonts[tier] : globalFont;
+}
+
+int getUIFontPointSizeByTier(CoreFontTextSizeTier tier) {
+    if ((int)tier < 0 || tier >= CORE_FONT_TEXT_SIZE_COUNT) {
+        return 0;
+    }
+    return uiTierPoints[tier];
 }
 
 bool loadFontByID(FontID id) {

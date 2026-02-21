@@ -18,6 +18,7 @@ void analysis_token_store_clear(void);
 void analysis_token_store_upsert(const char* filePath,
                                  const FisicsTokenSpan* spans,
                                  size_t spanCount);
+void analysis_token_store_remove(const char* filePath);
 
 size_t analysis_token_store_file_count(void);
 const AnalysisFileTokens* analysis_token_store_file_at(size_t idx);

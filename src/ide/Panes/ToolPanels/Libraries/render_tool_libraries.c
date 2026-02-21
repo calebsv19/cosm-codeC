@@ -7,8 +7,28 @@
 #include "core/Analysis/analysis_status.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 #include <SDL2/SDL.h>
 #include <string.h>
+
+static Uint8 clamp_u8(int v) {
+    if (v < 0) return 0;
+    if (v > 255) return 255;
+    return (Uint8)v;
+}
+
+static SDL_Color darken_color(SDL_Color c, int amount) {
+    return (SDL_Color){
+        clamp_u8((int)c.r - amount),
+        clamp_u8((int)c.g - amount),
+        clamp_u8((int)c.b - amount),
+        c.a
+    };
+}
+
+static bool same_rgb(SDL_Color a, SDL_Color b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b;
+}
 
 static const char* bucket_label(LibraryBucketKind kind) {
     switch (kind) {
@@ -33,12 +53,18 @@ void renderLibrariesPanel(UIPane* pane) {
 
     // Title space is already drawn by the pane; reserve vertical space for it.
     // Respect pane chrome: title bar already rendered; clip starts just below it.
-    const int headerHeight = 32;
+    const int headerHeight = LIBRARIES_HEADER_HEIGHT;
     int contentX = pane->x + 12;
     int contentY = pane->y + headerHeight;
     int contentH = pane->h - headerHeight;
     if (contentH < 0) contentH = 0;
     int viewBottom = contentY + contentH;
+
+    SDL_Rect toggleRect = { pane->x + 12, pane->y + 24, 112, 20 };
+    st->systemToggleRect = toggleRect;
+    renderButton(pane,
+                 toggleRect,
+                 st->includeSystemHeaders ? "System: On" : "System: Off");
 
     // Status indicator in header area (not clipped)
     AnalysisStatusSnapshot snap = {0};
@@ -58,6 +84,20 @@ void renderLibrariesPanel(UIPane* pane) {
         drawText(tx, ty, statusBuf);
     }
 
+    SDL_Color editorBg = ide_shared_theme_background_color();
+    SDL_Color listBg = editorBg;
+    if (same_rgb(listBg, pane->bgColor)) {
+        listBg = darken_color(pane->bgColor, 14);
+    }
+    SDL_Rect bodyBg = {
+        pane->x + 1,
+        contentY,
+        pane->w - 2,
+        contentH
+    };
+    SDL_SetRenderDrawColor(renderer, listBg.r, listBg.g, listBg.b, 255);
+    SDL_RenderFillRect(renderer, &bodyBg);
+
     SDL_Rect clip = { pane->x, contentY, pane->w, contentH };
     pushClipRect(&clip);
 
@@ -65,7 +105,9 @@ void renderLibrariesPanel(UIPane* pane) {
     st->scrollThumb = st->scrollTrack;
 
     // Allow full scroll so the last line can sit at the top (add viewport height).
-    float totalHeight = (float)(st->flatCount * LIBRARY_ROW_HEIGHT) + (float)contentH;
+    float totalHeight = (float)LIBRARIES_LIST_TOP_GAP +
+                        (float)(st->flatCount * LIBRARY_ROW_HEIGHT) +
+                        (float)contentH;
     scroll_state_set_viewport(&st->scroll, (float)contentH);
     scroll_state_set_content_height(&st->scroll, totalHeight);
     st->scrollThumb = scroll_state_thumb_rect(&st->scroll,
@@ -77,7 +119,7 @@ void renderLibrariesPanel(UIPane* pane) {
     st->hoveredRow = -1;
     float offset = scroll_state_get_offset(&st->scroll);
     // Offset rows by scroll, then subtract header so row 0 starts just inside clip.
-    int yStart = contentY - (int)offset;
+    int yStart = contentY + LIBRARIES_LIST_TOP_GAP - (int)offset;
 
     int mouseX = 0, mouseY = 0;
     SDL_GetMouseState(&mouseX, &mouseY);

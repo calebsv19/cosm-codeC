@@ -123,6 +123,16 @@ UIPane* createEmptyPane(UIPaneRole role) {
     pane->handleCommand = NULL;
     pane->inputHandler = NULL;
     pane->scrollState = NULL;
+    pane->dirty = true;
+    pane->dirtyReasons = PANE_INVALIDATION_LAYOUT;
+    pane->hasDirtyRegion = false;
+    pane->dirtyRegion = (SDL_Rect){0, 0, 0, 0};
+    pane->lastRenderFrameId = 0;
+    pane->cacheEnabled = true;
+    pane->cacheValid = false;
+    pane->cacheWidth = 0;
+    pane->cacheHeight = 0;
+    pane->cacheVersion = 0;
 
     return pane;
 }
@@ -263,6 +273,56 @@ void printEditorTree(struct EditorView* view, int depth) {
     }
 }
 
+void paneMarkDirty(UIPane* pane, uint32_t reasonBits) {
+    if (!pane) return;
+    pane->dirty = true;
+    pane->dirtyReasons |= reasonBits;
+    pane->cacheValid = false;
+    pane->cacheVersion++;
+}
+
+void paneMarkDirtyRect(UIPane* pane, SDL_Rect rect, uint32_t reasonBits) {
+    if (!pane) return;
+    paneMarkDirty(pane, reasonBits);
+
+    if (!pane->hasDirtyRegion) {
+        pane->dirtyRegion = rect;
+        pane->hasDirtyRegion = true;
+        return;
+    }
+
+    int x1 = pane->dirtyRegion.x < rect.x ? pane->dirtyRegion.x : rect.x;
+    int y1 = pane->dirtyRegion.y < rect.y ? pane->dirtyRegion.y : rect.y;
+    int x2a = pane->dirtyRegion.x + pane->dirtyRegion.w;
+    int y2a = pane->dirtyRegion.y + pane->dirtyRegion.h;
+    int x2b = rect.x + rect.w;
+    int y2b = rect.y + rect.h;
+    int x2 = x2a > x2b ? x2a : x2b;
+    int y2 = y2a > y2b ? y2a : y2b;
+
+    pane->dirtyRegion.x = x1;
+    pane->dirtyRegion.y = y1;
+    pane->dirtyRegion.w = x2 - x1;
+    pane->dirtyRegion.h = y2 - y1;
+}
+
+void paneClearDirty(UIPane* pane) {
+    if (!pane) return;
+    pane->dirty = false;
+    pane->dirtyReasons = PANE_INVALIDATION_NONE;
+    pane->hasDirtyRegion = false;
+    pane->dirtyRegion = (SDL_Rect){0, 0, 0, 0};
+    pane->cacheWidth = pane->w;
+    pane->cacheHeight = pane->h;
+}
+
+void paneReleaseCache(UIPane* pane) {
+    if (!pane) return;
+    pane->cacheValid = false;
+    pane->cacheWidth = 0;
+    pane->cacheHeight = 0;
+}
+
 
 
 
@@ -273,12 +333,9 @@ void destroyPane(UIPane* pane) {
         destroyEditorView(pane->editorView);
     }
 
+    paneReleaseCache(pane);
     free(pane);
 }
-
-
-
-
 
 
 

@@ -3,6 +3,7 @@
 #include "app/GlobalInfo/project.h"
 #include "app/GlobalInfo/core_state.h"
 #include "core/Clipboard/clipboard.h"
+#include "core/FileIO/file_ops.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -250,12 +251,8 @@ void assets_save_catalog(const char* workspaceRoot) {
     const char* serialized = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
     char path[PATH_MAX];
     snprintf(path, sizeof(path), "%s/ide_files/assets_catalog.json", workspaceRoot);
-    FILE* f = fopen(path, "w");
-    if (f && serialized) {
-        fputs(serialized, f);
-        fclose(f);
-    } else if (f) {
-        fclose(f);
+    if (serialized) {
+        (void)writeTextFile(path, serialized, strlen(serialized));
     }
     json_object_put(root);
 }
@@ -265,23 +262,15 @@ void assets_load_catalog(const char* workspaceRoot) {
     if (!workspaceRoot || !*workspaceRoot) return;
     char path[PATH_MAX];
     snprintf(path, sizeof(path), "%s/ide_files/assets_catalog.json", workspaceRoot);
-    FILE* f = fopen(path, "r");
-    if (!f) return;
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > (32 * 1024 * 1024)) {
-        fclose(f);
+    char* buf = NULL;
+    size_t len = 0u;
+    if (!readTextFile(path, &buf, &len)) {
         return;
     }
-    char* buf = malloc((size_t)len + 1);
-    if (!buf) {
-        fclose(f);
+    if (len == 0u || len > (32u * 1024u * 1024u)) {
+        free(buf);
         return;
     }
-    fread(buf, 1, (size_t)len, f);
-    buf[len] = '\0';
-    fclose(f);
 
     json_object* root = json_tokener_parse(buf);
     free(buf);

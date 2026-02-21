@@ -8,7 +8,35 @@
 struct UITreeNode;
 struct DirEntry;
 
+typedef enum {
+    SYMBOL_FILTER_MODE_SYMBOLS = 0,
+    SYMBOL_FILTER_MODE_METHODS,
+    SYMBOL_FILTER_MODE_TYPES,
+    SYMBOL_FILTER_MODE_TAGS
+} SymbolFilterMode;
+
+typedef enum {
+    SYMBOL_FILTER_SCOPE_ACTIVE = 0,
+    SYMBOL_FILTER_SCOPE_OPEN,
+    SYMBOL_FILTER_SCOPE_PROJECT
+} SymbolFilterScope;
+
+typedef struct {
+    SymbolFilterMode mode;
+    SymbolFilterScope scope;
+    bool field_name;
+    bool field_type;
+    bool field_params;
+    bool field_kind;
+} SymbolFilterOptions;
+
 void symbol_tree_cache_note_node(const struct UITreeNode* node);
+bool symbol_tree_query_matches_node(const struct UITreeNode* node,
+                                    const char* query,
+                                    const SymbolFilterOptions* options);
+struct UITreeNode* symbol_tree_clone_filtered(const struct UITreeNode* root,
+                                              const char* query,
+                                              const SymbolFilterOptions* options);
 
 struct UITreeNode* buildSymbolTreeForFile(const char* filePath,
                                           const AnalysisFileSymbols* entry,

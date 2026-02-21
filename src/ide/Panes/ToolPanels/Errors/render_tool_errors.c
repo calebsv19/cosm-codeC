@@ -9,6 +9,7 @@
 #include "engine/Render/render_pipeline.h"
 #include "ide/UI/scroll_manager.h"
 #include "engine/Render/render_text_helpers.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -20,6 +21,25 @@ TTF_Font* get_error_font(void);
 void errors_get_layout_metrics(const UIPane* pane, int* contentTop, int* headerHeight, int* diagHeight, int* lineHeight);
 static SDL_Rect gErrorScrollTrack = {0};
 static SDL_Rect gErrorScrollThumb = {0};
+
+static Uint8 clamp_u8(int v) {
+    if (v < 0) return 0;
+    if (v > 255) return 255;
+    return (Uint8)v;
+}
+
+static SDL_Color darken_color(SDL_Color c, int amount) {
+    return (SDL_Color){
+        clamp_u8((int)c.r - amount),
+        clamp_u8((int)c.g - amount),
+        clamp_u8((int)c.b - amount),
+        c.a
+    };
+}
+
+static bool same_rgb(SDL_Color a, SDL_Color b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b;
+}
 
 void renderErrorsPanel(UIPane* pane) {
     static bool scrollInit = false;
@@ -40,6 +60,20 @@ void renderErrorsPanel(UIPane* pane) {
     if (viewportH < 0) viewportH = 0;
     PaneScrollState* scroll = errors_get_scroll_state();
     scroll_state_set_viewport(scroll, (float)viewportH);
+
+    SDL_Color editorBg = ide_shared_theme_background_color();
+    SDL_Color listBg = editorBg;
+    if (same_rgb(listBg, pane->bgColor)) {
+        listBg = darken_color(pane->bgColor, 14);
+    }
+    SDL_Rect bodyBg = {
+        pane->x + 1,
+        contentTop,
+        pane->w - 2,
+        viewportH
+    };
+    SDL_SetRenderDrawColor(getRenderContext()->renderer, listBg.r, listBg.g, listBg.b, 255);
+    SDL_RenderFillRect(getRenderContext()->renderer, &bodyBg);
 
     AnalysisStatusSnapshot snap = {0};
     analysis_status_snapshot(&snap);

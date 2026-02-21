@@ -15,6 +15,7 @@ typedef struct {
     TermCell* cells; // linear buffer size rows*cols
     int rows;
     int cols;
+    int used_rows; // monotonic visible history depth within this grid
     int cursor_row;
     int cursor_col;
 

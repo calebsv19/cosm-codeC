@@ -64,7 +64,6 @@ static void analysis_store_upsert_locked(const char* filePath,
                                          size_t diagCount) {
     if (!filePath) return;
 
-    // Remove existing entry for this path
     size_t existing = (size_t)-1;
     for (size_t i = 0; i < g_file_count; ++i) {
         if (g_files[i].path && strcmp(g_files[i].path, filePath) == 0) {
@@ -74,7 +73,6 @@ static void analysis_store_upsert_locked(const char* filePath,
     }
     if (existing != (size_t)-1) {
         free_entry(&g_files[existing]);
-        // shift down
         for (size_t j = existing + 1; j < g_file_count; ++j) {
             g_files[j - 1] = g_files[j];
         }
@@ -126,6 +124,26 @@ void analysis_store_upsert(const char* filePath,
                            size_t diagCount) {
     analysis_store_lock();
     analysis_store_upsert_locked(filePath, fisicsDiags, diagCount);
+    analysis_store_unlock();
+}
+
+void analysis_store_remove(const char* filePath) {
+    if (!filePath) return;
+    analysis_store_lock();
+    size_t existing = (size_t)-1;
+    for (size_t i = 0; i < g_file_count; ++i) {
+        if (g_files[i].path && strcmp(g_files[i].path, filePath) == 0) {
+            existing = i;
+            break;
+        }
+    }
+    if (existing != (size_t)-1) {
+        free_entry(&g_files[existing]);
+        for (size_t j = existing + 1; j < g_file_count; ++j) {
+            g_files[j - 1] = g_files[j];
+        }
+        g_file_count--;
+    }
     analysis_store_unlock();
 }
 

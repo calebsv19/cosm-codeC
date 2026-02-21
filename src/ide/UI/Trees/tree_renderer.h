@@ -15,6 +15,7 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
 // Optionally expose mouse hover + selection tracking
 UITreeNode* getHoveredTreeNode(void);
 UITreeNode* getSelectedTreeNode(void);
+void clearTreeSelectionState(void);
 
 // Pass mouse inputs to track hover/select states
 void handleTreeMouseMove(int x, int y);

@@ -9,6 +9,7 @@
 int getTextWidth(const char* text);
 int getTextWidthN(const char* text, int n);
 size_t getTextClampedLength(const char* text, int maxWidth);
+size_t getTextClampedLengthWithFont(const char* text, int maxWidth, TTF_Font* font);
 int getTextWidthWithFont(const char* text, TTF_Font* font);
 int getTextWidthNWithFont(const char* text, int n, TTF_Font* font);
 int getTextWidthUTF8WithFont(const char* text, TTF_Font* font);

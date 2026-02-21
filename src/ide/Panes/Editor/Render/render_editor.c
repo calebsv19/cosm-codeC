@@ -24,7 +24,7 @@ void renderEditorViewContents(UIPane* pane, bool hovered, IDECoreState* core) {
 // renderUIPane(pane, hovered, core);
 
     if (!pane->editorView) {
-        drawText(pane->x + 8, pane->y + 30, "(empty editor)");
+        drawTextWithTier(pane->x + 8, pane->y + 30, "(empty editor)", CORE_FONT_TEXT_SIZE_CAPTION);
         return;
     }
 
@@ -138,7 +138,7 @@ void renderLeafEditorView(EditorView* view) {
         }
 
         SDL_RenderFillRect(renderer, &tabRect);
-        drawText(tabX + 6, boxY + 2, label);
+        drawTextWithTier(tabX + 6, boxY + 2, label, CORE_FONT_TEXT_SIZE_PARAGRAPH);
         tabX += tabW + 4;
     }
 
@@ -166,7 +166,7 @@ void renderLeafEditorView(EditorView* view) {
     SDL_RenderDrawRect(renderer, &xButtonRect);
 
     // Draw "X" text
-    drawText(xButtonX + 5, xButtonY + 2, "X");
+    drawTextWithTier(xButtonX + 5, xButtonY + 2, "X", CORE_FONT_TEXT_SIZE_CAPTION);
 
     // Render buffer contents
     if (view->activeTab >= 0 && view->activeTab < view->fileCount) {

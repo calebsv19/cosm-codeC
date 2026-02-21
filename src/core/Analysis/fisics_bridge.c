@@ -8,6 +8,8 @@
 #include "core/Analysis/analysis_store.h"
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
+#include "core/Analysis/include_graph.h"
+#include "core/Analysis/library_index.h"
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/Analysis/include_path_resolver.h"
@@ -28,6 +30,21 @@ typedef struct {
 
 static TokenCache g_tokens = {0};
 static SymbolCache g_symbols = {0};
+
+static LibraryBucketKind map_origin(FisicsIncludeOrigin origin) {
+    switch (origin) {
+        case FISICS_INCLUDE_PROJECT:        return LIB_BUCKET_PROJECT;
+        case FISICS_INCLUDE_SYSTEM_ORIGIN:  return LIB_BUCKET_SYSTEM;
+        case FISICS_INCLUDE_EXTERNAL:       return LIB_BUCKET_EXTERNAL;
+        case FISICS_INCLUDE_UNRESOLVED:
+        default:                            return LIB_BUCKET_UNRESOLVED;
+    }
+}
+
+static LibraryIncludeKind map_kind(FisicsIncludeKind kind) {
+    return (kind == FISICS_INCLUDE_SYSTEM) ? LIB_INCLUDE_KIND_SYSTEM
+                                           : LIB_INCLUDE_KIND_LOCAL;
+}
 
 static void free_token_cache(void) {
     free(g_tokens.filePath);
@@ -147,6 +164,19 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
     analysis_store_upsert(filePath, result.diagnostics, result.diag_count);
     analysis_symbols_store_upsert(filePath, result.symbols, result.symbol_count);
     analysis_token_store_upsert(filePath, result.tokens, result.token_count);
+    include_graph_replace_from_result(filePath, result.includes, result.include_count, projectPath);
+    library_index_remove_source(filePath);
+    for (size_t i = 0; i < result.include_count; ++i) {
+        const FisicsInclude* inc = &result.includes[i];
+        if (!inc || !inc->name) continue;
+        library_index_add_include(filePath,
+                                  inc->name,
+                                  inc->resolved_path,
+                                  map_kind(inc->kind),
+                                  map_origin(inc->origin),
+                                  inc->line,
+                                  inc->column);
+    }
     analysis_store_flatten_to_engine();
 
     cache_tokens(filePath, result.tokens, result.token_count);

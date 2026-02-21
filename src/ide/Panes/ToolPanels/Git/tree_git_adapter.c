@@ -52,7 +52,19 @@ UITreeNode* convertGitModelToTree(void) {
         GitLogEntry* e = &gitLogEntries[i];
         char label[320];
         snprintf(label, sizeof(label), "%s %s", e->hash, e->message);
-        UITreeNode* n = createTreeNode(label, TREE_NODE_FILE, NODE_COLOR_DEFAULT, e->hash, e);
+        UITreeNode* n = createTreeNode(label, TREE_NODE_SECTION, NODE_COLOR_DEFAULT, e->hash, e);
+        n->isExpanded = false;
+
+        char authorLine[196];
+        snprintf(authorLine, sizeof(authorLine), "Author: %s", e->author[0] ? e->author : "unknown");
+        UITreeNode* authorNode = createTreeNode(authorLine, TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, e);
+        addChildNode(n, authorNode);
+
+        char dateLine[128];
+        snprintf(dateLine, sizeof(dateLine), "Date: %s", e->date[0] ? e->date : "unknown");
+        UITreeNode* dateNode = createTreeNode(dateLine, TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, e);
+        addChildNode(n, dateNode);
+
         addChildNode(logRoot, n);
     }
     if (logRoot->childCount) {

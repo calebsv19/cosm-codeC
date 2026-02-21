@@ -9,6 +9,7 @@
 
 #include <SDL2/SDL.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #define MAX_PANES 16
 
@@ -47,6 +48,17 @@ typedef struct UIPaneInputHandler {
     void (*onTextInput)(struct UIPane*, SDL_Event*);  
 } UIPaneInputHandler;
 
+typedef enum PaneInvalidationReason {
+    PANE_INVALIDATION_NONE       = 0u,
+    PANE_INVALIDATION_INPUT      = 1u << 0,
+    PANE_INVALIDATION_LAYOUT     = 1u << 1,
+    PANE_INVALIDATION_THEME      = 1u << 2,
+    PANE_INVALIDATION_CONTENT    = 1u << 3,
+    PANE_INVALIDATION_OVERLAY    = 1u << 4,
+    PANE_INVALIDATION_RESIZE     = 1u << 5,
+    PANE_INVALIDATION_BACKGROUND = 1u << 6
+} PaneInvalidationReason;
+
 // === UIPane Struct ===
 typedef struct UIPane {
     int x, y, w, h;   
@@ -68,6 +80,20 @@ typedef struct UIPane {
     struct UIPaneInputHandler* inputHandler;
 
     PaneScrollState* scrollState;
+
+    // Invalidation state (Phase 6.1)
+    bool dirty;
+    uint32_t dirtyReasons;
+    bool hasDirtyRegion;
+    SDL_Rect dirtyRegion;
+    uint64_t lastRenderFrameId;
+
+    // Pane cache metadata (Phase 6.3)
+    bool cacheEnabled;
+    bool cacheValid;
+    int cacheWidth;
+    int cacheHeight;
+    uint64_t cacheVersion;
 } UIPane;
 
 
@@ -90,6 +116,10 @@ bool isPointInsidePane(struct UIPane* pane, int x, int y);
 
 // Render methods
 void printEditorTree(struct EditorView* view, int depth);
+void paneMarkDirty(UIPane* pane, uint32_t reasonBits);
+void paneMarkDirtyRect(UIPane* pane, SDL_Rect rect, uint32_t reasonBits);
+void paneClearDirty(UIPane* pane);
+void paneReleaseCache(UIPane* pane);
 
 
 

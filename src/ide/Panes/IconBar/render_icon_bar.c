@@ -3,6 +3,8 @@
 #include "engine/Render/render_pipeline.h"            
 #include "engine/Render/render_helpers.h"    // for drawText and renderUIPane
 #include "engine/Render/render_text_helpers.h"
+#include "engine/Render/render_font.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 
 #include "app/GlobalInfo/system_control.h"
 
@@ -38,6 +40,11 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
     int iconX = centerX - iconSize / 2;
 
     IconTool active = getActiveIcon();
+    SDL_Color fill = {100, 100, 100, 255};
+    SDL_Color fill_active = {140, 140, 140, 255};
+    SDL_Color border = {255, 255, 255, 255};
+    SDL_Color text = {255, 255, 255, 255};
+    ide_shared_theme_button_colors(&fill, &fill_active, &border, &text);
 
     for (int i = 0; i < iconCount; i++) {
         int iconY = startY + i * (iconSize + spacing);
@@ -51,14 +58,14 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
 
         // Fill
         if (i == active) {
-            SDL_SetRenderDrawColor(renderer, 140, 140, 140, 255); // Highlight
+            SDL_SetRenderDrawColor(renderer, fill_active.r, fill_active.g, fill_active.b, fill_active.a);
         } else {
-            SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); // Normal
+            SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
         }
         SDL_RenderFillRect(renderer, &icon);
 
         // Border
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, border.a);
         SDL_RenderDrawRect(renderer, &icon);
 
         // Letter label per icon
@@ -78,7 +85,12 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
             int textH = 16;
             int tx = icon.x + (icon.w - textW) / 2;
             int ty = icon.y + (icon.h - textH) / 2;
-            drawText(tx, ty, label);
+            drawTextUTF8WithFontColor(tx,
+                                      ty,
+                                      label,
+                                      getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION),
+                                      text,
+                                      false);
         }
     }
 }

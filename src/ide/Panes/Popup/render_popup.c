@@ -90,31 +90,15 @@ void renderRenamePopup(SDL_Renderer* renderer, int winW, int winH) {
     int textY = box.y + 48;
 
     if (hasError) {
-        Uint32 now = SDL_GetTicks();
-        if (now - renameErrorStart > 2000) {
-            renameErrorVisible = false;
-        } else {
-            SDL_SetRenderDrawColor(renderer, 255, 70, 70, 255);
-            drawClippedText(box.x + 12, box.y + 42, errorText, box.w - 24);
-            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-            textY = box.y + 66;
-        }
+        SDL_SetRenderDrawColor(renderer, 255, 70, 70, 255);
+        drawClippedText(box.x + 12, box.y + 42, errorText, box.w - 24);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        textY = box.y + 66;
     }
 
     // Input buffer
     int textX = box.x + 12;
     drawClippedText(textX, textY, buffer, box.w - 24);
-
-    // Caret blinking
-    Uint32 now = SDL_GetTicks();
-    Uint32 elapsed = now - lastCaretBlink;
-    if (caretVisible && elapsed > 550) {
-        caretVisible = false; 
-        lastCaretBlink = now;
-    } else if (!caretVisible && elapsed > 250) {
-        caretVisible = true;
-        lastCaretBlink = now;
-    }
 
     if (caretVisible) {
 	char temp[MAX_PATH_LENGTH];

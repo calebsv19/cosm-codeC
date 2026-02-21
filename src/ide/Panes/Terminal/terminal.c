@@ -8,6 +8,7 @@
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "app/GlobalInfo/core_state.h"
 #include "core/BuildSystem/build_diagnostics.h"
+#include "core/Ipc/ide_ipc_server.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -106,24 +107,16 @@ static void terminal_feed_bytes(TerminalSession* s, const char* bytes, size_t le
 
 static int terminal_last_used_row_for_session(const TerminalSession* s) {
     if (!s || !s->grid.cells || s->grid.rows <= 0) return -1;
-    for (int r = s->grid.rows - 1; r >= 0; --r) {
-        for (int c = 0; c < s->grid.cols; ++c) {
-            TermCell* cell = term_grid_cell((TermGrid*)&s->grid, r, c);
-            char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
-            if (ch != ' ') {
-                return r;
-            }
-        }
-    }
-    return -1;
+    int rows = s->grid.used_rows;
+    if (rows < 1) rows = 1;
+    if (rows > s->grid.rows) rows = s->grid.rows;
+    return rows - 1;
 }
 
 static int terminal_session_content_rows(TerminalSession* s) {
     if (!s || !s->grid.cells || s->grid.rows <= 0) return 1;
-    int rows = 1;
-    if (s->historyRows > rows) rows = s->historyRows;
-    int lastRowUsed = terminal_last_used_row_for_session(s);
-    if (lastRowUsed >= 0 && (lastRowUsed + 1) > rows) rows = lastRowUsed + 1;
+    int rows = s->grid.used_rows;
+    if (rows < 1) rows = 1;
     int cursorRows = s->grid.cursor_row + 1;
     if (cursorRows > rows) rows = cursorRows;
     if (rows > s->grid.rows) rows = s->grid.rows;
@@ -349,18 +342,7 @@ int terminal_line_to_string(int row, char* out, int cap, bool trim_trailing) {
 }
 
 int terminal_last_used_row(void) {
-    TerminalSession* s = active_session();
-    if (!s || !s->grid.cells || s->grid.rows <= 0) return -1;
-    for (int r = s->grid.rows - 1; r >= 0; --r) {
-        for (int c = 0; c < s->grid.cols; ++c) {
-            TermCell* cell = term_grid_cell(&s->grid, r, c);
-            char ch = cell ? (char)(cell->ch ? cell->ch : ' ') : ' ';
-            if (ch != ' ') {
-                return r;
-            }
-        }
-    }
-    return -1;
+    return terminal_last_used_row_for_session(active_session());
 }
 
 int terminal_content_rows(void) {
@@ -580,9 +562,10 @@ bool terminal_is_following_output(void) {
     return s ? s->followOutput : false;
 }
 
-static void terminal_flush_backend_output(void) {
+static bool terminal_flush_backend_output(void) {
+    bool changed = false;
     TerminalSession* s = active_session();
-    if (!s || !s->backend) return;
+    if (!s || !s->backend) return false;
 
     size_t len = 0;
     const char* data = terminal_backend_buffer(s->backend, &len);
@@ -598,6 +581,7 @@ static void terminal_flush_backend_output(void) {
                 build_diagnostics_feed_chunk(raw, chunkLen);
             }
             free(raw);
+            changed = true;
         }
         s->backendConsumed = len;
     }
@@ -605,7 +589,10 @@ static void terminal_flush_backend_output(void) {
     if (s->backend->dead && !s->backendExitNotified) {
         printToTerminal("[Terminal] Shell process exited.\n");
         s->backendExitNotified = true;
+        changed = true;
     }
+
+    return changed;
 }
 
 void terminal_send_text(const char* text, size_t len) {
@@ -629,7 +616,9 @@ bool terminal_spawn_shell(const char* start_dir, int rows, int cols) {
     s->backendConsumed = 0;
     s->backendExitNotified = false;
 
-    s->backend = terminal_backend_spawn(start_dir, rows, cols);
+    s->backend = terminal_backend_spawn(start_dir, rows, cols,
+                                        ide_ipc_socket_path(),
+                                        getWorkspacePath());
     if (!s->backend) {
         printToTerminal("[Terminal] Failed to start shell.\n");
         return false;
@@ -656,19 +645,25 @@ void terminal_shutdown_shell(void) {
     s->backendExitNotified = false;
 }
 
-void terminal_tick_backend(void) {
+bool terminal_tick_backend(void) {
+    bool changed = false;
     TerminalSession* s = active_session();
-    if (!s || !s->backend) return;
+    if (!s || !s->backend) return false;
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(s->backend->master_fd, &readfds);
     struct timeval tv = {0, 0}; // non-blocking poll
     int ready = select(s->backend->master_fd + 1, &readfds, NULL, NULL, &tv);
     if (ready > 0 && FD_ISSET(s->backend->master_fd, &readfds)) {
-        terminal_backend_read_output(s->backend);
+        if (terminal_backend_read_output(s->backend) > 0) {
+            changed = true;
+        }
     }
     terminal_backend_poll_child(s->backend);
-    terminal_flush_backend_output();
+    if (terminal_flush_backend_output()) {
+        changed = true;
+    }
+    return changed;
 }
 
 void terminal_resize_grid_for_pane(int width_px, int height_px) {

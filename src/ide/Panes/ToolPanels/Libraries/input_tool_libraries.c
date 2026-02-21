@@ -41,6 +41,9 @@ void handleLibrariesMouseInput(UIPane* pane, SDL_Event* event) {
     }
 
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
+        if (handleLibraryHeaderClick(pane, event->button.x, event->button.y)) {
+            return;
+        }
         handleLibraryEntryClick(pane, event->button.x, event->button.y);
     } else if (event->type == SDL_MOUSEMOTION) {
         updateLibraryDragSelection(pane, event->motion.y);

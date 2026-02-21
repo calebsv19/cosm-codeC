@@ -6,15 +6,85 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 
 #if defined(__APPLE__)
+#include <mach-o/dyld.h>
 #include <util.h>
 #else
 #include <pty.h>
 #endif
+
+static bool get_executable_dir(char* out, size_t out_cap) {
+    if (!out || out_cap == 0) return false;
+    out[0] = '\0';
+
+    char exe_path[PATH_MAX];
+    exe_path[0] = '\0';
+
+#if defined(__APPLE__)
+    uint32_t size = (uint32_t)sizeof(exe_path);
+    if (_NSGetExecutablePath(exe_path, &size) != 0) {
+        return false;
+    }
+#else
+    ssize_t n = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    if (n <= 0 || n >= (ssize_t)sizeof(exe_path)) {
+        return false;
+    }
+    exe_path[n] = '\0';
+#endif
+
+    char resolved[PATH_MAX];
+    const char* path_in_use = exe_path;
+    if (realpath(exe_path, resolved)) {
+        path_in_use = resolved;
+    }
+
+    const char* slash = strrchr(path_in_use, '/');
+    if (!slash || slash == path_in_use) return false;
+    size_t dir_len = (size_t)(slash - path_in_use);
+    if (dir_len + 1 > out_cap) return false;
+    memcpy(out, path_in_use, dir_len);
+    out[dir_len] = '\0';
+    return true;
+}
+
+static void prepend_dir_to_path_if_needed(const char* dir) {
+    if (!dir || !*dir) return;
+
+    char idebridge_path[PATH_MAX];
+    snprintf(idebridge_path, sizeof(idebridge_path), "%s/idebridge", dir);
+    if (access(idebridge_path, X_OK) != 0) {
+        return;
+    }
+
+    const char* old_path = getenv("PATH");
+    if (old_path && *old_path) {
+        size_t dir_len = strlen(dir);
+        const char* p = old_path;
+        while (p && *p) {
+            const char* colon = strchr(p, ':');
+            size_t seg_len = colon ? (size_t)(colon - p) : strlen(p);
+            if (seg_len == dir_len && strncmp(p, dir, dir_len) == 0) {
+                return;
+            }
+            p = colon ? colon + 1 : NULL;
+        }
+    }
+
+    char new_path[8192];
+    if (old_path && *old_path) {
+        snprintf(new_path, sizeof(new_path), "%s:%s", dir, old_path);
+    } else {
+        snprintf(new_path, sizeof(new_path), "%s", dir);
+    }
+    setenv("PATH", new_path, 1);
+    setenv("MYIDE_BIN_DIR", dir, 1);
+}
 
 static void append_bytes(TerminalBackend* term, const char* data, size_t len) {
     if (!term || !data || len == 0) return;
@@ -43,7 +113,9 @@ static void append_bytes(TerminalBackend* term, const char* data, size_t len) {
     term->scrollback_len += len;
 }
 
-TerminalBackend* terminal_backend_spawn(const char* start_dir, int rows, int cols) {
+TerminalBackend* terminal_backend_spawn(const char* start_dir, int rows, int cols,
+                                        const char* ide_socket_path,
+                                        const char* project_root_path) {
     struct winsize ws = {
         .ws_row = (unsigned short)(rows > 0 ? rows : 24),
         .ws_col = (unsigned short)(cols > 0 ? cols : 80),
@@ -62,6 +134,16 @@ TerminalBackend* terminal_backend_spawn(const char* start_dir, int rows, int col
         // Child: start shell
         if (start_dir && *start_dir) {
             chdir(start_dir);
+        }
+        char exe_dir[PATH_MAX];
+        if (get_executable_dir(exe_dir, sizeof(exe_dir))) {
+            prepend_dir_to_path_if_needed(exe_dir);
+        }
+        if (ide_socket_path && *ide_socket_path) {
+            setenv("MYIDE_SOCKET", ide_socket_path, 1);
+        }
+        if (project_root_path && *project_root_path) {
+            setenv("MYIDE_PROJECT_ROOT", project_root_path, 1);
         }
         execl("/bin/zsh", "zsh", "-l", (char*)NULL);
         execl("/bin/bash", "bash", "-l", (char*)NULL);

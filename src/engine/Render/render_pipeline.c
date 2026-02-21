@@ -20,6 +20,8 @@
 
 #include "ide/Panes/PaneInfo/pane.h"
 #include "ide/UI/layout.h"
+#include "ide/UI/layout_config.h"
+#include "ide/UI/ui_state.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/MenuBar/menu_buttons.h"
 
@@ -33,7 +35,9 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdint.h>
 
@@ -89,6 +93,9 @@ RenderContext* getRenderContext() {
 
 void setRenderContext(VkRenderer* renderer, SDL_Window* window,
                       int width, int height) {
+    if (globalRenderContext.renderer && globalRenderContext.renderer != renderer) {
+        render_text_cache_shutdown();
+    }
     globalRenderContext.renderer = renderer;
     globalRenderContext.window = window;
     globalRenderContext.width = width;
@@ -121,11 +128,37 @@ bool initRenderPipeline() {
     if (getCoreState()->timerHudEnabled) {
         timer_hud_register_backend();
         ts_init();
+        const char* respectSettings = getenv("IDE_TIMER_HUD_RESPECT_SETTINGS");
+        const bool useSettings = (respectSettings && respectSettings[0] &&
+                                  (strcmp(respectSettings, "1") == 0 ||
+                                   strcasecmp(respectSettings, "true") == 0));
+        if (!useSettings) {
+            ts_settings.hud_enabled = true;
+        }
+        const char* overlayEnv = getenv("IDE_TIMER_HUD_OVERLAY");
+        if (overlayEnv && overlayEnv[0]) {
+            if (strcmp(overlayEnv, "0") == 0 || strcasecmp(overlayEnv, "false") == 0 ||
+                strcasecmp(overlayEnv, "off") == 0 || strcasecmp(overlayEnv, "no") == 0) {
+                ts_settings.hud_enabled = false;
+            } else if (strcmp(overlayEnv, "1") == 0 || strcasecmp(overlayEnv, "true") == 0 ||
+                       strcasecmp(overlayEnv, "on") == 0 || strcasecmp(overlayEnv, "yes") == 0) {
+                ts_settings.hud_enabled = true;
+            }
+        }
+        fprintf(stderr,
+                "[TimerHUD] initialized (hud_enabled=%d log_enabled=%d log_file=%s)\n",
+                ts_settings.hud_enabled ? 1 : 0,
+                ts_settings.log_enabled ? 1 : 0,
+                ts_settings.log_filepath);
     }
     return initFontSystem();
 }
 
 void shutdownRenderPipeline() {
+    if (getCoreState()->timerHudEnabled) {
+        ts_shutdown();
+    }
+    render_text_cache_shutdown();
     shutdownFontSystem();
 }
 
@@ -243,6 +276,9 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
 
     SDL_GetWindowSize(ctx->window, &winW, &winH);
 
+    if (timerHudActive) {
+        ts_start_timer("WindowAndScale");
+    }
     int drawableW = winW;
     int drawableH = winH;
 #if USE_VULKAN
@@ -281,16 +317,66 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     float scaleY = (float)drawableH / (float)winH;
     SDL_RenderSetScale(ctx->renderer, scaleX, scaleY);
 #endif
+    if (timerHudActive) {
+        ts_stop_timer("WindowAndScale");
+    }
     ctx->width = drawableW;
     ctx->height = drawableH;
 
-    if (winW != *lastW || winH != *lastH) {
+    LayoutDimensions* dims = getLayoutDimensions();
+    UIState* ui = getUIState();
+    const int toolWidth = dims ? dims->toolWidth : 0;
+    const int controlWidth = dims ? dims->controlWidth : 0;
+    const int terminalHeight = dims ? dims->terminalHeight : 0;
+    const int toolVisible = (ui && ui->toolPanelVisible) ? 1 : 0;
+    const int controlVisible = (ui && ui->controlPanelVisible) ? 1 : 0;
+
+    static int s_prev_win_w = -1;
+    static int s_prev_win_h = -1;
+    static int s_prev_tool_w = -1;
+    static int s_prev_control_w = -1;
+    static int s_prev_terminal_h = -1;
+    static int s_prev_tool_visible = -1;
+    static int s_prev_control_visible = -1;
+
+    const bool layoutChanged =
+        (winW != s_prev_win_w) ||
+        (winH != s_prev_win_h) ||
+        (toolWidth != s_prev_tool_w) ||
+        (controlWidth != s_prev_control_w) ||
+        (terminalHeight != s_prev_terminal_h) ||
+        (toolVisible != s_prev_tool_visible) ||
+        (controlVisible != s_prev_control_visible);
+
+    if (timerHudActive) {
+        ts_start_timer("ResizeLayout");
+    }
+    if (layoutChanged) {
         layout_static_panes(panes, &paneCount);
         *lastW = winW;
         *lastH = winH;
     }
+    if (timerHudActive) {
+        ts_stop_timer("ResizeLayout");
+    }
 
-    updateResizeZones(ctx->window, resizeZones, resizeZoneCount);
+    if (timerHudActive) {
+        ts_start_timer("ResizeZones");
+    }
+    if (layoutChanged) {
+        updateResizeZones(ctx->window, resizeZones, resizeZoneCount);
+    }
+    if (timerHudActive) {
+        ts_stop_timer("ResizeZones");
+    }
+
+    s_prev_win_w = winW;
+    s_prev_win_h = winH;
+    s_prev_tool_w = toolWidth;
+    s_prev_control_w = controlWidth;
+    s_prev_terminal_h = terminalHeight;
+    s_prev_tool_visible = toolVisible;
+    s_prev_control_visible = controlVisible;
 
 #if USE_VULKAN
     VkResult frameResult =
@@ -327,15 +413,41 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     s_logged_begin_failure = 0;
 #endif
 
+    if (timerHudActive) {
+        ts_start_timer("PaneRender");
+    }
     for (int i = 0; i < paneCount; i++) {
-        if (panes[i] && panes[i]->render) {
-            panes[i]->render(panes[i], panes[i] == getCoreState()->activeMousePane, core);
+        UIPane* pane = panes[i];
+        if (!pane || !pane->render) continue;
+
+        // Keep cache dependency bookkeeping in sync with pane geometry.
+        if (pane->cacheWidth != pane->w || pane->cacheHeight != pane->h) {
+            paneMarkDirty(pane, PANE_INVALIDATION_LAYOUT | PANE_INVALIDATION_RESIZE);
         }
+
+        if (pane->dirty || (core && core->fullRedrawRequired)) {
+            pane->cacheValid = false;
+        }
+
+        pane->render(pane, pane == getCoreState()->activeMousePane, core);
+
+        if (!pane->dirty) {
+            pane->cacheValid = true;
+        }
+    }
+    if (timerHudActive) {
+        ts_stop_timer("PaneRender");
+    }
+    if (timerHudActive) {
+        ts_start_timer("OverlayRender");
     }
     if (isRenaming()) {
         renderPopupQueueContents();  // This draws both popup messages and the rename UI
     }
     renderProjectDragOverlay();
+    if (timerHudActive) {
+        ts_stop_timer("OverlayRender");
+    }
 #if USE_VULKAN && VK_RENDERER_FRAME_DEBUG_ENABLED
     if (s_debug_frame_counter < 120 && ctx && ctx->renderer) {
         VK_RENDERER_FRAME_DEBUG_LOG(
@@ -348,12 +460,20 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     }
 #endif
 
-        if (timerHudActive) {
+    if (timerHudActive) {
+        ts_start_timer("HudRender");
+    }
+    if (timerHudActive) {
+        timer_hud_bind_renderer((SDL_Renderer*)ctx->renderer);
+        SDL_RenderSetClipRect(ctx->renderer, NULL);
         ts_stop_timer("Render");
 
         if (ts_settings.hud_enabled) {
             ts_render();
         }
+    }
+    if (timerHudActive) {
+        ts_stop_timer("HudRender");
     }
 
 #if USE_VULKAN
@@ -374,6 +494,9 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
         }
     }
 
+    if (timerHudActive) {
+        ts_start_timer("Present");
+    }
     VkResult endResult = vk_renderer_end_frame(ctx->renderer, commandBuffer);
     if (endResult == VK_ERROR_OUT_OF_DATE_KHR || endResult == VK_SUBOPTIMAL_KHR) {
         vk_renderer_recreate_swapchain(ctx->renderer, ctx->window);
@@ -386,8 +509,17 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     } else {
         s_logged_end_failure = 0;
     }
+    if (timerHudActive) {
+        ts_stop_timer("Present");
+    }
 #else
+    if (timerHudActive) {
+        ts_start_timer("Present");
+    }
     SDL_RenderPresent(ctx->renderer);
+    if (timerHudActive) {
+        ts_stop_timer("Present");
+    }
 #endif
 
 #if USE_VULKAN && VK_RENDERER_FRAME_DEBUG_ENABLED

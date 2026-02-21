@@ -4,7 +4,6 @@
 #include "ide/Panes/ToolPanels/Tasks/tool_tasks.h"      // if TaskNode struct is defined elsewhere
 
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -43,15 +42,11 @@ bool saveTaskTreeToFile(const char* filepath, TaskNode** roots, int rootCount) {
         return false;
     }
 
-    FILE* file = fopen(filepath, "w");
-    if (!file) {
+    if (!writeTextFile(filepath, jsonText, strlen(jsonText))) {
         fprintf(stderr, "[TaskSave] Could not open file: %s\n", filepath);
         json_object_put(rootArray);
         return false;
     }
-
-    fwrite(jsonText, sizeof(char), strlen(jsonText), file);
-    fclose(file);
 
     json_object_put(rootArray);  // cleanup
 
@@ -63,32 +58,18 @@ bool loadTaskTreeFromFile(const char* filepath, TaskNode*** outRoots, int* outRo
     if (!filepath || !outRoots || !outRootCount) 
 	return false;
 
-    FILE* file = fopen(filepath, "r");
-    if (!file) {
+    char* buffer = NULL;
+    size_t size = 0;
+    if (!readTextFile(filepath, &buffer, &size)) {
         fprintf(stderr, "[TaskJSON] Failed to open file: %s\n", filepath);
         return false;
     }
 
-    fseek(file, 0, SEEK_END);
-    long size = ftell(file);
-    rewind(file);
-
     if (size <= 0) {
-        fclose(file);
+        free(buffer);
         fprintf(stderr, "[TaskJSON] File is empty or corrupt.\n");
         return false;
     }
-
-    char* buffer = (char*)malloc(size + 1);
-    if (!buffer) {
-        fclose(file);
-        fprintf(stderr, "[TaskJSON] Memory allocation failed.\n");
-        return false;
-    }
-
-    fread(buffer, 1, size, file);
-    buffer[size] = '\0';
-    fclose(file);
     
 
 
@@ -239,4 +220,3 @@ TaskNode* deserializeTaskNode(struct json_object* obj) {
 
     return node;
 }
-

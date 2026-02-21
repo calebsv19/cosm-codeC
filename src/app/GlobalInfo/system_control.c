@@ -5,6 +5,7 @@
 #include "project.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
+#include "ide/Panes/ToolPanels/Git/tool_git.h"
 
 
 #include "engine/Render/render_pipeline.h"
@@ -29,8 +30,16 @@
 #include "core/Analysis/analysis_token_store.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/analysis_cache.h"
+#include "core/Analysis/analysis_snapshot.h"
 #include "core/Analysis/include_path_resolver.h"
+#include "core/Analysis/include_graph.h"
 #include "core/Analysis/analysis_status.h"
+#include "core/Ipc/ide_ipc_server.h"
+#include "core/Ipc/ide_ipc_edit_apply.h"
+#include "ide/Panes/Editor/Commands/editor_commands.h"
+#include "ide/Panes/Editor/editor_view.h"
+#include "ide/Panes/Editor/editor_session.h"
+#include "ide/Panes/PaneInfo/pane.h"
 
 #include "Parser/language_parser.h"
 
@@ -41,6 +50,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <stdbool.h>
+#include <json-c/json.h>
 
 
 
@@ -61,6 +71,56 @@ static void printTaskNode(TaskNode* node, int depth) {
     for (int i = 0; i < node->childCount; i++) {
         printTaskNode(node->children[i], depth + 1);
     }
+}
+
+static bool ide_ipc_open_from_ui(const char* path,
+                                 int line,
+                                 int col,
+                                 char* error_out,
+                                 size_t error_out_cap,
+                                 void* userdata) {
+    (void)userdata;
+    IDECoreState* core = getCoreState();
+    if (!core) {
+        if (error_out && error_out_cap) snprintf(error_out, error_out_cap, "Core state unavailable");
+        return false;
+    }
+
+    EditorView* view = core->activeEditorView;
+    if (!view) {
+        view = core->persistentEditorView;
+        if (view && view->type != VIEW_LEAF) {
+            view = findNextLeaf(view);
+        }
+        if (view) {
+            setActiveEditorView(view);
+        }
+    }
+    if (!view) {
+        if (error_out && error_out_cap) snprintf(error_out, error_out_cap, "No editor view available");
+        return false;
+    }
+
+    if (!editor_jump_to(view, path, line, col)) {
+        if (error_out && error_out_cap) {
+            snprintf(error_out, error_out_cap, "Failed to open target: %s", path ? path : "");
+        }
+        return false;
+    }
+
+    if (core->editorPane) {
+        core->focusedPane = core->editorPane;
+    }
+    return true;
+}
+
+static bool ide_ipc_edit_apply_from_ui(const char* diff_text,
+                                       char* error_out,
+                                       size_t error_out_cap,
+                                       void* userdata,
+                                       json_object** result_out) {
+    (void)userdata;
+    return ide_ipc_apply_unified_diff(projectPath, diff_text, result_out, error_out, error_out_cap);
 }
 
 static bool pathIsDirectory(const char* path) {
@@ -118,6 +178,7 @@ static void loadInitialWorkspace(void) {
     ensureIdeFilesDir(projectPath);
     setWorkspacePath(projectPath);
     setWorkspaceWatchPath(projectPath);
+    resetGitStatusWatcher();
     build_diagnostics_load(projectPath);
     diagnostics_load(projectPath);
 
@@ -146,7 +207,22 @@ static void loadInitialWorkspace(void) {
         fprintf(stderr, "[Project] Failed to load project.\n");
     }
         
-    // 🧼 Clear old task roots before attempting to load
+    // Clear old task roots before attempting to load.
+    if (!taskRoots) {
+        taskRoots = calloc(MAX_TASK_ROOTS, sizeof(TaskNode*));
+        if (!taskRoots) {
+            fprintf(stderr, "[TaskLoad] Failed to allocate task root array.\n");
+            taskRootCount = 0;
+            return;
+        }
+    } else {
+        for (int i = 0; i < taskRootCount; i++) {
+            if (taskRoots[i]) {
+                freeTaskTree(taskRoots[i]);
+                taskRoots[i] = NULL;
+            }
+        }
+    }
     for (int i = 0; i < MAX_TASK_ROOTS; i++) {
         taskRoots[i] = NULL;
     }
@@ -269,7 +345,25 @@ bool initializeSystem() {
     initBuildSystem();
     initBuildOutputPanelState();
     analysis_status_init();
-    build_diagnostics_load(projectPath);
+
+    initProjectPaths();
+    loadInitialWorkspace();
+
+    IDECoreState* core = getCoreState();
+    if (core) {
+        EditorView* restoredRoot = NULL;
+        EditorView* restoredActive = NULL;
+        if (editor_session_load(projectPath, &restoredRoot, &restoredActive) && restoredRoot) {
+            core->persistentEditorView = restoredRoot;
+            core->activeEditorView = restoredActive ? restoredActive : findNextLeaf(restoredRoot);
+            core->editorViewCount = editor_session_count_leaves(restoredRoot);
+            if (core->editorViewCount <= 0) core->editorViewCount = 1;
+            if (core->activeEditorView) {
+                setActiveEditorView(core->activeEditorView);
+            }
+        }
+    }
+
     const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
     const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
     bool loadedCache = analysis_cache_load_errors(projectPath, buildArgs);
@@ -287,6 +381,7 @@ bool initializeSystem() {
     if (analysis_cache_load_library(projectPath, buildArgs)) {
         loadedCache = true;
     }
+    include_graph_load(projectPath);
     analysis_status_set_has_cache(loadedCache || loadedSymbols || loadedTokens);
 
     initPluginSystem();
@@ -294,11 +389,17 @@ bool initializeSystem() {
     initializeUIPanesIfNeeded();
     initFileWatcher();
 
-    initProjectPaths();
-    loadInitialWorkspace();
     analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
     analysis_request_refresh();
     initAssetManagerPanel();
+
+    if (!ide_ipc_start(projectPath)) {
+        fprintf(stderr, "[IPC] Warning: failed to start IDE IPC server. idebridge will be unavailable.\n");
+    } else {
+        ide_ipc_set_open_handler(ide_ipc_open_from_ui, NULL);
+        ide_ipc_set_edit_handler(ide_ipc_edit_apply_from_ui, NULL);
+    }
+
     initTerminal();
 
     const char* workspace = getWorkspacePath();
@@ -326,6 +427,14 @@ void shutdownSystem(UIPane** panes, int paneCount) {
     analysis_cache_save_metadata(projectPath, buildArgs);
     analysis_cache_save_symbols(projectPath);
     analysis_cache_save_tokens(projectPath);
+    analysis_snapshot_refresh_and_save(projectPath);
+    include_graph_save(projectPath);
+    IDECoreState* core = getCoreState();
+    if (core && core->persistentEditorView) {
+        editor_session_save(projectPath, core->persistentEditorView, core->activeEditorView);
+    }
+
+    ide_ipc_stop();
 
     terminal_shutdown_shell();
 

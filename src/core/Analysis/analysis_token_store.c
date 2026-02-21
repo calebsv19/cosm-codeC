@@ -91,6 +91,23 @@ void analysis_token_store_upsert(const char* filePath,
     g_file_count++;
 }
 
+void analysis_token_store_remove(const char* filePath) {
+    if (!filePath) return;
+    size_t existing = (size_t)-1;
+    for (size_t i = 0; i < g_file_count; ++i) {
+        if (g_files[i].path && strcmp(g_files[i].path, filePath) == 0) {
+            existing = i;
+            break;
+        }
+    }
+    if (existing == (size_t)-1) return;
+    free_token_entry(&g_files[existing]);
+    for (size_t j = existing + 1; j < g_file_count; ++j) {
+        g_files[j - 1] = g_files[j];
+    }
+    g_file_count--;
+}
+
 size_t analysis_token_store_file_count(void) {
     return g_file_count;
 }

@@ -28,6 +28,8 @@ typedef struct {
 } LibraryFlatRow;
 
 #define LIBRARY_ROW_HEIGHT 20
+#define LIBRARIES_HEADER_HEIGHT 50
+#define LIBRARIES_LIST_TOP_GAP 6
 
 typedef struct {
     int selectedRow;
@@ -47,6 +49,8 @@ typedef struct {
     int flatCapacity;
     bool* selected;
     int selectedCapacity;
+    bool includeSystemHeaders;
+    SDL_Rect systemToggleRect;
 } LibraryPanelState;
 
 extern LibraryPanelState g_libraryPanelState;
@@ -59,5 +63,6 @@ void endLibrarySelectionDrag(void);
 void rebuildLibraryFlatRows(void);
 bool library_row_is_selected(int idx);
 void copy_selected_rows(void);
+bool handleLibraryHeaderClick(UIPane* pane, int clickX, int clickY);
 
 #endif // TOOL_LIBRARIES_H

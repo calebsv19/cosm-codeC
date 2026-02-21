@@ -64,7 +64,7 @@ void terminal_send_text(const char* text, size_t len);
 // Backend lifecycle (PTY shell). Rows/cols are optional hints; pass 0 for defaults.
 bool terminal_spawn_shell(const char* start_dir, int rows, int cols);
 void terminal_shutdown_shell(void);
-void terminal_tick_backend(void);  // Non-blocking pump; call from frame loop
+bool terminal_tick_backend(void);  // Non-blocking pump; returns true if content changed
 void terminal_resize_grid_for_pane(int width_px, int height_px);
 
 #endif

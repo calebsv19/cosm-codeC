@@ -34,13 +34,6 @@ void handleKeyboardInput(SDL_Event* event,
 
     // === GLOBAL COMMANDS (Always valid regardless of focused pane) ===
 
-    // ESC exits program
-    if (key == SDLK_ESCAPE) {
-        *running = false;
-        return;
-    }
-
-
     if (isRenaming()) {
 	    if (key == SDLK_RETURN) { submitRename(); return; }
 	    else if (key == SDLK_ESCAPE) { cancelRename(); return; }
