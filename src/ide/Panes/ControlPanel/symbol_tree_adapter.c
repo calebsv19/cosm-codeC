@@ -152,6 +152,37 @@ static bool symbol_kind_matches_mode(FisicsSymbolKind kind, SymbolFilterMode mod
     }
 }
 
+static uint32_t symbol_kind_mask_for_symbol(FisicsSymbolKind kind) {
+    switch (kind) {
+        case FISICS_SYMBOL_FUNCTION:
+            return SYMBOL_KIND_MASK_METHODS;
+        case FISICS_SYMBOL_STRUCT:
+        case FISICS_SYMBOL_UNION:
+        case FISICS_SYMBOL_ENUM:
+        case FISICS_SYMBOL_TYPEDEF:
+            return SYMBOL_KIND_MASK_TYPES;
+        case FISICS_SYMBOL_VARIABLE:
+        case FISICS_SYMBOL_FIELD:
+        case FISICS_SYMBOL_ENUM_MEMBER:
+            return SYMBOL_KIND_MASK_VARS;
+        default:
+            return 0u;
+    }
+}
+
+static bool symbol_kind_matches_options(FisicsSymbolKind kind, const SymbolFilterOptions* options) {
+    if (options && options->kind_mask != 0u) {
+        if ((options->kind_mask & SYMBOL_KIND_MASK_TAGS) != 0u) {
+            // Tag metadata isn't wired yet; keep TAGS broad for now.
+            return true;
+        }
+        uint32_t symbolMask = symbol_kind_mask_for_symbol(kind);
+        return (symbolMask & options->kind_mask) != 0u;
+    }
+    SymbolFilterMode mode = options ? options->mode : SYMBOL_FILTER_MODE_SYMBOLS;
+    return symbol_kind_matches_mode(kind, mode);
+}
+
 static bool is_scope_excluded_bucket(const UITreeNode* node, SymbolFilterScope scope) {
     if (!node || node->depth != 1 || !node->label) return false;
     if (strcmp(node->label, "Active File") == 0) {
@@ -169,7 +200,6 @@ bool symbol_tree_query_matches_node(const UITreeNode* node,
     if (!node) return false;
     if (!query || !query[0]) return true;
 
-    SymbolFilterMode mode = options ? options->mode : SYMBOL_FILTER_MODE_SYMBOLS;
     bool matchName = options ? options->field_name : true;
     bool matchType = options ? options->field_type : true;
     bool matchParams = options ? options->field_params : true;
@@ -183,7 +213,7 @@ bool symbol_tree_query_matches_node(const UITreeNode* node,
         return text_contains_ci(node->label, query);
     }
 
-    if (!symbol_kind_matches_mode(sym->kind, mode)) {
+    if (!symbol_kind_matches_options(sym->kind, options)) {
         return false;
     }
 

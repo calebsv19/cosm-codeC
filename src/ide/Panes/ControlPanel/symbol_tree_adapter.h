@@ -2,6 +2,7 @@
 #define SYMBOL_TREE_ADAPTER_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "core/Analysis/analysis_symbols_store.h"
 
@@ -21,8 +22,16 @@ typedef enum {
     SYMBOL_FILTER_SCOPE_PROJECT
 } SymbolFilterScope;
 
+enum {
+    SYMBOL_KIND_MASK_METHODS = 1u << 0,
+    SYMBOL_KIND_MASK_TYPES   = 1u << 1,
+    SYMBOL_KIND_MASK_VARS    = 1u << 2,
+    SYMBOL_KIND_MASK_TAGS    = 1u << 3
+};
+
 typedef struct {
     SymbolFilterMode mode;
+    uint32_t kind_mask;
     SymbolFilterScope scope;
     bool field_name;
     bool field_type;

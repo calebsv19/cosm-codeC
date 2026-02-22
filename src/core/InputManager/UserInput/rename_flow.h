@@ -30,6 +30,7 @@ typedef struct {
     char defaultError[128];
     char lastError[128];
     bool acceptUnchanged;
+    bool submitWithShift;
 } RenameRequest;
 
 // Core interface
@@ -45,6 +46,7 @@ void beginRenameWithPrompt(const char* promptLabel,
                            bool acceptUnchanged);
 void cancelRename(void);
 void submitRename(void);
+void submitRenameWithMod(SDL_Keymod mod);
 void handleRenameTextInput(char ch);
 bool isRenaming(void);
 void setRenameErrorMessage(const char* message);

@@ -34,6 +34,9 @@ typedef struct ProjectDragState {
     bool active;
     bool validTarget;
     struct EditorView* targetView;
+    struct DirEntry* targetDirectory;
+    bool validDirectoryTarget;
+    SDL_Rect targetDirectoryRect;
     int startX;
     int startY;
     int offsetX;

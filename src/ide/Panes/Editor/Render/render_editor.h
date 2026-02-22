@@ -14,7 +14,6 @@ void renderEditorEntry(EditorView* view);
 void renderEditorViewRecursive(EditorView* view);
 void renderLeafEditorView(EditorView* view);
 void renderEditorScrollbar(EditorView* view, OpenFile* file);
-void renderEditorBuffer(EditorBuffer* buffer, EditorState* state, int x, int y, int w, int h);
+void renderEditorBuffer(OpenFile* file, EditorState* state, int x, int y, int w, int h);
 
 #endif // RENDER_EDITOR_VIEW_H
-

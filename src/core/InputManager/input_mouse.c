@@ -103,6 +103,7 @@ void handleMouseInput(SDL_Event* event, UIPane** panes, int paneCount) {
         return;
     }
 
+    if (handleEditorSplitDividerInteraction(event, mx, my)) return;
     if (handleEditorScrollbarThumbClick(event, mx, my)) return;
     if (handleEditorScrollbarDrag(event)) return;
 

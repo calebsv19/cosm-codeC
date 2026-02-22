@@ -12,6 +12,7 @@
 
 static UITreeNode* hoveredNode = NULL;
 static UITreeNode* selectedNode = NULL;
+static const int TREE_INDENT_WIDTH = 10;
 
 // Optional color overrides
 static SDL_Color statusColors[8] = {
@@ -88,7 +89,7 @@ static void renderTreeRecursive(UITreeNode* node,
                                 bool controlPanelTone,
                                 int lineHeight) {
     if (!node || *y > maxY) return;
-    int indent = node->depth * 20;
+    int indent = node->depth * TREE_INDENT_WIDTH;
     int drawX = x + indent;
     int drawY = *y;
 
@@ -264,7 +265,7 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
         if (drawY + lineHeight < contentTop) {
             // Skip draw, but continue traversal (need depth info)
         } else if (drawY <= maxY) {
-            int indent = n->depth * 20;
+            int indent = n->depth * TREE_INDENT_WIDTH;
             int drawX = x + indent;
 
             RenderContext* ctx = getRenderContext();
@@ -365,7 +366,7 @@ void handleTreeClick(UIPane* pane, int clickX, int clickY) {
 
     // Only folders/sections can expand/collapse
     if (hoveredNode->type == TREE_NODE_FOLDER || hoveredNode->type == TREE_NODE_SECTION) {
-        int indent = hoveredNode->depth * 20;
+        int indent = hoveredNode->depth * TREE_INDENT_WIDTH;
         int drawX = pane->x + 12 + indent;
         int prefixWidth = getTextWidth("[-] ") + 10;
         bool clickedPrefix = (clickX >= drawX && clickX <= drawX + prefixWidth);
@@ -430,7 +431,7 @@ void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, PaneScrollState* 
     selectedNode = hit;
 
     if (hit->type == TREE_NODE_FOLDER || hit->type == TREE_NODE_SECTION) {
-        int indent = hit->depth * 20;
+        int indent = hit->depth * TREE_INDENT_WIDTH;
         int drawX = pane->x + paddingX + indent;
         int prefixWidth = getTextWidth("[-] ") + 10;
         bool clickedPrefix = (clickX >= drawX && clickX <= drawX + prefixWidth);

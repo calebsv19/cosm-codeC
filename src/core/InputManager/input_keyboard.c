@@ -35,7 +35,7 @@ void handleKeyboardInput(SDL_Event* event,
     // === GLOBAL COMMANDS (Always valid regardless of focused pane) ===
 
     if (isRenaming()) {
-	    if (key == SDLK_RETURN) { submitRename(); return; }
+	    if (key == SDLK_RETURN) { submitRenameWithMod((SDL_Keymod)mod); return; }
 	    else if (key == SDLK_ESCAPE) { cancelRename(); return; }
 	    else if (key == SDLK_BACKSPACE) { handleRenameTextInput('\b'); return; }
 	

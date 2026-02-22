@@ -22,6 +22,7 @@
 #include "ide/UI/layout.h"
 #include "ide/UI/layout_config.h"
 #include "ide/UI/ui_state.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/MenuBar/menu_buttons.h"
 
@@ -226,6 +227,7 @@ void renderPopupQueue(UIPane* pane, bool hovered, IDECoreState* core) {
 // Default render function
 void renderUIPane(UIPane* pane, bool hovered) {
     if (!pane || !pane->visible) return;
+    (void)hovered;
 
     RenderContext* ctx = getRenderContext();
     if (!ctx || !ctx->renderer) return;
@@ -237,11 +239,61 @@ void renderUIPane(UIPane* pane, bool hovered) {
     SDL_Rect rect = { pane->x, pane->y, pane->w, pane->h };
     SDL_RenderFillRect(renderer, &rect);
 
-    SDL_Color borderColor = hovered
-        ? (SDL_Color){140, 150, 240, 255}
-        : pane->borderColor;
+}
 
-    SDL_SetRenderDrawColor(renderer, borderColor.r, borderColor.g, borderColor.b, borderColor.a);
+static void render_pane_borders(UIPane** panes, int paneCount, int winW, int winH) {
+    RenderContext* ctx = getRenderContext();
+    if (!ctx || !ctx->renderer || !panes || paneCount <= 0) return;
+    SDL_Renderer* renderer = ctx->renderer;
+    SDL_RenderSetClipRect(renderer, NULL);
+
+    for (int i = 0; i < paneCount; ++i) {
+        UIPane* pane = panes[i];
+        if (!pane || !pane->visible || pane->w <= 0 || pane->h <= 0) continue;
+
+        SDL_Rect rect = { pane->x, pane->y, pane->w, pane->h };
+        const int left = rect.x;
+        const int right = rect.x + rect.w - 1;
+        const int top = rect.y;
+        const int bottom = rect.y + rect.h - 1;
+
+        SDL_Color borderColor = pane->borderColor;
+        SDL_SetRenderDrawColor(renderer, borderColor.r, borderColor.g, borderColor.b, borderColor.a);
+
+        // Single-owner seam policy:
+        // top and left own shared boundaries; right/bottom are skipped to avoid double-thick seams.
+        if (left > 0) {
+            SDL_RenderDrawLine(renderer, left, top, left, bottom);
+        }
+        if (top > 0) {
+            SDL_RenderDrawLine(renderer, left, top, right, top);
+        }
+
+        (void)winW;
+        (void)winH;
+    }
+}
+
+static void render_hovered_pane_overlay(const IDECoreState* core) {
+    if (!core || !core->activeMousePane) return;
+    UIPane* hoveredPane = core->activeMousePane;
+    if (!hoveredPane->visible) return;
+    if (hoveredPane->role == PANE_ROLE_EDITOR) return;
+
+    RenderContext* ctx = getRenderContext();
+    if (!ctx || !ctx->renderer) return;
+    SDL_Renderer* renderer = ctx->renderer;
+
+    SDL_RenderSetClipRect(renderer, NULL);
+    SDL_Rect rect = {
+        hoveredPane->x + 1,
+        hoveredPane->y + 1,
+        hoveredPane->w - 2,
+        hoveredPane->h - 2
+    };
+    if (rect.w <= 0 || rect.h <= 0) return;
+    SDL_Color hoverColor = ide_shared_theme_pane_hover_border_color();
+    SDL_SetRenderDrawColor(renderer, hoverColor.r, hoverColor.g, hoverColor.b, hoverColor.a);
     SDL_RenderDrawRect(renderer, &rect);
 }
 
@@ -438,6 +490,9 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     if (timerHudActive) {
         ts_stop_timer("PaneRender");
     }
+
+    render_pane_borders(panes, paneCount, winW, winH);
+
     if (timerHudActive) {
         ts_start_timer("OverlayRender");
     }
@@ -448,6 +503,9 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     if (timerHudActive) {
         ts_stop_timer("OverlayRender");
     }
+
+    render_hovered_pane_overlay(core);
+
 #if USE_VULKAN && VK_RENDERER_FRAME_DEBUG_ENABLED
     if (s_debug_frame_counter < 120 && ctx && ctx->renderer) {
         VK_RENDERER_FRAME_DEBUG_LOG(

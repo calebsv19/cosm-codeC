@@ -8,6 +8,7 @@
 #include "ide/Panes/Terminal/terminal.h"
 #include "ide/Panes/PaneInfo/pane.h"
 #include "ide/Panes/Editor/editor_view.h"
+#include "core/FileIO/file_ops.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,8 @@
 #include <unistd.h> // for remove()
 #include <dirent.h>
 #include <errno.h>
+
+static const int PROJECT_TREE_INDENT_WIDTH = 10;
 
 
 static Uint32 lastClickTime = 0;
@@ -184,6 +187,53 @@ void restoreRunTargetSelection(void) {
     }
 }
 
+static void clearProjectDirectoryDropTarget(ProjectDragState* drag) {
+    if (!drag) return;
+    drag->targetDirectory = NULL;
+    drag->validDirectoryTarget = false;
+    drag->targetDirectoryRect = (SDL_Rect){0};
+}
+
+static void setProjectDirectoryDropTarget(ProjectDragState* drag) {
+    if (!drag) return;
+    drag->targetDirectory = NULL;
+    drag->validDirectoryTarget = false;
+    drag->targetDirectoryRect = (SDL_Rect){0};
+    if (!drag->active || !drag->entry || drag->entry->type != ENTRY_FILE) return;
+    if (!hoveredEntry || hoveredEntry->type != ENTRY_FOLDER) return;
+    if (!hoveredEntry->path || !drag->entry->name) return;
+    if (hoveredEntry == drag->entry->parent) return;
+
+    char destPath[1024];
+    snprintf(destPath, sizeof(destPath), "%s/%s", hoveredEntry->path, drag->entry->name);
+    struct stat st;
+    if (stat(destPath, &st) == 0) return;
+
+    drag->targetDirectory = hoveredEntry;
+    drag->validDirectoryTarget = true;
+    drag->targetDirectoryRect = hoveredEntryRect;
+}
+
+static bool moveFileEntryToDirectory(DirEntry* fileEntry, DirEntry* destDir) {
+    if (!fileEntry || fileEntry->type != ENTRY_FILE || !fileEntry->path || !fileEntry->name) return false;
+    if (!destDir || destDir->type != ENTRY_FOLDER || !destDir->path) return false;
+
+    char destPath[1024];
+    snprintf(destPath, sizeof(destPath), "%s/%s", destDir->path, fileEntry->name);
+    if (strcmp(fileEntry->path, destPath) == 0) return false;
+    if (!renameFileOnDisk(fileEntry->path, destPath)) return false;
+
+    fileEntry->parent = destDir;
+    free(fileEntry->path);
+    fileEntry->path = strdup(destPath);
+
+    destDir->isExpanded = true;
+    strncpy(newlyCreatedPath, destPath, sizeof(newlyCreatedPath));
+    newlyCreatedPath[sizeof(newlyCreatedPath) - 1] = '\0';
+    pendingProjectRefresh = true;
+    return true;
+}
+
 void resetProjectDragState(void) {
     IDECoreState* core = getCoreState();
     ProjectDragState* drag = &core->projectDrag;
@@ -191,6 +241,7 @@ void resetProjectDragState(void) {
     drag->active = false;
     drag->validTarget = false;
     drag->targetView = NULL;
+    clearProjectDirectoryDropTarget(drag);
     drag->startX = drag->startY = 0;
     drag->currentX = drag->currentY = 0;
     drag->offsetX = drag->offsetY = 0;
@@ -264,6 +315,7 @@ void updateProjectDrag(int mouseX, int mouseY) {
     }
 
     setEditorDropTarget(mouseX, mouseY);
+    setProjectDirectoryDropTarget(drag);
 }
 
 void finalizeProjectDrag(int mouseX, int mouseY) {
@@ -279,9 +331,12 @@ void finalizeProjectDrag(int mouseX, int mouseY) {
 
     if (drag->active) {
         setEditorDropTarget(mouseX, mouseY);
+        setProjectDirectoryDropTarget(drag);
         if (drag->validTarget && drag->targetView) {
             setActiveEditorView(drag->targetView);
             handleCommandOpenFileInEditor(drag->entry);
+        } else if (drag->validDirectoryTarget && drag->targetDirectory) {
+            moveFileEntryToDirectory(drag->entry, drag->targetDirectory);
         }
     }
 
@@ -361,7 +416,7 @@ void handleProjectFilesClick(UIPane* pane, int clickX) {
     lastClickedEntry = hoveredEntry;
     lastClickTime = now;
 
-    int indent = hoveredEntryDepth * 20;
+    int indent = hoveredEntryDepth * PROJECT_TREE_INDENT_WIDTH;
     int drawX = pane->x + 12 + indent;
     int prefixWidth = getTextWidth("[-] ");
     bool clickedPrefix = (clickX >= drawX && clickX <= drawX + prefixWidth);

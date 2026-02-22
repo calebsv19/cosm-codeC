@@ -250,6 +250,62 @@ static void text_cache_draw_entry(SDL_Renderer* renderer,
 #endif
 }
 
+static void text_cache_draw_entry_clipped(SDL_Renderer* renderer,
+                                          const TextCacheEntry* entry,
+                                          int x,
+                                          int y,
+                                          bool bold,
+                                          const SDL_Rect* clipRect) {
+    if (!renderer || !entry || !entry->valid) return;
+    if (!clipRect || clipRect->w <= 0 || clipRect->h <= 0) {
+        text_cache_draw_entry(renderer, entry, x, y, bold);
+        return;
+    }
+
+    SDL_Rect dst = {x, y, entry->width, entry->height};
+    SDL_Rect vis = {0, 0, 0, 0};
+    if (!SDL_IntersectRect(&dst, clipRect, &vis)) return;
+
+    SDL_Rect src = {
+        vis.x - dst.x,
+        vis.y - dst.y,
+        vis.w,
+        vis.h
+    };
+
+#if USE_VULKAN
+    vk_renderer_draw_texture(renderer, &entry->texture, &src, &vis);
+    if (bold) {
+        SDL_Rect dst2 = { x + 1, y, entry->width, entry->height };
+        SDL_Rect vis2 = {0, 0, 0, 0};
+        if (SDL_IntersectRect(&dst2, clipRect, &vis2)) {
+            SDL_Rect src2 = {
+                vis2.x - dst2.x,
+                vis2.y - dst2.y,
+                vis2.w,
+                vis2.h
+            };
+            vk_renderer_draw_texture(renderer, &entry->texture, &src2, &vis2);
+        }
+    }
+#else
+    SDL_RenderCopy(renderer, entry->texture, &src, &vis);
+    if (bold) {
+        SDL_Rect dst2 = { x + 1, y, entry->width, entry->height };
+        SDL_Rect vis2 = {0, 0, 0, 0};
+        if (SDL_IntersectRect(&dst2, clipRect, &vis2)) {
+            SDL_Rect src2 = {
+                vis2.x - dst2.x,
+                vis2.y - dst2.y,
+                vis2.w,
+                vis2.h
+            };
+            SDL_RenderCopy(renderer, entry->texture, &src2, &vis2);
+        }
+    }
+#endif
+}
+
 void drawText(int x, int y, const char* text) {
     drawTextWithFont(x, y, text, getActiveFont());
 }
@@ -347,6 +403,21 @@ void drawTextUTF8WithFontColor(int x, int y, const char* text, TTF_Font* font,
     }
     SDL_FreeSurface(surface);
 #endif
+}
+
+void drawTextUTF8WithFontColorClipped(int x, int y, const char* text, TTF_Font* font,
+                                      SDL_Color color, bool bold, const SDL_Rect* clipRect) {
+    if (!text || text[0] == '\0') return;
+    if (!font) return;
+
+    RenderContext* ctx = getRenderContext();
+    if (!ctx || !ctx->renderer) return;
+
+    SDL_Renderer* renderer = ctx->renderer;
+    TextCacheEntry* cached = NULL;
+    if (text_cache_get(renderer, font, text, color, true, &cached)) {
+        text_cache_draw_entry_clipped(renderer, cached, x, y, bold, clipRect);
+    }
 }
 
 void drawClippedText(int x, int y, const char* text, int maxWidth) {

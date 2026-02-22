@@ -26,6 +26,8 @@ void drawTextWithFont(int x, int y, const char* text, TTF_Font* font);
 void drawTextWithTier(int x, int y, const char* text, CoreFontTextSizeTier tier);
 void drawTextUTF8WithFontColor(int x, int y, const char* text, TTF_Font* font,
                                SDL_Color color, bool bold);
+void drawTextUTF8WithFontColorClipped(int x, int y, const char* text, TTF_Font* font,
+                                      SDL_Color color, bool bold, const SDL_Rect* clipRect);
 
 // Draw clipped text within a max width
 void drawClippedText(int x, int y, const char* text, int maxWidth);

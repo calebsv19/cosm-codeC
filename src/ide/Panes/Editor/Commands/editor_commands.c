@@ -8,10 +8,19 @@
 
 
 
-static void handleCommandAddEditorView(UIPane* pane) {
-    printf("[COMMAND] Add new editor view requested.\n");
-    EditorView* root = getCoreState()->editorPane->editorView;
-    addEditorView(root, pane);  // Always split from root
+static void handleCommandAddEditorView(UIPane* pane, SDL_Keymod mod) {
+    IDECoreState* core = getCoreState();
+    if (!core || !core->editorPane) return;
+
+    EditorView* root = core->editorPane->editorView;
+    EditorView* target = core->activeEditorView;
+    SplitOrientation split = (mod & KMOD_SHIFT) ? SPLIT_HORIZONTAL : SPLIT_VERTICAL;
+
+    printf("[COMMAND] Split editor view requested (%s).\n",
+           split == SPLIT_HORIZONTAL ? "horizontal" : "vertical");
+    if (!splitEditorView(root, target, pane, split)) {
+        printf("[COMMAND] Split request ignored (no valid target or max split limit).\n");
+    }
 }
      
 static void handleCommandSwitchTabWithMod(SDL_Keymod mod) {
@@ -21,8 +30,11 @@ static void handleCommandSwitchTabWithMod(SDL_Keymod mod) {
  
 void handleCommandAction(SDL_Keycode key, EditorBuffer* buffer, EditorState* state,
                          EditorView* view, UIPane* pane, SDL_Keymod mod) {
+    (void)buffer;
+    (void)state;
+    (void)view;
     if (key == SDLK_e) {
-        handleCommandAddEditorView(pane);
+        handleCommandAddEditorView(pane, mod);
     }
     
     if (key == SDLK_TAB) {
@@ -106,8 +118,8 @@ static bool handleCommandTrimLineStart(const char* line, EditorState* state) {
 
 bool handleCommandNavigation(SDL_Keycode key, EditorBuffer* buffer, EditorState* state,
                              int paneHeight, bool shiftHeld) {
-    int lineHeight = 20; 
-    int maxVisibleLines = (paneHeight - 30) / lineHeight;
+    int lineHeight = EDITOR_LINE_HEIGHT;
+    int maxVisibleLines = (paneHeight - EDITOR_CONTENT_TOP_PADDING) / lineHeight;
  
     const char* line = buffer->lines[state->cursorRow];
     if (!line) return false;

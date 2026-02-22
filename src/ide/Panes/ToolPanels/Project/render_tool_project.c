@@ -26,6 +26,7 @@ PaneScrollState* project_get_scroll_state(UIPane* pane);
 
 static PaneScrollState s_projectScrollState;
 static bool s_projectScrollInitialized = false;
+static const int PROJECT_TREE_INDENT_WIDTH = 10;
 static const PaneScrollConfig s_projectScrollConfig = {
     .line_height_px = 22.0f,
     .deceleration_px = 0.0f,
@@ -100,6 +101,7 @@ typedef struct ProjectRenderContext {
     int baseX;
     int lineHeight;
     int indentWidth;
+    ProjectDragState* drag;
 } ProjectRenderContext;
 
 static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int depth) {
@@ -135,6 +137,9 @@ static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int
         .h = ctx->lineHeight
     };
 
+    bool isDirectoryDropTarget = ctx->drag && ctx->drag->validDirectoryTarget &&
+                                 ctx->drag->targetDirectory == entry;
+
     if (insideViewport) {
         if (entry == selectedDirectory) {
             SDL_SetRenderDrawColor(ctx->renderer, 80, 160, 90, 120);
@@ -144,6 +149,10 @@ static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int
         if (entry == selectedFile) {
             SDL_SetRenderDrawColor(ctx->renderer, 70, 120, 200, 140);
             SDL_RenderFillRect(ctx->renderer, &box);
+        }
+        if (isDirectoryDropTarget) {
+            SDL_SetRenderDrawColor(ctx->renderer, 40, 170, 120, 210);
+            SDL_RenderDrawRect(ctx->renderer, &box);
         }
     }
 
@@ -319,7 +328,8 @@ void renderProjectFilesPanel(UIPane* pane) {
             .viewportBottom = (float)(viewport.y + viewport.h),
             .baseX = x,
             .lineHeight = (int)s_projectScrollConfig.line_height_px,
-            .indentWidth = 20,
+            .indentWidth = PROJECT_TREE_INDENT_WIDTH,
+            .drag = &coreState->projectDrag,
         };
         project_render_entry(&renderCtx, projectRoot, 0);
     } else if (viewport.h > 0) {

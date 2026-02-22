@@ -195,6 +195,26 @@ void ide_shared_theme_button_colors(SDL_Color *out_fill,
     }
 }
 
+SDL_Color ide_shared_theme_pane_hover_border_color(void) {
+    // Keep pane hover visibly blue-tinted (not white) for clear feedback.
+    return (SDL_Color){140, 150, 240, 255};
+}
+
+void ide_shared_theme_editor_border_colors(SDL_Color *out_hover,
+                                           SDL_Color *out_active,
+                                           SDL_Color *out_active_hover) {
+    if (out_hover) {
+        *out_hover = (SDL_Color){140, 150, 240, 255};
+    }
+    if (out_active) {
+        *out_active = (SDL_Color){92, 142, 255, 255};
+    }
+    if (out_active_hover) {
+        // Hovering the active editor should become lighter than active while staying blue.
+        *out_active_hover = (SDL_Color){132, 178, 255, 255};
+    }
+}
+
 bool ide_shared_font_resolve_role(CoreFontRoleId role,
                                   CoreFontTextSizeTier tier,
                                   char *out_path,

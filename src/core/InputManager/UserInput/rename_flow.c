@@ -73,6 +73,7 @@ void beginRenameWithPrompt(const char* promptLabel,
     RENAME->active = true;
     RENAME->cursorPosition = (int)strlen(RENAME->inputBuffer);
     RENAME->acceptUnchanged = acceptUnchanged;
+    RENAME->submitWithShift = false;
 
     caretVisible = true;
     lastCaretBlink = SDL_GetTicks();
@@ -93,11 +94,17 @@ void cancelRename(void) {
     RENAME->lastError[0] = '\0';
     renameErrorVisible = false;
     RENAME->acceptUnchanged = false;
+    RENAME->submitWithShift = false;
     requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
 }
 
 void submitRename(void) {
+    submitRenameWithMod((SDL_Keymod)0);
+}
+
+void submitRenameWithMod(SDL_Keymod mod) {
     if (!RENAME->active) return;
+    RENAME->submitWithShift = (mod & KMOD_SHIFT) != 0;
 
     const char* newName = RENAME->inputBuffer;
     const char* oldName = RENAME->originalName;
@@ -135,6 +142,7 @@ void submitRename(void) {
     renameErrorVisible = false;
     RENAME->lastError[0] = '\0';
     RENAME->acceptUnchanged = false;
+    RENAME->submitWithShift = false;
     requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
 }
 

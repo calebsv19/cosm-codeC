@@ -12,6 +12,36 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+static bool editor_projection_mode_active(const OpenFile* file) {
+    return file &&
+           editor_file_projection_active(file) &&
+           file->projection.lines &&
+           file->projection.lineCount > 0;
+}
+
+static void jump_from_projection_to_source(OpenFile* activeFile) {
+    if (!activeFile || !activeFile->buffer) return;
+    EditorState* state = &activeFile->state;
+
+    int sourceRow = state->cursorRow;
+    int sourceCol = state->cursorCol;
+
+    if (sourceRow < 0) sourceRow = 0;
+    if (sourceRow >= activeFile->buffer->lineCount) sourceRow = activeFile->buffer->lineCount - 1;
+    if (sourceRow < 0) sourceRow = 0;
+    int lineLen = activeFile->buffer->lines[sourceRow] ? (int)strlen(activeFile->buffer->lines[sourceRow]) : 0;
+    if (sourceCol < 0) sourceCol = 0;
+    if (sourceCol > lineLen) sourceCol = lineLen;
+
+    state->cursorRow = sourceRow;
+    state->cursorCol = sourceCol;
+    state->viewTopRow = (sourceRow > 2) ? sourceRow - 2 : 0;
+    state->selecting = false;
+    state->draggingWithMouse = false;
+    editor_set_file_render_source(activeFile, EDITOR_RENDER_REAL);
+}
 
 
 void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
@@ -26,6 +56,7 @@ void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
     OpenFile* activeFile = view ? getActiveOpenFile(view) : NULL;
     EditorBuffer* buffer = activeFile ? activeFile->buffer : NULL;
     EditorState* state = activeFile ? &activeFile->state : NULL;
+    bool projectionReadOnly = editor_projection_mode_active(activeFile);
 
     switch (meta.cmd) {
         // === Basic File Ops ===
@@ -38,24 +69,31 @@ void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
         // === Insert / Delete ===
         case COMMAND_INSERT_NEWLINE:
             if (activeFile && buffer && state) {
+                if (projectionReadOnly) {
+                    jump_from_projection_to_source(activeFile);
+                    break;
+                }
                 handleCommandInsertNewline(activeFile, buffer, state);
             }
             break;
 
         case COMMAND_DELETE:
             if (activeFile && buffer && state) {
+                if (projectionReadOnly) break;
                 handleCommandDeleteCharacter(activeFile, buffer, state);
             }
             break;
 
         case COMMAND_DELETE_FORWARD:
             if (activeFile && buffer && state) {
+                if (projectionReadOnly) break;
                 handleCommandDeleteForward(activeFile, buffer, state);
             }
             break;
 
         case COMMAND_INSERT_TAB:
             if (activeFile && buffer && state) {
+                if (projectionReadOnly) break;
                 for (int i = 0; i < 4; ++i) {
                     handleCommandInsertCharacter(activeFile, buffer, state, ' ');
                 }
@@ -64,6 +102,7 @@ void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
 
         // === Clipboard Ops ===
         case COMMAND_CUT:
+            if (projectionReadOnly) break;
             if (view) cutSelection(view);
             break;
 
@@ -72,6 +111,7 @@ void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
             break;
 
         case COMMAND_PASTE:
+            if (projectionReadOnly) break;
             if (view) pasteClipboard(view);
             break;
 
@@ -81,12 +121,14 @@ void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
 
         // === Undo / Redo ===
         case COMMAND_UNDO:
+            if (projectionReadOnly) break;
             if (activeFile && performUndo(activeFile)) {
                 printf("[Undo] Performed.\n");
             }
             break;
 
         case COMMAND_REDO:
+            if (projectionReadOnly) break;
             if (activeFile && performRedo(activeFile)) {
                 printf("[Redo] Performed.\n");
             }
@@ -101,6 +143,10 @@ void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
 
         case COMMAND_EDITOR_TEXT_INPUT:
             if (meta.payload) {
+                if (projectionReadOnly) {
+                    free(meta.payload);
+                    break;
+                }
                 editorProcessTextInput(pane, (EditorTextInputPayload*)meta.payload);
                 free(meta.payload);
             }

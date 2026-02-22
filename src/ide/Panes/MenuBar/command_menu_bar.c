@@ -25,6 +25,7 @@
 
 typedef struct WorkspaceSelectionContext {
     char resolvedPath[PATH_MAX];
+    bool preserveOpenFiles;
 } WorkspaceSelectionContext;
 
 static WorkspaceSelectionContext workspaceSelectionContext = {0};
@@ -77,12 +78,70 @@ static bool normalizePathInput(const char* input, char* output, size_t outputSiz
     return true;
 }
 
+static bool ensureDirectoryRecursive(const char* path) {
+    if (!path || !*path) return false;
+
+    char temp[PATH_MAX];
+    if (snprintf(temp, sizeof(temp), "%s", path) >= (int)sizeof(temp)) {
+        return false;
+    }
+
+    size_t len = strlen(temp);
+    while (len > 1 && temp[len - 1] == '/') {
+        temp[--len] = '\0';
+    }
+
+    for (char* p = temp + 1; *p; ++p) {
+        if (*p != '/') continue;
+        *p = '\0';
+        if (mkdir(temp, 0755) != 0 && errno != EEXIST) {
+            return false;
+        }
+        *p = '/';
+    }
+
+    if (mkdir(temp, 0755) != 0 && errno != EEXIST) {
+        return false;
+    }
+    return true;
+}
+
+static bool resolveWorkspaceCandidate(const char* candidate, char* outAbs, size_t outAbsSize) {
+    if (!candidate || !outAbs || outAbsSize == 0) return false;
+
+    char normalized[PATH_MAX];
+    if (!normalizePathInput(candidate, normalized, sizeof(normalized))) {
+        return false;
+    }
+
+    if (normalized[0] == '/') {
+        if (snprintf(outAbs, outAbsSize, "%s", normalized) >= (int)outAbsSize) return false;
+        return true;
+    }
+
+    const char* base = getWorkspacePath();
+    if (!base || !*base) {
+        base = projectPath;
+    }
+
+    if (base && *base) {
+        if (snprintf(outAbs, outAbsSize, "%s/%s", base, normalized) >= (int)outAbsSize) return false;
+        return true;
+    }
+
+    char cwd[PATH_MAX];
+    if (!getcwd(cwd, sizeof(cwd))) return false;
+    if (snprintf(outAbs, outAbsSize, "%s/%s", cwd, normalized) >= (int)outAbsSize) return false;
+    return true;
+}
+
 static bool validateWorkspacePath(const char* candidate, void* context) {
     WorkspaceSelectionContext* ctx = (WorkspaceSelectionContext*)context;
     if (!ctx) return false;
+    ctx->preserveOpenFiles = RENAME->submitWithShift;
 
     char expanded[PATH_MAX];
-    if (!normalizePathInput(candidate, expanded, sizeof(expanded))) {
+    if (!resolveWorkspaceCandidate(candidate, expanded, sizeof(expanded))) {
         setRenameErrorMessage("Path is too long or empty");
         return false;
     }
@@ -90,13 +149,25 @@ static bool validateWorkspacePath(const char* candidate, void* context) {
     struct stat st;
     if (stat(expanded, &st) != 0) {
         if (errno == ENOENT) {
-            setRenameErrorMessage("Directory does not exist");
+            if (!ensureDirectoryRecursive(expanded)) {
+                if (errno == EACCES) {
+                    setRenameErrorMessage("Permission denied creating directory");
+                } else {
+                    setRenameErrorMessage("Unable to create directory path");
+                }
+                return false;
+            }
+            if (stat(expanded, &st) != 0) {
+                setRenameErrorMessage("Unable to access created path");
+                return false;
+            }
         } else if (errno == EACCES) {
             setRenameErrorMessage("Permission denied");
+            return false;
         } else {
             setRenameErrorMessage("Unable to access path");
+            return false;
         }
-        return false;
     }
 
     if (!S_ISDIR(st.st_mode)) {
@@ -115,12 +186,48 @@ static bool validateWorkspacePath(const char* candidate, void* context) {
     return true;
 }
 
+static bool path_is_within_workspace(const char* filePath, const char* workspaceRoot) {
+    if (!filePath || !workspaceRoot || !workspaceRoot[0]) return false;
+
+    size_t rootLen = strlen(workspaceRoot);
+    if (strncmp(filePath, workspaceRoot, rootLen) != 0) return false;
+    if (filePath[rootLen] == '\0') return true;
+    return filePath[rootLen] == '/';
+}
+
+static void close_tabs_outside_workspace(EditorView* view, const char* workspaceRoot) {
+    if (!view || !workspaceRoot || !workspaceRoot[0]) return;
+
+    if (view->type == VIEW_LEAF) {
+        for (int i = view->fileCount - 1; i >= 0; --i) {
+            OpenFile* file = view->openFiles[i];
+            const char* path = (file && file->filePath) ? file->filePath : NULL;
+            if (!path_is_within_workspace(path, workspaceRoot)) {
+                closeTab(view, i);
+            }
+        }
+        return;
+    }
+
+    close_tabs_outside_workspace(view->childA, workspaceRoot);
+    close_tabs_outside_workspace(view->childB, workspaceRoot);
+}
+
 static void applyWorkspaceSelection(const char* oldValue, const char* newValue, void* context) {
     (void)oldValue;
     WorkspaceSelectionContext* ctx = (WorkspaceSelectionContext*)context;
     const char* finalPath = (ctx && ctx->resolvedPath[0] != '\0') ? ctx->resolvedPath : newValue;
 
     if (!finalPath) return;
+
+    IDECoreState* core = getCoreState();
+    if (core && core->persistentEditorView && (!ctx || !ctx->preserveOpenFiles)) {
+        close_tabs_outside_workspace(core->persistentEditorView, finalPath);
+        if (!core->activeEditorView) {
+            EditorView* next = findNextLeaf(core->persistentEditorView);
+            if (next) setActiveEditorView(next);
+        }
+    }
 
     snprintf(projectPath, sizeof(projectPath), "%s", finalPath);
     setWorkspacePath(projectPath);
@@ -134,6 +241,7 @@ static void applyWorkspaceSelection(const char* oldValue, const char* newValue, 
 
 static void promptWorkspaceSelection(void) {
     workspaceSelectionContext.resolvedPath[0] = '\0';
+    workspaceSelectionContext.preserveOpenFiles = false;
     const char* current = getWorkspacePath();
     beginRenameWithPrompt(
         "Workspace Directory:",

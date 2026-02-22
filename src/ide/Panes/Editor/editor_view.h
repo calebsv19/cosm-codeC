@@ -1,6 +1,7 @@
 #ifndef EDITOR_VIEW_H
 #define EDITOR_VIEW_H
 
+#include <stdint.h>
 #include "app/GlobalInfo/core_state.h"
 #include "editor.h"  // For EditorBuffer and EditorState
 #include "ide/Panes/Editor/editor_state.h"
@@ -16,6 +17,22 @@
 #define HEADER_BG_R 40
 #define HEADER_BG_G 40
 #define HEADER_BG_B 40
+#define EDITOR_SPLIT_GAP 4
+#define EDITOR_SPLIT_MIN_CHILD_W 220
+#define EDITOR_SPLIT_MIN_CHILD_H 140
+#define EDITOR_MAX_LEAF_VIEWS 8
+#define EDITOR_LINE_HEIGHT 17
+#define EDITOR_CONTENT_TOP_PADDING 22
+#define EDITOR_TAB_GAP 4
+#define EDITOR_TAB_HEIGHT 18
+#define EDITOR_TAB_TEXT_PAD 6
+#define EDITOR_TAB_MIN_W 44
+#define EDITOR_TAB_MAX_W_INACTIVE 132
+#define EDITOR_TAB_MAX_W_ACTIVE 176
+#define EDITOR_TAB_SCROLL_STEP 48
+#define EDITOR_TAB_CLOSE_BTN_SIZE 18
+#define EDITOR_TAB_CLOSE_BTN_MARGIN 4
+#define EDITOR_LINE_NUMBER_GUTTER_W 18
 
 
 
@@ -24,6 +41,21 @@
 #endif
 
 struct UIPane;
+
+typedef enum {
+    EDITOR_RENDER_REAL = 0,
+    EDITOR_RENDER_PROJECTION
+} EditorRenderSource;
+
+typedef struct {
+    char** lines;
+    int lineCount;
+    int* projectedToRealLine;
+    int* projectedToRealCol;
+    int* realMatchLines;
+    int realMatchCount;
+    uint64_t buildStamp;
+} SearchProjection;
 
 typedef struct OpenFile{
     int refCount;
@@ -38,6 +70,10 @@ typedef struct OpenFile{
 
     void* undoStack;  
     bool pendingTextEdit;
+
+    uint64_t bufferVersion;
+    EditorRenderSource renderSource;
+    SearchProjection projection;
 } OpenFile;
 
 
@@ -69,9 +105,11 @@ typedef struct EditorView {
     int fileCount;
     int fileCapacity;
     int activeTab;
+    int tabScrollX;
 
     // If type == VIEW_SPLIT:
     SplitOrientation splitType;
+    float splitRatio;  // Portion of split axis assigned to childA (0..1, clamped)
     struct EditorView* childA;
     struct EditorView* childB;
     bool ownsFileData;
@@ -100,6 +138,9 @@ EditorView* findNextLeaf(EditorView* view);
 // Core management
 EditorView* createEditorView(void);
 void addEditorView(EditorView* root, struct UIPane* pane);
+bool splitEditorView(EditorView* root, EditorView* targetLeaf, struct UIPane* pane, SplitOrientation orientation);
+bool closeEmptyEditorLeaf(EditorView* root, EditorView* leaf);
+bool collapseEditorLeaf(EditorView* root, EditorView* leaf);
 void destroyEditorView(EditorView* view);
 void updateActiveEditorViewFromMouse(int mouseX, int mouseY);
 void bindEditorViewToEditorPane(EditorView* savedView, struct UIPane** panes, int paneCount);
@@ -130,6 +171,18 @@ OpenFile* openFileInView(EditorView* view, const char* filePath);
 void reloadOpenFileFromDisk(OpenFile* file);  // Optional stub
 
 OpenFile* getActiveOpenFile(EditorView* view);
+void editor_projection_reset(SearchProjection* projection);
+void editor_projection_free(SearchProjection* projection);
+void editor_invalidate_file_projection(OpenFile* file);
+void editor_set_file_render_source(OpenFile* file, EditorRenderSource source);
+bool editor_file_projection_active(const OpenFile* file);
+void editor_sync_active_file_projection_mode(void);
+bool editor_projection_map_row_to_source(const OpenFile* file,
+                                         int projectedRow,
+                                         int* outSourceRow,
+                                         int* outSourceCol);
+void editor_projection_set_scope_all_open_files(bool enabled);
+bool editor_projection_scope_all_open_files(void);
 
 
 #endif // EDITOR_VIEW_H

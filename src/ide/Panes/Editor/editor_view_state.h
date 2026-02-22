@@ -14,6 +14,7 @@ struct EditorView;
 #define MAX_TAB_HITBOXES 64
 #define MAX_LEAF_HITBOXES 64
 #define MAX_SCROLL_HITBOXES 32
+#define MAX_SPLIT_HITBOXES 64
 
 typedef struct {
     SDL_Rect rect;
@@ -32,6 +33,11 @@ typedef struct {
     void* view;
 } LeafHitbox;
 
+typedef struct {
+    SDL_Rect rect;
+    void* splitView;
+} SplitDividerHitbox;
+
 typedef struct EditorViewState {
     bool draggingScrollbar;
     struct UIPane* draggingPane;
@@ -45,6 +51,15 @@ typedef struct EditorViewState {
 
     LeafHitbox leafHitboxes[MAX_LEAF_HITBOXES];
     int leafHitboxCount;
+
+    SplitDividerHitbox splitDividerHitboxes[MAX_SPLIT_HITBOXES];
+    int splitDividerHitboxCount;
+
+    bool draggingSplitDivider;
+    struct EditorView* draggingSplit;
+    int splitDragStartMouseX;
+    int splitDragStartMouseY;
+    float splitDragStartRatio;
 } EditorViewState;
 
 
@@ -53,9 +68,11 @@ void resetViewCounters(void);
 void resetLeafHitboxesOnly(void);
 void addScrollThumbHitbox(SDL_Rect rect, struct EditorView* view, struct UIPane* pane);
 void addLeafHitbox(SDL_Rect rect, struct EditorView* view);
+void addSplitDividerHitboxForView(struct EditorView* splitView);
 void collectLeafHitboxes(struct EditorView* view);
 void rebuildLeafHitboxes(struct EditorView* root);
 struct EditorView* hitTestLeaf(struct EditorViewState* state, int mouseX, int mouseY);
+struct EditorView* hitTestSplitDivider(struct EditorViewState* state, int mouseX, int mouseY);
 
 // === View Dragging State ===
 struct EditorView* getDraggingEditorView(void);
@@ -66,5 +83,10 @@ void setDraggingEditorPane(struct UIPane* pane);
 bool isEditorDraggingScrollbar(void);
 void beginEditorScrollbarDrag(struct UIPane* pane, struct EditorView* view);
 void endEditorScrollbarDrag(void);
+
+bool isEditorDraggingSplitDivider(void);
+struct EditorView* getDraggingSplitEditorView(void);
+void beginEditorSplitDividerDrag(struct EditorView* splitView, int mouseX, int mouseY);
+void endEditorSplitDividerDrag(void);
 
 #endif // EDITOR_VIEW_STATE_H

@@ -64,11 +64,30 @@ static EditorView* resolve_target_view_for_path(const char* targetPath) {
     return NULL;
 }
 
+static bool is_match_sub_button(ControlFilterButtonId id) {
+    return id == CONTROL_FILTER_BTN_MATCH_METHODS ||
+           id == CONTROL_FILTER_BTN_MATCH_TYPES ||
+           id == CONTROL_FILTER_BTN_MATCH_VARS ||
+           id == CONTROL_FILTER_BTN_MATCH_TAGS;
+}
+
 void handleControlPanelKeyboardInput(UIPane* pane, SDL_Event* event) {
     if (!pane || event->type != SDL_KEYDOWN) return;
 
     SDL_Keycode key = event->key.keysym.sym;
     Uint16 mod = event->key.keysym.mod;
+    if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
+        control_panel_clear_match_button_selection();
+        return;
+    }
+    bool plainArrow = !(mod & (KMOD_CTRL | KMOD_GUI | KMOD_ALT));
+    if (plainArrow && (key == SDLK_LEFT || key == SDLK_RIGHT)) {
+        int dir = (key == SDLK_LEFT) ? -1 : 1;
+        bool jumpToEdge = (mod & KMOD_SHIFT) != 0;
+        if (control_panel_move_selected_match_button(dir, jumpToEdge)) {
+            return;
+        }
+    }
 
     if (control_panel_is_search_focused()) {
         bool plainEdit = !(mod & (KMOD_CTRL | KMOD_GUI | KMOD_ALT));
@@ -121,13 +140,34 @@ void handleControlPanelMouseInput(UIPane* pane, SDL_Event* event) {
         return;
     }
 
+    if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_RIGHT) {
+        int mx = event->button.x;
+        int my = event->button.y;
+        ControlFilterButtonId hitButton = control_panel_hit_filter_button(mx, my);
+        if (control_panel_select_match_button(hitButton)) {
+            control_panel_set_search_focused(false);
+            return;
+        }
+        control_panel_clear_match_button_selection();
+    }
+
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
         int mx = event->button.x;
         int my = event->button.y;
         handleTreeMouseMove(mx, my);
+        ControlFilterButtonId hitButton = control_panel_hit_filter_button(mx, my);
+        if (!is_match_sub_button(hitButton)) {
+            control_panel_clear_match_button_selection();
+        }
 
         if (control_panel_point_in_search_clear_button(mx, my)) {
             control_panel_clear_search_query();
+            control_panel_set_search_focused(true);
+            return;
+        }
+
+        if (control_panel_point_in_search_pause_button(mx, my)) {
+            control_panel_toggle_search_enabled();
             control_panel_set_search_focused(true);
             return;
         }
@@ -143,7 +183,6 @@ void handleControlPanelMouseInput(UIPane* pane, SDL_Event* event) {
             return;
         }
 
-        ControlFilterButtonId hitButton = control_panel_hit_filter_button(mx, my);
         if (hitButton != CONTROL_FILTER_BTN_NONE) {
             control_panel_activate_filter_button(hitButton);
             return;

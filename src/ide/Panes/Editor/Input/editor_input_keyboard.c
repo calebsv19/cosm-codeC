@@ -176,6 +176,13 @@ static bool isArrowKey(SDL_Keycode key) {
            key == SDLK_UP || key == SDLK_DOWN;
 }
 
+static bool editor_keyboard_projection_mode_active(const OpenFile* file) {
+    return file &&
+           editor_file_projection_active(file) &&
+           file->projection.lines &&
+           file->projection.lineCount > 0;
+}
+
 static void handleCommandSwitchTab(int direction) {
     EditorView* view = getCoreState()->activeEditorView;
     if (view) switchTab(view, direction);
@@ -192,6 +199,24 @@ void editorProcessKeyCommand(UIPane* pane, EditorKeyCommandPayload* payload) {
 
     IDECoreState* core = getCoreState();
     EditorView* view = core ? core->activeEditorView : NULL;
+    SDL_Keycode key = payload->key;
+    SDL_Keymod mod = payload->mod;
+
+    bool shiftHeld = (mod & KMOD_SHIFT) != 0;
+    bool cmdHeld   = (mod & KMOD_GUI) != 0;
+    bool altHeld   = (mod & KMOD_ALT) != 0;
+
+    if (cmdHeld && key == SDLK_e) {
+        handleCommandAction(key, NULL, NULL, view, pane, mod);
+        return;
+    }
+    if (altHeld && key == SDLK_c) {
+        if (core && core->persistentEditorView && view && view->type == VIEW_LEAF) {
+            (void)collapseEditorLeaf(core->persistentEditorView, view);
+        }
+        return;
+    }
+
     if (!view || view->type != VIEW_LEAF || view->fileCount <= 0) return;
 
     OpenFile* file = getActiveOpenFile(view);
@@ -199,13 +224,7 @@ void editorProcessKeyCommand(UIPane* pane, EditorKeyCommandPayload* payload) {
 
     EditorBuffer* buffer = file->buffer;
     EditorState* state = &file->state;
-
-    SDL_Keycode key = payload->key;
-    SDL_Keymod mod = payload->mod;
-
-    bool shiftHeld = (mod & KMOD_SHIFT) != 0;
-    bool cmdHeld   = (mod & KMOD_GUI) != 0;
-    bool altHeld   = (mod & KMOD_ALT) != 0;
+    bool projectionMode = editor_keyboard_projection_mode_active(file);
 
     if ((shiftHeld || cmdHeld) &&
         (key == SDLK_LEFT || key == SDLK_RIGHT || key == SDLK_UP || key == SDLK_DOWN)) {
@@ -225,6 +244,7 @@ void editorProcessKeyCommand(UIPane* pane, EditorKeyCommandPayload* payload) {
             handleCommandSwitchTab(+1);
             return;
         }
+        if (projectionMode) return;
         handleCommandMovement(key, buffer, state, paneHeight, mod);
         handleCommandAction(key, buffer, state, view, pane, mod);
         return;
@@ -236,6 +256,7 @@ void editorProcessKeyCommand(UIPane* pane, EditorKeyCommandPayload* payload) {
     }
 
     if (altHeld) {
+        if (projectionMode) return;
         handleCommandAltAction(key, view);
         return;
     }
@@ -249,6 +270,8 @@ void editorProcessTextInput(UIPane* pane, const EditorTextInputPayload* payload)
     IDECoreState* core = getCoreState();
     EditorView* view = core ? core->activeEditorView : NULL;
     if (!view || view->type != VIEW_LEAF || view->fileCount <= 0) return;
+    OpenFile* active = getActiveOpenFile(view);
+    if (editor_keyboard_projection_mode_active(active)) return;
 
     const char* text = payload->text;
     for (int i = 0; text[i] != '\0'; ++i) {

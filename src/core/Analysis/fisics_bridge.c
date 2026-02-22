@@ -46,6 +46,25 @@ static LibraryIncludeKind map_kind(FisicsIncludeKind kind) {
                                            : LIB_INCLUDE_KIND_LOCAL;
 }
 
+static const char* include_label_or_fallback(const FisicsInclude* inc,
+                                             char* fallback,
+                                             size_t fallback_size) {
+    if (!inc) return NULL;
+    if (inc->name && inc->name[0] != '\0') return inc->name;
+    if (!fallback || fallback_size == 0) return NULL;
+    fallback[0] = '\0';
+    if (!inc->resolved_path || inc->resolved_path[0] == '\0') return NULL;
+
+    const char* base = strrchr(inc->resolved_path, '/');
+    const char* bslash = strrchr(inc->resolved_path, '\\');
+    if (!base || (bslash && bslash > base)) base = bslash;
+    base = base ? (base + 1) : inc->resolved_path;
+    if (!base || base[0] == '\0') return NULL;
+
+    snprintf(fallback, fallback_size, "%s", base);
+    return fallback[0] ? fallback : NULL;
+}
+
 static void free_token_cache(void) {
     free(g_tokens.filePath);
     free(g_tokens.spans);
@@ -168,9 +187,11 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
     library_index_remove_source(filePath);
     for (size_t i = 0; i < result.include_count; ++i) {
         const FisicsInclude* inc = &result.includes[i];
-        if (!inc || !inc->name) continue;
+        char fallbackName[512];
+        const char* includeName = include_label_or_fallback(inc, fallbackName, sizeof(fallbackName));
+        if (!includeName) continue;
         library_index_add_include(filePath,
-                                  inc->name,
+                                  includeName,
                                   inc->resolved_path,
                                   map_kind(inc->kind),
                                   map_origin(inc->origin),

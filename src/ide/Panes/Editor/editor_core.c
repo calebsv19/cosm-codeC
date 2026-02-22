@@ -45,8 +45,8 @@ bool isCursorInSelection(EditorState* state) {
      
 int getVisibleEditorLineCount(UIPane* pane) {
     // Leave room for header/margins — adjust as needed
-    int lineHeight = 20;
-    int paddingTop = 30;
+    int lineHeight = EDITOR_LINE_HEIGHT;
+    int paddingTop = EDITOR_CONTENT_TOP_PADDING;
     return (pane->h - paddingTop) / lineHeight;
 }
 

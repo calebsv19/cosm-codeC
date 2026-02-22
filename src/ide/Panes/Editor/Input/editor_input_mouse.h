@@ -12,8 +12,8 @@ bool handleEditorScrollbarEvent(struct UIPane* pane, SDL_Event* event);
 bool handleEditorScrollbarThumbClick(SDL_Event* event, int mx, int my);
 bool handleEditorScrollWheel(UIPane* pane, SDL_Event* event);
 bool handleEditorScrollbarDrag(SDL_Event* event);
+bool handleEditorSplitDividerInteraction(SDL_Event* event, int mx, int my);
 bool resetCursorPositionToMouse(struct UIPane* pane, int mouseX, int mouseY, EditorBuffer* buffer, 
 EditorState* state);
 
 #endif
-
