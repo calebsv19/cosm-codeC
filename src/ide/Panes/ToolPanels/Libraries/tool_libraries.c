@@ -3,6 +3,7 @@
 #include "app/GlobalInfo/project.h"
 #include "app/GlobalInfo/core_state.h"
 #include "core/Analysis/library_index.h"
+#include "core/Analysis/analysis_status.h"
 #include "ide/UI/scroll_manager.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/Clipboard/clipboard.h"
@@ -196,6 +197,7 @@ void initLibrariesPanel() {
     }
     g_libraryPanelState.includeSystemHeaders = true;
     g_libraryPanelState.systemToggleRect = (SDL_Rect){0};
+    g_libraryPanelState.logsToggleRect = (SDL_Rect){0};
     rebuildLibraryFlatRows();
 }
 
@@ -320,16 +322,30 @@ static int row_index_from_position(UIPane* pane, int mouseY) {
 bool handleLibraryHeaderClick(UIPane* pane, int clickX, int clickY) {
     (void)pane;
     LibraryPanelState* st = &g_libraryPanelState;
-    SDL_Rect r = st->systemToggleRect;
-    if (r.w <= 0 || r.h <= 0) return false;
+    SDL_Rect sys = st->systemToggleRect;
+    if (sys.w > 0 && sys.h > 0) {
+        bool sysHit = (clickX >= sys.x && clickX <= sys.x + sys.w &&
+                       clickY >= sys.y && clickY <= sys.y + sys.h);
+        if (sysHit) {
+            st->includeSystemHeaders = !st->includeSystemHeaders;
+            rebuildLibraryFlatRows();
+            return true;
+        }
+    }
 
-    bool hit = (clickX >= r.x && clickX <= r.x + r.w &&
-                clickY >= r.y && clickY <= r.y + r.h);
-    if (!hit) return false;
+    SDL_Rect logs = st->logsToggleRect;
+    if (logs.w > 0 && logs.h > 0) {
+        bool logsHit = (clickX >= logs.x && clickX <= logs.x + logs.w &&
+                        clickY >= logs.y && clickY <= logs.y + logs.h);
+        if (logsHit) {
+            analysis_toggle_frontend_logs_enabled();
+            printf("[Analysis] Frontend logs: %s\n",
+                   analysis_frontend_logs_enabled() ? "ON" : "OFF");
+            return true;
+        }
+    }
 
-    st->includeSystemHeaders = !st->includeSystemHeaders;
-    rebuildLibraryFlatRows();
-    return true;
+    return false;
 }
 
 void handleLibraryEntryClick(UIPane* pane, int clickX, int clickY) {

@@ -75,3 +75,9 @@ reference doc:
 
 - completed phase docs live in:
 `docs/terminal_upgrade/completed/`
+
+## reliability rebuild track
+
+due to newly discovered resize/history regressions under codex/tui workloads, a new structured rebuild track is defined here:
+
+- `docs/terminal_upgrade/north_star_reliability_rebuild.md`

@@ -232,7 +232,12 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
         }
     }
     float contentHeight = (float)visibleLines * (float)lineHeight;
-    scroll_state_set_content_height(scroll, contentHeight);
+    float effectiveHeight = contentHeight;
+    if (scroll->line_height_px > 0.0f && scroll->viewport_height_px > scroll->line_height_px) {
+        float slack = scroll->viewport_height_px - scroll->line_height_px;
+        effectiveHeight = contentHeight + slack;
+    }
+    scroll_state_set_content_height(scroll, effectiveHeight);
     float offset = scroll_state_get_offset(scroll);
 
     SDL_Rect clip = { pane->x, contentTop, pane->w - 8, viewportH };

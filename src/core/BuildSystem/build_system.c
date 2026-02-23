@@ -1,6 +1,7 @@
 #include "build_system.h"
 #include "ide/Panes/Terminal/terminal.h"
 #include "app/GlobalInfo/project.h"
+#include "core/Analysis/analysis_scheduler.h"
 #include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/workspace_prefs.h"
@@ -228,7 +229,7 @@ void triggerBuild(void) {
                 "set -e; "
                 "mkdir -p build; "
                 "find . -name '*.c' ! -path './build/*' -print0 | "
-                "xargs -0 cc -std=c11 -Wall -Wextra -g -o build/app && "
+                "xargs -0 cc -std=c11 -Wall -Wextra -g -Iinclude -Isrc -o build/app && "
                 "echo 'Built build/app'";
             snprintf(commandForShell, sizeof(commandForShell), "%s", fallbackCmd);
             snprintf(commandForPopen, sizeof(commandForPopen),
@@ -322,7 +323,7 @@ void triggerBuild(void) {
         printToTerminal("[BuildSystem] Build completed successfully.\n");
         const char* workspace = getWorkspacePath();
         discoverRunTarget(lastExecutablePath, outputDirForArtifacts, workspace);
-        pendingProjectRefresh = true;
+        queueProjectRefresh(ANALYSIS_REASON_PROJECT_MUTATION);
         currentStatus = BUILD_STATUS_SUCCESS;
     } else {
         printToTerminal("[BuildSystem] Build failed.\n");

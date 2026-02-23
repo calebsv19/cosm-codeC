@@ -1,6 +1,7 @@
 
 #include "file_watcher.h"
 #include "app/GlobalInfo/project.h"
+#include "core/Analysis/analysis_scheduler.h"
 #include <sys/stat.h>
 #include <string.h>
 #include <stdlib.h>
@@ -20,6 +21,13 @@ static char watchedWorkspacePath[PATH_MAX];
 static time_t workspaceLastModified = 0;
 static Uint32 nextPollMs = 0;
 static Uint32 pollIntervalMs = 250;
+static Uint32 suppressWorkspaceRefreshUntilMs = 0;
+static Uint32 suppressInternalRefreshUntilMs = 0;
+static Uint32 workspaceDebounceMs = 350;
+static Uint32 workspaceCooldownMs = 1200;
+static Uint32 lastWorkspaceTriggerMs = 0;
+static time_t pendingWorkspaceStamp = 0;
+static Uint32 pendingWorkspaceStampSinceMs = 0;
 static int watcherLogEnabled = -1;
 
 static int file_watcher_log_enabled(void) {
@@ -36,6 +44,24 @@ static Uint32 file_watcher_poll_interval_ms(void) {
     char* end = NULL;
     long v = strtol(env, &end, 10);
     if (end == env || v < 50 || v > 5000) return pollIntervalMs;
+    return (Uint32)v;
+}
+
+static Uint32 file_watcher_debounce_ms(void) {
+    const char* env = getenv("IDE_WATCHER_DEBOUNCE_MS");
+    if (!env || !env[0]) return workspaceDebounceMs;
+    char* end = NULL;
+    long v = strtol(env, &end, 10);
+    if (end == env || v < 50 || v > 5000) return workspaceDebounceMs;
+    return (Uint32)v;
+}
+
+static Uint32 file_watcher_cooldown_ms(void) {
+    const char* env = getenv("IDE_WATCHER_COOLDOWN_MS");
+    if (!env || !env[0]) return workspaceCooldownMs;
+    char* end = NULL;
+    long v = strtol(env, &end, 10);
+    if (end == env || v < 100 || v > 10000) return workspaceCooldownMs;
     return (Uint32)v;
 }
 
@@ -66,6 +92,13 @@ void initFileWatcher() {
     workspaceLastModified = 0;
     nextPollMs = 0;
     pollIntervalMs = file_watcher_poll_interval_ms();
+    workspaceDebounceMs = file_watcher_debounce_ms();
+    workspaceCooldownMs = file_watcher_cooldown_ms();
+    suppressWorkspaceRefreshUntilMs = 0;
+    suppressInternalRefreshUntilMs = 0;
+    lastWorkspaceTriggerMs = 0;
+    pendingWorkspaceStamp = 0;
+    pendingWorkspaceStampSinceMs = 0;
     watcherLogEnabled = -1;
 }
 
@@ -77,6 +110,8 @@ void shutdownFileWatcher() {
     }
     watchedWorkspacePath[0] = '\0';
     workspaceLastModified = 0;
+    pendingWorkspaceStamp = 0;
+    pendingWorkspaceStampSinceMs = 0;
 }
 
 void watchFile(OpenFile* file) {
@@ -113,6 +148,19 @@ void setWorkspaceWatchPath(const char* path) {
     strncpy(watchedWorkspacePath, path, sizeof(watchedWorkspacePath) - 1);
     watchedWorkspacePath[sizeof(watchedWorkspacePath) - 1] = '\0';
     workspaceLastModified = 0;
+    pendingWorkspaceStamp = 0;
+    pendingWorkspaceStampSinceMs = 0;
+    lastWorkspaceTriggerMs = 0;
+}
+
+void suppressWorkspaceWatchRefreshForMs(unsigned int durationMs) {
+    Uint32 now = SDL_GetTicks();
+    suppressWorkspaceRefreshUntilMs = now + (Uint32)durationMs;
+}
+
+void suppressInternalWatcherRefreshForMs(unsigned int durationMs) {
+    Uint32 now = SDL_GetTicks();
+    suppressInternalRefreshUntilMs = now + (Uint32)durationMs;
 }
 
 void pollFileWatcher() {
@@ -145,11 +193,71 @@ void pollFileWatcher() {
     if (watchedWorkspacePath[0] != '\0') {
         time_t stamp = compute_workspace_stamp(watchedWorkspacePath);
         if (stamp == 0) return;
+        if (now < suppressWorkspaceRefreshUntilMs) {
+            workspaceLastModified = stamp;
+            pendingWorkspaceStamp = 0;
+            pendingWorkspaceStampSinceMs = 0;
+            if (file_watcher_log_enabled()) {
+                printf("[FileWatcher] suppress workspace-switch active\n");
+            }
+            return;
+        }
+        if (now < suppressInternalRefreshUntilMs) {
+            workspaceLastModified = stamp;
+            pendingWorkspaceStamp = 0;
+            pendingWorkspaceStampSinceMs = 0;
+            if (file_watcher_log_enabled()) {
+                printf("[FileWatcher] suppress internal-write active\n");
+            }
+            return;
+        }
         if (workspaceLastModified == 0) {
             workspaceLastModified = stamp;
-        } else if (stamp != workspaceLastModified) {
+            return;
+        }
+        if (stamp == workspaceLastModified) {
+            pendingWorkspaceStamp = 0;
+            pendingWorkspaceStampSinceMs = 0;
+            return;
+        }
+
+        if (pendingWorkspaceStamp != stamp) {
+            pendingWorkspaceStamp = stamp;
+            pendingWorkspaceStampSinceMs = now;
+            if (file_watcher_log_enabled()) {
+                printf("[FileWatcher] stamp changed, debounce started (stamp=%lld)\n",
+                       (long long)stamp);
+            }
+            return;
+        }
+
+        if ((now - pendingWorkspaceStampSinceMs) < workspaceDebounceMs) {
+            if (file_watcher_log_enabled()) {
+                printf("[FileWatcher] debounce waiting (%u/%u ms)\n",
+                       (unsigned int)(now - pendingWorkspaceStampSinceMs),
+                       (unsigned int)workspaceDebounceMs);
+            }
+            return;
+        }
+
+        if ((now - lastWorkspaceTriggerMs) < workspaceCooldownMs) {
+            if (file_watcher_log_enabled()) {
+                printf("[FileWatcher] cooldown suppress (%u/%u ms)\n",
+                       (unsigned int)(now - lastWorkspaceTriggerMs),
+                       (unsigned int)workspaceCooldownMs);
+            }
+            return;
+        }
+
+        if (stamp != workspaceLastModified) {
             workspaceLastModified = stamp;
-            pendingProjectRefresh = true;
+            pendingWorkspaceStamp = 0;
+            pendingWorkspaceStampSinceMs = 0;
+            lastWorkspaceTriggerMs = now;
+            if (file_watcher_log_enabled()) {
+                printf("[FileWatcher] trigger refresh (stamp=%lld)\n", (long long)stamp);
+            }
+            queueProjectRefresh(ANALYSIS_REASON_WATCHER_CHANGE);
         }
     }
 }

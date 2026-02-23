@@ -48,4 +48,9 @@ void analysis_status_note_refresh(AnalysisRefreshMode mode,
                                   int target_files);
 void analysis_status_snapshot(AnalysisStatusSnapshot* out);
 
+// Frontend log verbosity control used by analysis scans.
+bool analysis_frontend_logs_enabled(void);
+void analysis_set_frontend_logs_enabled(bool enabled);
+void analysis_toggle_frontend_logs_enabled(void);
+
 #endif // ANALYSIS_STATUS_H

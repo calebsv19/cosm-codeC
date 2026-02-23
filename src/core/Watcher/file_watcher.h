@@ -14,5 +14,10 @@ void pollFileWatcher();
 void watchFile(OpenFile* file);
 void unwatchFile(OpenFile* file);
 void setWorkspaceWatchPath(const char* path);
+// Temporarily suppress watcher-triggered workspace refresh events.
+void suppressWorkspaceWatchRefreshForMs(unsigned int durationMs);
+// Suppress workspace refresh triggers during internal IDE write bursts
+// (analysis persistence/cache writes).
+void suppressInternalWatcherRefreshForMs(unsigned int durationMs);
 
 #endif

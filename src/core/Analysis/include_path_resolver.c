@@ -34,6 +34,11 @@ static int add_unique(char*** list, size_t* count, size_t* cap, const char* valu
     return 1;
 }
 
+static bool has_unexpanded_make_var(const char* s) {
+    if (!s || !*s) return false;
+    return strstr(s, "$(") != NULL || strstr(s, "${") != NULL;
+}
+
 static void expand_relative(const char* project_root, const char* raw, char* out, size_t outSize) {
     if (!out || outSize == 0) return;
     out[0] = '\0';
@@ -111,12 +116,14 @@ static void parse_flags_for_includes_and_macros(const char* project_root,
         if (strcmp(tok, "-I") == 0 || strcmp(tok, "-isystem") == 0) {
             char* next = strtok_r(NULL, delim, &save);
             if (!next) continue;
+            if (has_unexpanded_make_var(next)) continue;
             char expanded[PATH_MAX];
             expand_relative(project_root, next, expanded, sizeof(expanded));
             add_unique(includes, icount, icap, expanded);
         } else if (strncmp(tok, "-I", 2) == 0) {
             const char* raw = tok + 2;
             if (*raw) {
+                if (has_unexpanded_make_var(raw)) continue;
                 char expanded[PATH_MAX];
                 expand_relative(project_root, raw, expanded, sizeof(expanded));
                 add_unique(includes, icount, icap, expanded);
@@ -124,16 +131,21 @@ static void parse_flags_for_includes_and_macros(const char* project_root,
         } else if (strncmp(tok, "-isystem", 8) == 0) {
             const char* raw = tok + 8;
             if (*raw) {
+                if (has_unexpanded_make_var(raw)) continue;
                 char expanded[PATH_MAX];
                 expand_relative(project_root, raw, expanded, sizeof(expanded));
                 add_unique(includes, icount, icap, expanded);
             }
         } else if (strcmp(tok, "-D") == 0) {
             char* def = strtok_r(NULL, delim, &save);
-            if (def && *def) add_unique(macros, mcount, mcap, def);
+            if (def && *def && !has_unexpanded_make_var(def)) {
+                add_unique(macros, mcount, mcap, def);
+            }
         } else if (strncmp(tok, "-D", 2) == 0) {
             const char* def = tok + 2;
-            if (*def) add_unique(macros, mcount, mcap, def);
+            if (*def && !has_unexpanded_make_var(def)) {
+                add_unique(macros, mcount, mcap, def);
+            }
         } else if (strncmp(tok, "-isysroot", 9) == 0) {
             const char* root = tok + 9;
             if (!*root) {
@@ -141,6 +153,7 @@ static void parse_flags_for_includes_and_macros(const char* project_root,
                 root = next;
             }
             if (root && *root) {
+                if (has_unexpanded_make_var(root)) continue;
                 if (lastSysroot && lastSysrootSize > 0) {
                     strncpy(lastSysroot, root, lastSysrootSize - 1);
                     lastSysroot[lastSysrootSize - 1] = '\0';
@@ -459,6 +472,7 @@ void load_build_flags(BuildFlagSet* set, const char* workspace_root) {
         for (size_t i = 0; i < count; ++i) {
             json_object* ji = json_object_array_get_idx(jincs, i);
             const char* v = ji ? json_object_get_string(ji) : NULL;
+            if (has_unexpanded_make_var(v)) continue;
             add_unique(&set->include_paths, &set->include_count, &icap, v ? v : "");
         }
     }
@@ -473,6 +487,7 @@ void load_build_flags(BuildFlagSet* set, const char* workspace_root) {
         for (size_t i = 0; i < count; ++i) {
             json_object* jd = json_object_array_get_idx(jdefs, i);
             const char* v = jd ? json_object_get_string(jd) : NULL;
+            if (has_unexpanded_make_var(v)) continue;
             add_unique(&set->macro_defines, &set->macro_count, &dcap, v ? v : "");
         }
     }

@@ -1,12 +1,8 @@
 #include "save_queue.h"
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "ide/Panes/Editor/editor_view.h"
-#include "core/Analysis/fisics_bridge.h"
-#include "core/Analysis/include_graph.h"
-#include "core/Analysis/library_index.h"
-#include "core/Analysis/analysis_store.h"
-#include "core/Analysis/analysis_symbols_store.h"
-#include "core/Analysis/analysis_token_store.h"
+#include "core/Analysis/analysis_scheduler.h"
+#include "core/Analysis/analysis_status.h"
 #include "app/GlobalInfo/project.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
 #include "ide/Panes/ToolPanels/Git/render_tool_git.h"
@@ -88,14 +84,9 @@ void tickSaveQueue() {
         fclose(f);
         printf("[SaveQueue] Saved: %s\n", item->filePath);
 
-        // Run analysis after writing to disk so filePath + contents match.
-        printf("[SaveQueue] Analyzing: %s (%zu bytes)\n", item->filePath, item->length);
-        ide_analyze_buffer_for_file(item->filePath, item->contents, item->length);
-        analysis_store_save(projectPath);
-        analysis_symbols_store_save(projectPath);
-        analysis_token_store_save(projectPath);
-        include_graph_save(projectPath);
-        library_index_save(projectPath);
+        // Queue async analysis refresh; do not block the main thread on save.
+        analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
+        analysis_scheduler_request(ANALYSIS_REASON_PROJECT_MUTATION, false);
         rebuildLibraryFlatRows();
         resetGitTree();
     } else {

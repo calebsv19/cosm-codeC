@@ -4,6 +4,9 @@
 #include "app/GlobalInfo/core_state.h"
 #include "input_hover.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
+#include "ide/Panes/Terminal/terminal.h"
+#include "ide/Panes/PaneInfo/pane.h"
+#include <stdio.h>
 
 void handleWindowGlobalEvents(SDL_Event* event,
                               UIPane** panes, int* paneCountRef,
@@ -31,6 +34,20 @@ void handleWindowGlobalEvents(SDL_Event* event,
         case SDL_MOUSEMOTION:
             handleHoverUpdate(event, panes, *paneCountRef);
             break;
+
+        case SDL_DROPFILE: {
+            char* droppedPath = event->drop.file;
+            IDECoreState* core = getCoreState();
+            UIPane* focused = core ? core->focusedPane : NULL;
+            if (droppedPath && focused && focused->role == PANE_ROLE_TERMINAL) {
+                terminal_handle_dropped_path(droppedPath);
+            } else if (droppedPath) {
+                // Scaffold only: non-terminal drop routing can be added later.
+                printf("[Drop] Ignored (focus terminal to send path): %s\n", droppedPath);
+            }
+            if (droppedPath) SDL_free(droppedPath);
+            break;
+        }
 
         default:
             break;

@@ -14,6 +14,7 @@
 #include "ide/UI/Trees/tree_renderer.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include "core/Analysis/analysis_status.h"
+#include "core/Analysis/analysis_scheduler.h"
 
 #include <SDL2/SDL.h>
 #include <string.h>
@@ -131,11 +132,15 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     // Panel title
     drawTextWithTier(x, y, pane->title, CORE_FONT_TEXT_SIZE_HEADER);
     AnalysisStatusSnapshot snap = {0};
+    AnalysisSchedulerSnapshot sched = {0};
     analysis_status_snapshot(&snap);
+    analysis_scheduler_snapshot(&sched);
     if (snap.updating || snap.last_error[0] || snap.has_cache) {
         char statusBuf[128] = {0};
         if (snap.updating) {
-            snprintf(statusBuf, sizeof(statusBuf), "Updating...");
+            snprintf(statusBuf, sizeof(statusBuf),
+                     sched.active_run_id ? "Updating (#%llu)..." : "Updating...",
+                     (unsigned long long)sched.active_run_id);
         } else if (snap.last_error[0]) {
             snprintf(statusBuf, sizeof(statusBuf), "Analysis error");
         } else if (snap.status == ANALYSIS_STATUS_FRESH) {

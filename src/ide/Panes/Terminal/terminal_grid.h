@@ -13,11 +13,26 @@ typedef struct {
 
 typedef struct {
     TermCell* cells; // linear buffer size rows*cols
+    TermCell* primary_cells;
+    TermCell* alternate_cells;
+    uint8_t using_alternate;
+    uint8_t alternate_screen_enabled;
     int rows;
     int cols;
+    int viewport_rows;
+    int viewport_cols;
     int used_rows; // monotonic visible history depth within this grid
     int cursor_row;
     int cursor_col;
+    int primary_used_rows;
+    int primary_cursor_row;
+    int primary_cursor_col;
+    int alternate_used_rows;
+    int alternate_cursor_row;
+    int alternate_cursor_col;
+    int saved_cursor_row;
+    int saved_cursor_col;
+    uint8_t has_saved_cursor;
 
     uint32_t cur_fg;
     uint32_t cur_bg;
@@ -32,6 +47,17 @@ typedef struct {
     uint32_t utf8_codepoint;
     uint8_t utf8_expected;
     uint8_t utf8_seen;
+
+    // Committed scrollback rows (primary buffer only).
+    TermCell* scrollback_cells;
+    int scrollback_cap_rows;
+    int scrollback_count;
+    int scrollback_head;
+    unsigned long long scrollback_commit_count;
+    unsigned long long scrollback_drop_count;
+    unsigned long long alt_enter_count;
+    unsigned long long alt_exit_count;
+    unsigned long long alt_ignored_count;
 } TermGrid;
 
 // Lifecycle
@@ -53,5 +79,15 @@ void term_grid_debug_render(TermGrid* grid, int x, int y, int lineHeight, int ma
 
 // Parser entrypoint
 void term_emulator_feed(TermGrid* grid, const char* data, size_t len);
+void term_grid_set_viewport_size(TermGrid* grid, int rows, int cols);
+void term_grid_set_alternate_screen_enabled(TermGrid* grid, int enabled);
+void term_grid_set_scrollback_cap(TermGrid* grid, int cap_rows);
+int term_grid_scrollback_count(const TermGrid* grid);
+const TermCell* term_grid_scrollback_row(const TermGrid* grid, int index);
+unsigned long long term_grid_scrollback_commit_count(const TermGrid* grid);
+unsigned long long term_grid_scrollback_drop_count(const TermGrid* grid);
+unsigned long long term_grid_alt_enter_count(const TermGrid* grid);
+unsigned long long term_grid_alt_exit_count(const TermGrid* grid);
+unsigned long long term_grid_alt_ignored_count(const TermGrid* grid);
 
 #endif

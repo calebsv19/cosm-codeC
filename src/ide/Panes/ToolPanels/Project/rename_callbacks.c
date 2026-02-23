@@ -1,5 +1,6 @@
 #include "rename_callbacks.h"
 #include "app/GlobalInfo/project.h"
+#include "core/Analysis/analysis_scheduler.h"
 #include "core/InputManager/UserInput/rename_flow.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
 
@@ -34,7 +35,7 @@ void handleProjectFileRenameCallback(const char* oldName, const char* newName, v
     free(entry->name);
     entry->name = strdup(newName);
 
-    pendingProjectRefresh = true;
+    queueProjectRefresh(ANALYSIS_REASON_PROJECT_MUTATION);
 }
 
 bool isRenameValid(const char* newName, DirEntry* entry) {

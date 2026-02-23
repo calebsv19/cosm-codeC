@@ -9,6 +9,7 @@
 #include "ide/Panes/PaneInfo/pane.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/FileIO/file_ops.h"
+#include "core/Analysis/analysis_scheduler.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -230,7 +231,7 @@ static bool moveFileEntryToDirectory(DirEntry* fileEntry, DirEntry* destDir) {
     destDir->isExpanded = true;
     strncpy(newlyCreatedPath, destPath, sizeof(newlyCreatedPath));
     newlyCreatedPath[sizeof(newlyCreatedPath) - 1] = '\0';
-    pendingProjectRefresh = true;
+    queueProjectRefresh(ANALYSIS_REASON_PROJECT_MUTATION);
     return true;
 }
 
@@ -385,6 +386,12 @@ static DirState tempDirStates[2048];
 static int tempDirStateCount = 0;
 
 bool pendingProjectRefresh = false;
+unsigned int pendingProjectRefreshReasonMask = 0;
+
+void queueProjectRefresh(unsigned int analysisReasonMask) {
+    pendingProjectRefresh = true;
+    pendingProjectRefreshReasonMask |= analysisReasonMask;
+}
 
 
 
@@ -586,7 +593,7 @@ void deleteSelectedFile(void) {
         selectedEntry = NULL;
     }
 
-    pendingProjectRefresh = true;
+    queueProjectRefresh(ANALYSIS_REASON_PROJECT_MUTATION);
 }
 
 void deleteSelectedDirectory(void) {
@@ -625,7 +632,7 @@ void deleteSelectedDirectory(void) {
         selectDirectoryEntry(projectRoot);
     }
 
-    pendingProjectRefresh = true;
+    queueProjectRefresh(ANALYSIS_REASON_PROJECT_MUTATION);
 }
 
 

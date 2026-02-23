@@ -1,6 +1,7 @@
 #include "core/Analysis/analysis_job.h"
 
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_atomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,9 +19,27 @@
 
 static SDL_Thread* g_thread = NULL;
 static bool g_thread_running = false;
+static bool g_force_full_refresh = false;
 static char g_last_error[256];
 static char g_project_root[1024];
 static char g_build_args[1024];
+static SDL_atomic_t g_cancel_requested;
+static SDL_atomic_t g_slow_mode_next_run;
+static SDL_atomic_t g_slow_mode_active;
+
+static bool library_index_has_entries(void) {
+    bool has_entries = false;
+    library_index_lock();
+    for (size_t b = 0; b < library_index_bucket_count(); ++b) {
+        const LibraryBucket* bucket = library_index_get_bucket(b);
+        if (bucket && library_index_header_count(bucket) > 0) {
+            has_entries = true;
+            break;
+        }
+    }
+    library_index_unlock();
+    return has_entries;
+}
 
 typedef struct {
     char** items;
@@ -135,6 +154,20 @@ static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats*
         out_stats->removed_count = (int)removed_count;
     }
 
+    // If snapshots match but in-memory stores/index are empty, incremental mode
+    // has no baseline to operate on. Force a full rebuild.
+    if (dirty_count == 0 && removed_count == 0) {
+        if (analysis_store_file_count() == 0 ||
+            analysis_symbols_store_file_count() == 0 ||
+            analysis_token_store_file_count() == 0 ||
+            !library_index_has_entries()) {
+            analysis_snapshot_free_path_list(dirty_paths, dirty_count);
+            analysis_snapshot_free_path_list(removed_paths, removed_count);
+            analysis_snapshot_clear(&current);
+            return false;
+        }
+    }
+
     PathList targets;
     path_list_init(&targets);
     bool paths_ok = true;
@@ -216,17 +249,34 @@ static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats*
 static int analysis_thread_fn(void* data) {
     (void)data;
     BuildFlagSet flags = {0};
+    SDL_AtomicSet(&g_slow_mode_active, SDL_AtomicGet(&g_slow_mode_next_run));
+    SDL_AtomicSet(&g_slow_mode_next_run, 0);
     if (!g_project_root[0]) {
         snprintf(g_last_error, sizeof(g_last_error), "No project root provided");
         analysis_status_set(ANALYSIS_STATUS_IDLE);
         analysis_refresh_set_running(false);
+        SDL_AtomicSet(&g_slow_mode_active, 0);
         return -1;
     }
 
     gather_build_flags(g_project_root, g_build_args[0] ? g_build_args : NULL, &flags);
 
+    if (analysis_job_cancel_requested()) {
+        free_build_flag_set(&flags);
+        analysis_status_set_last_error(NULL);
+        analysis_status_set(ANALYSIS_STATUS_IDLE);
+        analysis_refresh_set_running(false);
+        g_thread_running = false;
+        g_thread = NULL;
+        SDL_AtomicSet(&g_slow_mode_active, 0);
+        return 0;
+    }
+
+    bool force_full = g_force_full_refresh;
+    g_force_full_refresh = false;
+
     IncrementalRunStats run_stats = {0};
-    bool incremental_ok = run_incremental_scan(&flags, &run_stats);
+    bool incremental_ok = force_full ? false : run_incremental_scan(&flags, &run_stats);
     if (!incremental_ok) {
         // Fallback path for first run, invalid snapshots, or incremental errors.
         analysis_scan_workspace_with_flags(g_project_root, &flags, false /*update_engine*/);
@@ -241,24 +291,56 @@ static int analysis_thread_fn(void* data) {
                                      run_stats.target_count);
     }
 
-    // Persist outputs + metadata
-    analysis_cache_save_metadata(g_project_root, g_build_args);
-    analysis_cache_save_build_flags(&flags, g_project_root);
-    library_index_save(g_project_root);
+    bool cancelled = analysis_job_cancel_requested();
+    if (!cancelled) {
+        // Persist outputs + metadata
+        analysis_cache_save_metadata(g_project_root, g_build_args);
+        analysis_cache_save_build_flags(&flags, g_project_root);
+        library_index_save(g_project_root);
+    }
 
     free_build_flag_set(&flags);
-    analysis_status_set_has_cache(true);
-    analysis_status_set(ANALYSIS_STATUS_FRESH);
-    analysis_status_set_last_error(NULL);
+    if (!cancelled) {
+        analysis_status_set_has_cache(true);
+        analysis_status_set(ANALYSIS_STATUS_FRESH);
+        analysis_status_set_last_error(NULL);
+    } else {
+        analysis_status_set_last_error(NULL);
+        analysis_status_set(ANALYSIS_STATUS_IDLE);
+    }
     analysis_refresh_set_running(false);
     g_thread_running = false;
     g_thread = NULL;
+    SDL_AtomicSet(&g_slow_mode_active, 0);
     return 0;
+}
+
+void analysis_force_full_refresh_next_run(void) {
+    g_force_full_refresh = true;
+}
+
+void analysis_job_set_slow_mode_next_run(bool enabled) {
+    SDL_AtomicSet(&g_slow_mode_next_run, enabled ? 1 : 0);
+}
+
+void analysis_job_maybe_throttle(void) {
+    if (SDL_AtomicGet(&g_slow_mode_active)) {
+        SDL_Delay(2);
+    }
+}
+
+void analysis_job_request_cancel(void) {
+    SDL_AtomicSet(&g_cancel_requested, 1);
+}
+
+bool analysis_job_cancel_requested(void) {
+    return SDL_AtomicGet(&g_cancel_requested) != 0;
 }
 
 void start_async_workspace_analysis(const char* project_root, const char* build_args) {
     if (g_thread_running) return; // already running
     if (!project_root || !*project_root) return;
+    SDL_AtomicSet(&g_cancel_requested, 0);
     memset(g_last_error, 0, sizeof(g_last_error));
     snprintf(g_project_root, sizeof(g_project_root), "%s", project_root);
     g_project_root[sizeof(g_project_root) - 1] = '\0';

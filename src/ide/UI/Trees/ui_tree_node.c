@@ -17,12 +17,18 @@ userData) {
     node->isExpanded = true;
     node->depth = 0;
     node->userData = userData;
+    node->userDataFreeFn = NULL;
 
     node->children = NULL;
     node->childCount = 0;
     node->childCapacity = 0;
 
     return node;
+}
+
+void setTreeNodeUserDataFreeFn(UITreeNode* node, UITreeUserDataFreeFn fn) {
+    if (!node) return;
+    node->userDataFreeFn = fn;
 }
 
 static void update_tree_depth(UITreeNode* node, int depth) {
@@ -57,6 +63,10 @@ void freeTreeNodeRecursive(UITreeNode* node) {
     }
 
     free(node->children);
+    if (node->userData && node->userDataFreeFn) {
+        node->userDataFreeFn(node->userData);
+        node->userData = NULL;
+    }
     free((char*)node->label);
     free((char*)node->fullPath);
     free(node);

@@ -6,6 +6,7 @@
 
 #include "app/GlobalInfo/project.h"
 #include "app/GlobalInfo/core_state.h"
+#include "core/Analysis/analysis_scheduler.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/FileIO/file_ops.h"
 #include <stdio.h>
@@ -56,7 +57,7 @@ void handleProjectFilesCommand(UIPane* pane, InputCommandMetadata meta) {
                 }
 
                 renamingEntry = NULL;
-		pendingProjectRefresh = true;
+                queueProjectRefresh(ANALYSIS_REASON_PROJECT_MUTATION);
             }
             break;
 
@@ -67,14 +68,14 @@ void handleProjectFilesCommand(UIPane* pane, InputCommandMetadata meta) {
         case COMMAND_NEW_FILE: {
             DirEntry* target = getCurrentTargetDirectory();
             createFileInProject(target, "new_file.c");
-  	    pendingProjectRefresh = true;
+            queueProjectRefresh(ANALYSIS_REASON_PROJECT_MUTATION);
             break;
         }
 
         case COMMAND_NEW_FOLDER: {
             DirEntry* target = getCurrentTargetDirectory();
             createFolderInProject(target, "new_folder");
-	    pendingProjectRefresh = true;
+            queueProjectRefresh(ANALYSIS_REASON_PROJECT_MUTATION);
             break;
         }
 

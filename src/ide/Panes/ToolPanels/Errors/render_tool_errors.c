@@ -4,8 +4,8 @@
 
 #include "ide/Panes/ToolPanels/Errors/tool_errors.h"
 #include "core/Diagnostics/diagnostics_engine.h"
-#include "core/Analysis/analysis_store.h"
 #include "core/Analysis/analysis_status.h"
+#include "core/Analysis/analysis_scheduler.h"
 #include "engine/Render/render_pipeline.h"
 #include "ide/UI/scroll_manager.h"
 #include "engine/Render/render_text_helpers.h"
@@ -14,6 +14,7 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <stdio.h>
+#include <string.h>
 
 // Forward from tool_errors.c
 bool is_error_selected(int idx);
@@ -41,6 +42,125 @@ static bool same_rgb(SDL_Color a, SDL_Color b) {
     return a.r == b.r && a.g == b.g && a.b == b.b;
 }
 
+static void render_state_button(const UIPane* pane,
+                                SDL_Rect rect,
+                                const char* label,
+                                bool active) {
+    (void)pane;
+    SDL_Renderer* r = getRenderContext()->renderer;
+    SDL_Color fill = {80, 80, 80, 255};
+    SDL_Color fillActive = {120, 120, 120, 255};
+    SDL_Color border = {180, 180, 180, 255};
+    SDL_Color text = {230, 230, 230, 255};
+    ide_shared_theme_button_colors(&fill, &fillActive, &border, &text);
+
+    SDL_Color bg = active ? fillActive : fill;
+    SDL_SetRenderDrawColor(r, bg.r, bg.g, bg.b, 255);
+    SDL_RenderFillRect(r, &rect);
+    SDL_SetRenderDrawColor(r, border.r, border.g, border.b, 255);
+    SDL_RenderDrawRect(r, &rect);
+
+    const char* src = label ? label : "";
+    int textMaxW = rect.w - 8;
+    size_t keepLen = getTextClampedLength(src, textMaxW);
+    char labelBuf[64];
+    if (keepLen >= sizeof(labelBuf)) keepLen = sizeof(labelBuf) - 1;
+    memcpy(labelBuf, src, keepLen);
+    labelBuf[keepLen] = '\0';
+
+    int tx = rect.x + (rect.w - getTextWidth(labelBuf)) / 2;
+    int ty = rect.y + 3;
+    drawTextWithTier(tx, ty, labelBuf, CORE_FONT_TEXT_SIZE_CAPTION);
+}
+
+static int button_text_cap(const char* const* labels, int count) {
+    int maxW = 28;
+    for (int i = 0; i < count; ++i) {
+        const char* s = labels[i] ? labels[i] : "";
+        int w = getTextWidth(s) + 16;
+        if (w > maxW) maxW = w;
+    }
+    return maxW;
+}
+
+static void layout_errors_controls(const UIPane* pane,
+                                   int* outTitle1X,
+                                   int* outTitle2X,
+                                   int* outTitle1Y,
+                                   int* outTitle2Y,
+                                   SDL_Rect* outAll,
+                                   SDL_Rect* outErrors,
+                                   SDL_Rect* outWarnings,
+                                   SDL_Rect* outOpenAll,
+                                   SDL_Rect* outCloseAll) {
+    const int padX = 12;
+    const int rowX = pane->x + padX;
+    const int topY = pane->y + 24;
+    const int rowGap = 6;
+    const int buttonH = 20;
+    int gapX = 5;
+    const int titleGap = 7;
+    const char* title1 = "Show";
+    const char* title2 = "Batch";
+    int titleColW = getTextWidth(title1);
+    int t2w = getTextWidth(title2);
+    if (t2w > titleColW) titleColW = t2w;
+    titleColW += 8;
+    int areaW = pane->w - (padX * 2);
+    if (areaW < 1) areaW = 1;
+    int buttonColW = areaW - titleColW - titleGap;
+    if (buttonColW < 1) buttonColW = 1;
+
+    // Match control-panel feel: shared total width for both rows; different row counts derive per-row button widths.
+    const int densestCount = 3;   // All/Errors/Warnings
+    const int smallestCount = 2;  // Open All/Close All
+    const char* row1Labels[] = { "All", "Errors", "Warnings" };
+    const char* row2Labels[] = { "Open All", "Close All" };
+
+    int sharedTotalW = buttonColW;
+
+    int row1BtnCap = button_text_cap(row1Labels, 3);
+    int row2BtnCap = button_text_cap(row2Labels, 2);
+    int row1TotalCap = row1BtnCap * densestCount + gapX * (densestCount - 1);
+    int row2TotalCap = row2BtnCap * smallestCount + gapX * (smallestCount - 1);
+    int freezeCap = (row1TotalCap < row2TotalCap) ? row1TotalCap : row2TotalCap;
+    freezeCap = (freezeCap * 7) / 4; // ~1.75x larger max growth before freezing
+    if (freezeCap > buttonColW) freezeCap = buttonColW;
+    if (sharedTotalW > freezeCap) sharedTotalW = freezeCap;
+
+    int bw1 = (sharedTotalW - gapX * (densestCount - 1)) / densestCount;
+    int bw2 = (sharedTotalW - gapX * (smallestCount - 1)) / smallestCount;
+    if (bw1 < 18 || bw2 < 18) {
+        gapX = 2;
+        bw1 = (sharedTotalW - gapX * (densestCount - 1)) / densestCount;
+        bw2 = (sharedTotalW - gapX * (smallestCount - 1)) / smallestCount;
+        if (bw1 < 12) bw1 = 12;
+        if (bw2 < 12) bw2 = 12;
+    }
+
+    int usedRow1 = bw1 * densestCount + gapX * (densestCount - 1);
+    int usedRow2 = bw2 * smallestCount + gapX * (smallestCount - 1);
+
+    int buttonColX = rowX + titleColW + titleGap;
+    int start1 = buttonColX + (buttonColW - usedRow1) / 2;
+    int start2 = buttonColX + (buttonColW - usedRow2) / 2;
+    if (start1 < buttonColX) start1 = buttonColX;
+    if (start2 < buttonColX) start2 = buttonColX;
+
+    int y1 = topY;
+    int y2 = y1 + buttonH + rowGap;
+
+    *outTitle1X = rowX;
+    *outTitle2X = rowX;
+    *outTitle1Y = y1 + 2;
+    *outTitle2Y = y2 + 2;
+    *outAll = (SDL_Rect){ start1, y1, bw1, buttonH };
+    *outErrors = (SDL_Rect){ start1 + bw1 + gapX, y1, bw1, buttonH };
+    *outWarnings = (SDL_Rect){ start1 + (bw1 + gapX) * 2, y1, bw1, buttonH };
+    *outOpenAll = (SDL_Rect){ start2, y2, bw2, buttonH };
+    *outCloseAll = (SDL_Rect){ start2 + bw2 + gapX, y2, bw2, buttonH };
+}
+
 void renderErrorsPanel(UIPane* pane) {
     static bool scrollInit = false;
     if (!scrollInit) {
@@ -61,6 +181,27 @@ void renderErrorsPanel(UIPane* pane) {
     PaneScrollState* scroll = errors_get_scroll_state();
     scroll_state_set_viewport(scroll, (float)viewportH);
 
+    int title1X = 0, title2X = 0, title1Y = 0, title2Y = 0;
+    SDL_Rect btnAll = {0}, btnErrors = {0}, btnWarnings = {0}, btnOpenAll = {0}, btnCloseAll = {0};
+    layout_errors_controls(pane,
+                           &title1X,
+                           &title2X,
+                           &title1Y,
+                           &title2Y,
+                           &btnAll,
+                           &btnErrors,
+                           &btnWarnings,
+                           &btnOpenAll,
+                           &btnCloseAll);
+    drawTextWithTier(title1X, title1Y, "Show", CORE_FONT_TEXT_SIZE_CAPTION);
+    drawTextWithTier(title2X, title2Y, "Batch", CORE_FONT_TEXT_SIZE_CAPTION);
+    errors_set_control_button_rects(btnAll, btnErrors, btnWarnings, btnOpenAll, btnCloseAll);
+    render_state_button(pane, btnAll, "All", errors_filter_all_enabled());
+    render_state_button(pane, btnErrors, "Errors", errors_filter_errors_enabled());
+    render_state_button(pane, btnWarnings, "Warnings", errors_filter_warnings_enabled());
+    renderButton(pane, btnOpenAll, "Open All");
+    renderButton(pane, btnCloseAll, "Close All");
+
     SDL_Color editorBg = ide_shared_theme_background_color();
     SDL_Color listBg = editorBg;
     if (same_rgb(listBg, pane->bgColor)) {
@@ -76,10 +217,14 @@ void renderErrorsPanel(UIPane* pane) {
     SDL_RenderFillRect(getRenderContext()->renderer, &bodyBg);
 
     AnalysisStatusSnapshot snap = {0};
+    AnalysisSchedulerSnapshot sched = {0};
     analysis_status_snapshot(&snap);
+    analysis_scheduler_snapshot(&sched);
     char statusBuf[128] = {0};
     if (snap.updating) {
-        snprintf(statusBuf, sizeof(statusBuf), "Updating...");
+        snprintf(statusBuf, sizeof(statusBuf),
+                 sched.active_run_id ? "Updating (#%llu)..." : "Updating...",
+                 (unsigned long long)sched.active_run_id);
     } else if (snap.last_error[0]) {
         snprintf(statusBuf, sizeof(statusBuf), "Analysis error");
     } else if (snap.has_cache) {
@@ -92,11 +237,10 @@ void renderErrorsPanel(UIPane* pane) {
         drawTextWithFont(tx, ty, statusBuf, font ? font : getActiveFont());
     }
 
-    analysis_store_lock();
+    errors_refresh_snapshot();
     FlatDiagRef refs[512];
     int flatCount = flatten_diagnostics(refs, 512);
     if (flatCount == 0) {
-        analysis_store_unlock();
         drawTextWithFont(x, contentTop, "(No errors or warnings)", font ? font : getActiveFont());
         return;
     }
@@ -174,5 +318,4 @@ void renderErrorsPanel(UIPane* pane) {
     }
 
     errors_set_scroll_rects(gErrorScrollTrack, gErrorScrollThumb);
-    analysis_store_unlock();
 }

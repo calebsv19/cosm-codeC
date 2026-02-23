@@ -4,7 +4,7 @@
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
 #include "core/Analysis/library_index.h"
-#include "core/Analysis/analysis_job.h"
+#include "core/Analysis/analysis_scheduler.h"
 #include "core/Analysis/analysis_status.h"
 #include "core/Analysis/analysis_cache.h"
 #include "core/Analysis/include_path_resolver.h"
@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <string.h>
 
 static void clear_analysis_cache(const char* root) {
     if (!root || !*root) return;
@@ -25,7 +26,8 @@ static void clear_analysis_cache(const char* root) {
     while ((ent = readdir(dir)) != NULL) {
         if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
         if (strstr(ent->d_name, "analysis") || strstr(ent->d_name, "library_index") ||
-            strstr(ent->d_name, "build_flags") || strstr(ent->d_name, "cache_meta")) {
+            strstr(ent->d_name, "build_flags") || strstr(ent->d_name, "cache_meta") ||
+            strstr(ent->d_name, "include_graph") || strcmp(ent->d_name, "index.json") == 0) {
             char full[1024];
             snprintf(full, sizeof(full), "%s/%s", path, ent->d_name);
             unlink(full);
@@ -41,10 +43,7 @@ void handleLibrariesCommand(UIPane* pane, InputCommandMetadata meta) {
         case COMMAND_REFRESH_LIBRARY:
         {
             printf("[LibraryPanelCommand] Refreshing library index async...\n");
-            const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
-            const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
-            analysis_request_refresh();
-            start_async_workspace_analysis(projectPath, buildArgs);
+            analysis_scheduler_request(ANALYSIS_REASON_LIBRARY_PANEL_REFRESH, true);
             break;
         }
         case COMMAND_CLEAR_ANALYSIS_CACHE:

@@ -1,20 +1,75 @@
 #include "core/Analysis/library_index.h"
 
 #include <dirent.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "fisics_frontend.h"
+#include "core/Analysis/analysis_status.h"
+#include "core/Analysis/analysis_job.h"
 #include "core/Analysis/include_path_resolver.h"
+#include "core/Analysis/fisics_frontend_guard.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 
 static LibraryIndexBuildStats g_lastBuildStats = {0};
 static int g_libraryDebugLogging = 0;
 static BuildFlagSet g_buildFlags = {0};
 static const BuildFlagSet* g_activeFlags = NULL;
+
+static bool should_suppress_frontend_stderr(void) {
+    return !analysis_frontend_logs_enabled();
+}
+
+static int suppress_stderr_begin(void) {
+    int saved = dup(STDERR_FILENO);
+    if (saved < 0) return -1;
+    int devnull = open("/dev/null", O_WRONLY);
+    if (devnull < 0) {
+        close(saved);
+        return -1;
+    }
+    if (dup2(devnull, STDERR_FILENO) < 0) {
+        close(devnull);
+        close(saved);
+        return -1;
+    }
+    close(devnull);
+    return saved;
+}
+
+static void suppress_stderr_end(int saved_fd) {
+    if (saved_fd < 0) return;
+    (void)dup2(saved_fd, STDERR_FILENO);
+    close(saved_fd);
+}
+
+static int suppress_stdout_begin(void) {
+    int saved = dup(STDOUT_FILENO);
+    if (saved < 0) return -1;
+    int devnull = open("/dev/null", O_WRONLY);
+    if (devnull < 0) {
+        close(saved);
+        return -1;
+    }
+    if (dup2(devnull, STDOUT_FILENO) < 0) {
+        close(devnull);
+        close(saved);
+        return -1;
+    }
+    close(devnull);
+    return saved;
+}
+
+static void suppress_stdout_end(int saved_fd) {
+    if (saved_fd < 0) return;
+    (void)dup2(saved_fd, STDOUT_FILENO);
+    close(saved_fd);
+}
 
 // Simple file read (mirrors project_scan); 32MB cap.
 static char* read_file(const char* path, size_t* outLen) {
@@ -93,12 +148,14 @@ static const char* include_label_or_fallback(const FisicsInclude* inc,
 }
 
 static void scan_dir(const char* root) {
+    if (analysis_job_cancel_requested()) return;
     DIR* dir = opendir(root);
     if (!dir) return;
 
     struct dirent* ent;
     char child[1024];
     while ((ent = readdir(dir)) != NULL) {
+        if (analysis_job_cancel_requested()) break;
         if (should_skip_dir(ent->d_name)) continue;
 
         snprintf(child, sizeof(child), "%s/%s", root, ent->d_name);
@@ -124,9 +181,29 @@ static void scan_dir(const char* root) {
             opts.macro_defines = (const char* const*)flags->macro_defines;
             opts.macro_define_count = flags->macro_count;
 
+            int saved_stderr = -1;
+            int saved_stdout = -1;
+            fisics_frontend_guard_lock();
+            if (should_suppress_frontend_stderr()) {
+                saved_stdout = suppress_stdout_begin();
+                saved_stderr = suppress_stderr_begin();
+            }
             bool ok = fisics_analyze_buffer(child, buf, len, &opts, &res);
+            if (saved_stderr >= 0) {
+                suppress_stderr_end(saved_stderr);
+            }
+            if (saved_stdout >= 0) {
+                suppress_stdout_end(saved_stdout);
+            }
+            fisics_frontend_guard_unlock();
             if (!ok) g_lastBuildStats.analysis_failures++;
             g_lastBuildStats.files_analyzed++;
+
+            if (analysis_job_cancel_requested()) {
+                fisics_free_analysis_result(&res);
+                free(buf);
+                continue;
+            }
 
             if (g_libraryDebugLogging) {
                 printf("[LibraryIndex] scan %s (includes: %zu, ok: %d)\n",
@@ -150,6 +227,7 @@ static void scan_dir(const char* root) {
 
             fisics_free_analysis_result(&res);
             free(buf);
+            analysis_job_maybe_throttle();
         }
     }
     closedir(dir);

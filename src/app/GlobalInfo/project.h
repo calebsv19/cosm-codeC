@@ -36,6 +36,9 @@ extern DirEntry* projectRoot;       // Root of currently loaded project (NULL if
 extern char projectPath[1024];       // Full path to the project root directory
 extern char projectRootPath[1024];   // Full path to IDE root
 extern bool pendingProjectRefresh;
+extern unsigned int pendingProjectRefreshReasonMask;
+
+void queueProjectRefresh(unsigned int analysisReasonMask);
 
 
 void initProjectPaths(void);
@@ -62,4 +65,3 @@ void handleProjectTreeClick(int mouseX, int mouseY);
 
 
 #endif // PROJECT_H
-

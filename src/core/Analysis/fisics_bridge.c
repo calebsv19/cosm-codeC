@@ -10,6 +10,7 @@
 #include "core/Analysis/analysis_token_store.h"
 #include "core/Analysis/include_graph.h"
 #include "core/Analysis/library_index.h"
+#include "core/Analysis/fisics_frontend_guard.h"
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/Analysis/include_path_resolver.h"
@@ -177,7 +178,9 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
     opts.macro_defines = (const char* const*)flagsSet.macro_defines;
     opts.macro_define_count = flagsSet.macro_count;
 
+    fisics_frontend_guard_lock();
     bool ok = fisics_analyze_buffer(filePath, contents, length, &opts, &result);
+    fisics_frontend_guard_unlock();
     (void)ok; // ok may be false but still yield diagnostics
 
     analysis_store_upsert(filePath, result.diagnostics, result.diag_count);

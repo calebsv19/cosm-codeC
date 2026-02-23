@@ -413,7 +413,8 @@ void renderLeafEditorView(EditorView* view) {
             setEditorVerticalPaddingIfUnset(&active->state, EDITOR_CONTENT_TOP_PADDING);
 
             if (use_projection_render_source(active)) {
-                SDL_Rect badge = { boxX + 6, boxY + HEADER_HEIGHT + 3, 112, 14 };
+                int badgeX = boxX + EDITOR_LINE_NUMBER_GUTTER_W + 8;
+                SDL_Rect badge = { badgeX, boxY + HEADER_HEIGHT + 3, 112, 14 };
                 SDL_SetRenderDrawColor(renderer, 58, 64, 84, 200);
                 SDL_RenderFillRect(renderer, &badge);
                 drawTextWithTier(badge.x + 5, badge.y + 1, "projection view", CORE_FONT_TEXT_SIZE_CAPTION);
@@ -543,9 +544,9 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
     pushClipRect(&contentClip);
 
     SDL_Rect gutterRect = { x, y, gutterW, h };
-    SDL_SetRenderDrawColor(renderer, 44, 46, 52, 220);
+    SDL_SetRenderDrawColor(renderer, 38, 40, 46, 220);
     SDL_RenderFillRect(renderer, &gutterRect);
-    SDL_SetRenderDrawColor(renderer, 72, 74, 82, 255);
+    SDL_SetRenderDrawColor(renderer, 66, 68, 76, 255);
     SDL_RenderDrawLine(renderer, x + gutterW - 1, y, x + gutterW - 1, y + h);
 
     // Scroll bounding

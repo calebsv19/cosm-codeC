@@ -34,6 +34,8 @@
 #include "core/Analysis/include_path_resolver.h"
 #include "core/Analysis/include_graph.h"
 #include "core/Analysis/analysis_status.h"
+#include "core/Analysis/analysis_scheduler.h"
+#include "core/Analysis/analysis_job.h"
 #include "core/Ipc/ide_ipc_server.h"
 #include "core/Ipc/ide_ipc_edit_apply.h"
 #include "ide/Panes/Editor/Commands/editor_commands.h"
@@ -55,6 +57,14 @@
 
 
 bool printTaskNodes = false;
+
+static bool workspace_has_diagnostics_cache(const char* project_root) {
+    if (!project_root || !project_root[0]) return false;
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", project_root);
+    struct stat st;
+    return (stat(path, &st) == 0) && S_ISREG(st.st_mode);
+}
 
 
 static void printTaskNode(TaskNode* node, int depth) {
@@ -345,6 +355,7 @@ bool initializeSystem() {
     initBuildSystem();
     initBuildOutputPanelState();
     analysis_status_init();
+    analysis_scheduler_init();
 
     initProjectPaths();
     loadInitialWorkspace();
@@ -383,14 +394,20 @@ bool initializeSystem() {
     }
     include_graph_load(projectPath);
     analysis_status_set_has_cache(loadedCache || loadedSymbols || loadedTokens);
+    // Session state can restore search/projection before symbols are loaded.
+    // Force a sync after caches/stores are available so projection rows rebuild
+    // against the latest symbol metadata.
+    editor_sync_active_file_projection_mode();
 
     initPluginSystem();
 
     initializeUIPanesIfNeeded();
     initFileWatcher();
 
+    bool has_diag_cache = workspace_has_diagnostics_cache(projectPath);
     analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
-    analysis_request_refresh();
+    analysis_job_set_slow_mode_next_run(has_diag_cache);
+    analysis_scheduler_request(ANALYSIS_REASON_STARTUP, !has_diag_cache);
     initAssetManagerPanel();
 
     if (!ide_ipc_start(projectPath)) {
@@ -411,24 +428,32 @@ bool initializeSystem() {
 }
 
 void shutdownSystem(UIPane** panes, int paneCount) {
-    // Persist last build diagnostics for next session.
-    const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
-    const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
+    // Always persist lightweight UI/build diagnostics state.
     build_diagnostics_save(projectPath);
     diagnostics_save(projectPath);
-    analysis_store_save(projectPath);
-    analysis_symbols_store_save(projectPath);
-    analysis_token_store_save(projectPath);
-    library_index_save(projectPath);
-    BuildFlagSet tmpFlags = {0};
-    gather_build_flags(projectPath, buildArgs, &tmpFlags);
-    analysis_cache_save_build_flags(&tmpFlags, projectPath);
-    free_build_flag_set(&tmpFlags);
-    analysis_cache_save_metadata(projectPath, buildArgs);
-    analysis_cache_save_symbols(projectPath);
-    analysis_cache_save_tokens(projectPath);
-    analysis_snapshot_refresh_and_save(projectPath);
-    include_graph_save(projectPath);
+
+    // Analysis outputs are now persisted during async analysis runs.
+    // Rewriting all caches at shutdown caused large close-time stalls on
+    // medium/large workspaces. Keep legacy full-shutdown persistence behind
+    // an env switch for debugging only.
+    const char* forceExitPersist = getenv("IDE_FORCE_ANALYSIS_SAVE_ON_EXIT");
+    if (forceExitPersist && forceExitPersist[0] == '1') {
+        const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
+        const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
+        analysis_store_save(projectPath);
+        analysis_symbols_store_save(projectPath);
+        analysis_token_store_save(projectPath);
+        library_index_save(projectPath);
+        BuildFlagSet tmpFlags = {0};
+        gather_build_flags(projectPath, buildArgs, &tmpFlags);
+        analysis_cache_save_build_flags(&tmpFlags, projectPath);
+        free_build_flag_set(&tmpFlags);
+        analysis_cache_save_metadata(projectPath, buildArgs);
+        analysis_cache_save_symbols(projectPath);
+        analysis_cache_save_tokens(projectPath);
+        analysis_snapshot_refresh_and_save(projectPath);
+        include_graph_save(projectPath);
+    }
     IDECoreState* core = getCoreState();
     if (core && core->persistentEditorView) {
         editor_session_save(projectPath, core->persistentEditorView, core->activeEditorView);

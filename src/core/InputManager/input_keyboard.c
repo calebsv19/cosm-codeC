@@ -6,6 +6,8 @@
 #include "app/GlobalInfo/core_state.h"
 #include "ide/UI/layout.h"
 #include "ide/UI/ui_state.h"
+#include "ide/Panes/ControlPanel/control_panel.h"
+#include "ide/Panes/ToolPanels/Git/tool_git.h"
 
 // This file handles SDL_KEYDOWN input → dispatchInputCommand()
 // It does NOT handle behavior — that's routed by the pane’s inputHandler
@@ -21,6 +23,16 @@ static void enqueueTargetedCommand(UIPane* target, InputCommand cmd, SDL_Keymod 
         .payload = NULL
     };
     enqueueCommand(meta);
+}
+
+static bool text_entry_is_active(const IDECoreState* core) {
+    if (isRenaming()) return true;
+    if (control_panel_is_search_focused()) return true;
+    if (git_panel_is_message_focused()) return true;
+    if (SDL_IsTextInputActive()) return true;
+    if (!core || !core->focusedPane) return false;
+    UIPaneRole role = core->focusedPane->role;
+    return role == PANE_ROLE_EDITOR || role == PANE_ROLE_TERMINAL;
 }
 
 void handleKeyboardInput(SDL_Event* event,
@@ -79,6 +91,13 @@ void handleKeyboardInput(SDL_Event* event,
     // Cmd/Ctrl + Shift + C → Clear analysis cache
     if ((mod & (KMOD_CTRL | KMOD_GUI)) && (mod & KMOD_SHIFT) && key == SDLK_c) {
         enqueueTargetedCommand(uiState ? uiState->menuBar : NULL, COMMAND_CLEAR_ANALYSIS_CACHE, (SDL_Keymod)mod);
+        return;
+    }
+
+    // Plain P toggles search pause/resume globally, but never while typing.
+    bool plainP = (key == SDLK_p) && !(mod & (KMOD_CTRL | KMOD_GUI | KMOD_ALT | KMOD_SHIFT));
+    if (plainP && !text_entry_is_active(core)) {
+        control_panel_toggle_search_enabled();
         return;
     }
 

@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <SDL2/SDL_ttf.h>
 
 static bool selected[512];
@@ -21,6 +22,149 @@ static PaneScrollState errorScroll;
 static SDL_Rect errorScrollTrack = {0};
 static SDL_Rect errorScrollThumb = {0};
 static bool fileCollapsed[512];
+static bool fileCollapseInitialized[512];
+static bool g_filterAll = true;
+static bool g_filterErrors = true;
+static bool g_filterWarnings = true;
+static SDL_Rect g_btnAll = {0};
+static SDL_Rect g_btnErrors = {0};
+static SDL_Rect g_btnWarnings = {0};
+static SDL_Rect g_btnOpenAll = {0};
+static SDL_Rect g_btnCloseAll = {0};
+
+typedef struct {
+    char* path;
+    Diagnostic* diags;
+    int count;
+    bool seen;
+} ErrorFileSnapshot;
+
+static ErrorFileSnapshot* g_snapshotFiles = NULL;
+static int g_snapshotCount = 0;
+static int g_snapshotCap = 0;
+
+static void free_snapshot_file(ErrorFileSnapshot* f) {
+    if (!f) return;
+    free(f->path);
+    f->path = NULL;
+    free(f->diags);
+    f->diags = NULL;
+    f->count = 0;
+    f->seen = false;
+}
+
+static int snapshot_find_file_by_path(const char* path) {
+    if (!path) return -1;
+    for (int i = 0; i < g_snapshotCount; ++i) {
+        if (g_snapshotFiles[i].path && strcmp(g_snapshotFiles[i].path, path) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static bool snapshot_reserve(int need) {
+    if (need <= g_snapshotCap) return true;
+    int newCap = g_snapshotCap > 0 ? g_snapshotCap : 8;
+    while (newCap < need) newCap *= 2;
+    ErrorFileSnapshot* next = realloc(g_snapshotFiles, (size_t)newCap * sizeof(ErrorFileSnapshot));
+    if (!next) return false;
+    for (int i = g_snapshotCap; i < newCap; ++i) {
+        next[i].path = NULL;
+        next[i].diags = NULL;
+        next[i].count = 0;
+        next[i].seen = false;
+    }
+    g_snapshotFiles = next;
+    g_snapshotCap = newCap;
+    return true;
+}
+
+static bool snapshot_replace_diags(int idx, const AnalysisFileDiagnostics* src) {
+    if (idx < 0 || idx >= g_snapshotCount || !src) return false;
+    ErrorFileSnapshot* f = &g_snapshotFiles[idx];
+    free(f->diags);
+    f->diags = NULL;
+    f->count = 0;
+    if (src->count <= 0) return true;
+    f->diags = calloc((size_t)src->count, sizeof(Diagnostic));
+    if (!f->diags) return false;
+    f->count = src->count;
+    for (int i = 0; i < src->count; ++i) {
+        f->diags[i].filePath = f->path ? f->path : src->path;
+        f->diags[i].line = src->diags[i].line;
+        f->diags[i].column = src->diags[i].column;
+        f->diags[i].message = src->diags[i].message;
+        f->diags[i].severity = src->diags[i].severity;
+    }
+    return true;
+}
+
+static void snapshot_remove_at(int idx) {
+    if (idx < 0 || idx >= g_snapshotCount) return;
+    free_snapshot_file(&g_snapshotFiles[idx]);
+    for (int i = idx + 1; i < g_snapshotCount; ++i) {
+        g_snapshotFiles[i - 1] = g_snapshotFiles[i];
+    }
+    g_snapshotCount--;
+}
+
+static void errors_refresh_snapshot_from_store(void) {
+    for (int i = 0; i < g_snapshotCount; ++i) {
+        g_snapshotFiles[i].seen = false;
+    }
+
+    analysis_store_lock();
+    size_t files = analysis_store_file_count();
+    for (size_t fi = 0; fi < files; ++fi) {
+        const AnalysisFileDiagnostics* src = analysis_store_file_at(fi);
+        if (!src || !src->path || src->count <= 0) continue;
+
+        int idx = snapshot_find_file_by_path(src->path);
+        if (idx < 0) {
+            if (!snapshot_reserve(g_snapshotCount + 1)) continue;
+            idx = g_snapshotCount++;
+            g_snapshotFiles[idx].path = strdup(src->path);
+            g_snapshotFiles[idx].diags = NULL;
+            g_snapshotFiles[idx].count = 0;
+            g_snapshotFiles[idx].seen = false;
+            if (idx < (int)(sizeof(fileCollapseInitialized) / sizeof(fileCollapseInitialized[0])) &&
+                !fileCollapseInitialized[idx]) {
+                // New entries default collapsed for stable, compact updates.
+                fileCollapseInitialized[idx] = true;
+                fileCollapsed[idx] = true;
+            }
+        }
+
+        g_snapshotFiles[idx].seen = true;
+        (void)snapshot_replace_diags(idx, src);
+    }
+    analysis_store_unlock();
+
+    for (int i = g_snapshotCount - 1; i >= 0; --i) {
+        if (!g_snapshotFiles[i].seen) {
+            snapshot_remove_at(i);
+        }
+    }
+}
+
+void errors_refresh_snapshot(void) {
+    errors_refresh_snapshot_from_store();
+}
+void errors_set_control_button_rects(SDL_Rect allRect,
+                                     SDL_Rect errorsRect,
+                                     SDL_Rect warningsRect,
+                                     SDL_Rect openAllRect,
+                                     SDL_Rect closeAllRect) {
+    g_btnAll = allRect;
+    g_btnErrors = errorsRect;
+    g_btnWarnings = warningsRect;
+    g_btnOpenAll = openAllRect;
+    g_btnCloseAll = closeAllRect;
+}
+bool errors_filter_all_enabled(void) { return g_filterAll; }
+bool errors_filter_errors_enabled(void) { return g_filterErrors; }
+bool errors_filter_warnings_enabled(void) { return g_filterWarnings; }
 PaneScrollState* errors_get_scroll_state(void) { return &errorScroll; }
 SDL_Rect errors_get_scroll_track_rect(void) { return errorScrollTrack; }
 SDL_Rect errors_get_scroll_thumb_rect(void) { return errorScrollThumb; }
@@ -48,7 +192,7 @@ void errors_get_layout_metrics(const UIPane* pane,
     if (headerHeight) *headerHeight = lh;
     if (diagHeight) *diagHeight = lh * 2;
     if (contentTop && pane) {
-        const int paddingY = 24;
+        const int paddingY = 76;
         *contentTop = pane->y + paddingY;
     }
 }
@@ -99,22 +243,35 @@ bool is_error_selected(int idx) {
     return is_selected(idx);
 }
 
+static bool diag_visible(const Diagnostic* d) {
+    if (!d) return false;
+    if (g_filterAll) return true;
+    if (d->severity == DIAG_SEVERITY_ERROR) return g_filterErrors;
+    if (d->severity == DIAG_SEVERITY_WARNING) return g_filterWarnings;
+    return false;
+}
+
 int flatten_diagnostics(FlatDiagRef* out, int max) {
     int total = 0;
-    size_t files = analysis_store_file_count();
-    for (size_t fi = 0; fi < files && total < max; ++fi) {
-        const AnalysisFileDiagnostics* f = analysis_store_file_at(fi);
+    for (int fi = 0; fi < g_snapshotCount && total < max; ++fi) {
+        const ErrorFileSnapshot* f = &g_snapshotFiles[fi];
         if (!f || f->count <= 0) continue;
+        int visibleCount = 0;
+        for (int di = 0; di < f->count; ++di) {
+            if (diag_visible(&f->diags[di])) visibleCount++;
+        }
+        if (visibleCount <= 0) continue;
         if (total < max) {
             out[total].diag = NULL;
             out[total].path = f->path;
-            out[total].fileIndex = (int)fi;
+            out[total].fileIndex = fi;
             out[total].isHeader = true;
             total++;
         }
         bool collapsed = (fi < sizeof(fileCollapsed) / sizeof(fileCollapsed[0])) ? fileCollapsed[fi] : false;
         if (collapsed) continue;
         for (int di = 0; di < f->count && total < max; ++di) {
+            if (!diag_visible(&f->diags[di])) continue;
             out[total].diag = &f->diags[di];
             out[total].path = f->path;
             out[total].fileIndex = (int)fi;
@@ -158,7 +315,8 @@ static void jump_to_diag(const Diagnostic* d) {
 
 static void jump_to_first_diag_for_file(int fileIndex) {
     if (fileIndex < 0) return;
-    const AnalysisFileDiagnostics* f = analysis_store_file_at((size_t)fileIndex);
+    if (fileIndex >= g_snapshotCount) return;
+    const ErrorFileSnapshot* f = &g_snapshotFiles[fileIndex];
     if (!f || f->count <= 0) return;
     jump_to_diag(&f->diags[0]);
 }
@@ -179,14 +337,13 @@ static void copy_diag(const Diagnostic* d) {
 }
 
 static void copy_selected_block(void) {
-    analysis_store_lock();
+    errors_refresh_snapshot_from_store();
     FlatDiagRef refs[512];
     flatCount = flatten_diagnostics(refs, 512);
     size_t cap = 2048;
     size_t len = 0;
     char* out = malloc(cap);
     if (!out) {
-        analysis_store_unlock();
         return;
     }
     out[0] = '\0';
@@ -216,7 +373,6 @@ static void copy_selected_block(void) {
             char* tmp = realloc(out, cap);
             if (!tmp) {
                 free(out);
-                analysis_store_unlock();
                 return;
             }
             out = tmp;
@@ -233,11 +389,11 @@ static void copy_selected_block(void) {
         if (sel >= 0 && sel < flatCount) copy_diag(refs[sel].diag);
     }
     free(out);
-    analysis_store_unlock();
 }
 
 void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
+    errors_refresh_snapshot_from_store();
     int firstY = 0;
     int headerHeight = 0;
     int diagHeight = 0;
@@ -255,17 +411,52 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
     }
 
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
-        analysis_store_lock();
+        const int mx = event->button.x;
+        const int my = event->button.y;
+        if (mx >= g_btnAll.x && mx < g_btnAll.x + g_btnAll.w &&
+            my >= g_btnAll.y && my < g_btnAll.y + g_btnAll.h) {
+            g_filterAll = !g_filterAll;
+            clear_selected();
+            return;
+        }
+        if (mx >= g_btnErrors.x && mx < g_btnErrors.x + g_btnErrors.w &&
+            my >= g_btnErrors.y && my < g_btnErrors.y + g_btnErrors.h) {
+            g_filterErrors = !g_filterErrors;
+            clear_selected();
+            return;
+        }
+        if (mx >= g_btnWarnings.x && mx < g_btnWarnings.x + g_btnWarnings.w &&
+            my >= g_btnWarnings.y && my < g_btnWarnings.y + g_btnWarnings.h) {
+            g_filterWarnings = !g_filterWarnings;
+            clear_selected();
+            return;
+        }
+        if (mx >= g_btnOpenAll.x && mx < g_btnOpenAll.x + g_btnOpenAll.w &&
+            my >= g_btnOpenAll.y && my < g_btnOpenAll.y + g_btnOpenAll.h) {
+            for (int i = 0; i < g_snapshotCount && i < (int)(sizeof(fileCollapsed) / sizeof(fileCollapsed[0])); ++i) {
+                fileCollapsed[i] = false;
+            }
+            return;
+        }
+        if (mx >= g_btnCloseAll.x && mx < g_btnCloseAll.x + g_btnCloseAll.w &&
+            my >= g_btnCloseAll.y && my < g_btnCloseAll.y + g_btnCloseAll.h) {
+            for (int i = 0; i < g_snapshotCount && i < (int)(sizeof(fileCollapsed) / sizeof(fileCollapsed[0])); ++i) {
+                fileCollapsed[i] = true;
+                fileCollapseInitialized[i] = true;
+            }
+            return;
+        }
+
         FlatDiagRef refs[512];
         flatCount = flatten_diagnostics(refs, 512);
-        int my = event->button.y;
+        int listMy = event->button.y;
         int y = firstY - (int)scroll_state_get_offset(errors_get_scroll_state());
         int hit = -1;
         for (int i = 0; i < flatCount; ++i) {
             int blockTop = y;
             int h = refs[i].isHeader ? headerHeight : diagHeight;
             int blockBottom = y + h;
-            if (my >= blockTop && my < blockBottom) {
+            if (listMy >= blockTop && listMy < blockBottom) {
                 hit = i;
                 break;
             }
@@ -286,7 +477,6 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
                     // refresh selection to just this header
                     clear_selected();
                     toggle_selected(hit, false);
-                    analysis_store_unlock();
                     return;
                 }
 
@@ -310,15 +500,12 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
             if (dbl) {
                 jump_to_diag(refs[hit].diag);
             }
-            analysis_store_unlock();
         } else {
             clear_selected();
             dragging = false;
             dragAnchor = -1;
-            analysis_store_unlock();
         }
     } else if (event->type == SDL_MOUSEMOTION && dragging) {
-        analysis_store_lock();
         FlatDiagRef refs[512];
         flatCount = flatten_diagnostics(refs, 512);
         int my = event->motion.y;
@@ -337,7 +524,6 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
         if (hit >= 0 && dragAnchor >= 0) {
             select_range(dragAnchor, hit);
         }
-        analysis_store_unlock();
     } else if (event->type == SDL_MOUSEBUTTONUP && event->button.button == SDL_BUTTON_LEFT) {
         dragging = false;
         dragAnchor = -1;

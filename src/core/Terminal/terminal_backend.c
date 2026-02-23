@@ -135,6 +135,15 @@ TerminalBackend* terminal_backend_spawn(const char* start_dir, int rows, int col
         if (start_dir && *start_dir) {
             chdir(start_dir);
         }
+        // Ensure full terminal capabilities for interactive TUIs.
+        const char* term = getenv("TERM");
+        if (!term || !term[0] || strcmp(term, "dumb") == 0) {
+            setenv("TERM", "xterm-256color", 1);
+        }
+        if (!getenv("COLORTERM")) {
+            setenv("COLORTERM", "truecolor", 1);
+        }
+        setenv("TERM_PROGRAM", "caleb_ide", 1);
         char exe_dir[PATH_MAX];
         if (get_executable_dir(exe_dir, sizeof(exe_dir))) {
             prepend_dir_to_path_if_needed(exe_dir);
@@ -198,29 +207,6 @@ void terminal_backend_destroy(TerminalBackend* term) {
     free(term);
 }
 
-static void append_normalized(TerminalBackend* term, const char* buf, ssize_t len) {
-    // Normalize CRLF → LF, but keep lone CR so the renderer can treat it as
-    // carriage return rather than newline.
-    char* tmp = (char*)malloc((size_t)len);
-    if (!tmp) return;
-    size_t out = 0;
-    for (ssize_t i = 0; i < len; ++i) {
-        char c = buf[i];
-        if (c == '\r') {
-            if (i + 1 < len && buf[i + 1] == '\n') {
-                i++;  // consume LF
-                tmp[out++] = '\n';
-            } else {
-                tmp[out++] = '\r';
-            }
-        } else {
-            tmp[out++] = c;
-        }
-    }
-    append_bytes(term, tmp, out);
-    free(tmp);
-}
-
 ssize_t terminal_backend_read_output(TerminalBackend* term) {
     if (!term || term->dead || term->master_fd < 0) return -1;
 
@@ -229,7 +215,7 @@ ssize_t terminal_backend_read_output(TerminalBackend* term) {
     for (;;) {
         ssize_t n = read(term->master_fd, buf, sizeof(buf));
         if (n > 0) {
-            append_normalized(term, buf, n);
+            append_bytes(term, buf, (size_t)n);
             total += n;
             continue;
         }

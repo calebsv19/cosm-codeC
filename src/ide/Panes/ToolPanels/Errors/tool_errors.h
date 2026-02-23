@@ -19,6 +19,7 @@ int  getSelectedErrorDiag(void);
 void setSelectedErrorDiag(int index);
 bool is_error_selected(int idx);
 int flatten_diagnostics(FlatDiagRef* out, int max);
+void errors_refresh_snapshot(void);
 
 // Scroll helpers
 struct PaneScrollState;
@@ -35,5 +36,13 @@ void errors_get_layout_metrics(const UIPane* pane,
                                int* headerHeight,
                                int* diagHeight,
                                int* lineHeight);
+void errors_set_control_button_rects(SDL_Rect allRect,
+                                     SDL_Rect errorsRect,
+                                     SDL_Rect warningsRect,
+                                     SDL_Rect openAllRect,
+                                     SDL_Rect closeAllRect);
+bool errors_filter_all_enabled(void);
+bool errors_filter_errors_enabled(void);
+bool errors_filter_warnings_enabled(void);
 
 #endif

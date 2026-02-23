@@ -317,6 +317,68 @@ static const AnalysisFileSymbols* find_symbols_for_path(const char* filePath) {
     return NULL;
 }
 
+static void free_tree_symbol_user_data(void* ptr) {
+    FisicsSymbol* sym = (FisicsSymbol*)ptr;
+    if (!sym) return;
+    free((char*)sym->name);
+    free((char*)sym->file_path);
+    free((char*)sym->parent_name);
+    free((char*)sym->return_type);
+    if (sym->param_types) {
+        for (size_t i = 0; i < sym->param_count; ++i) {
+            free((char*)sym->param_types[i]);
+        }
+        free((void*)sym->param_types);
+    }
+    if (sym->param_names) {
+        for (size_t i = 0; i < sym->param_count; ++i) {
+            free((char*)sym->param_names[i]);
+        }
+        free((void*)sym->param_names);
+    }
+    free(sym);
+}
+
+static FisicsSymbol* clone_symbol_for_tree(const FisicsSymbol* src) {
+    if (!src) return NULL;
+    FisicsSymbol* out = (FisicsSymbol*)calloc(1, sizeof(FisicsSymbol));
+    if (!out) return NULL;
+    *out = *src;
+    out->name = src->name ? strdup(src->name) : NULL;
+    out->file_path = src->file_path ? strdup(src->file_path) : NULL;
+    out->parent_name = src->parent_name ? strdup(src->parent_name) : NULL;
+    out->return_type = src->return_type ? strdup(src->return_type) : NULL;
+    out->param_types = NULL;
+    out->param_names = NULL;
+    if (src->param_count > 0) {
+        if (src->param_types) {
+            out->param_types = (const char**)calloc(src->param_count, sizeof(char*));
+            if (!out->param_types) {
+                free_tree_symbol_user_data(out);
+                return NULL;
+            }
+            for (size_t i = 0; i < src->param_count; ++i) {
+                if (src->param_types[i]) {
+                    ((char**)out->param_types)[i] = strdup(src->param_types[i]);
+                }
+            }
+        }
+        if (src->param_names) {
+            out->param_names = (const char**)calloc(src->param_count, sizeof(char*));
+            if (!out->param_names) {
+                free_tree_symbol_user_data(out);
+                return NULL;
+            }
+            for (size_t i = 0; i < src->param_count; ++i) {
+                if (src->param_names[i]) {
+                    ((char**)out->param_names)[i] = strdup(src->param_names[i]);
+                }
+            }
+        }
+    }
+    return out;
+}
+
 static void build_symbol_label(char* out, size_t outSize, const FisicsSymbol* sym) {
     const char* name = (sym && sym->name) ? sym->name : "<anonymous>";
     const char* kind = kind_label(sym ? sym->kind : FISICS_SYMBOL_UNKNOWN);
@@ -380,7 +442,11 @@ static void append_symbols_to_file(UITreeNode* fileNode,
         char label[512];
         build_symbol_label(label, sizeof(label), sym);
 
-        UITreeNode* symNode = createTreeNode(label, TREE_NODE_SECTION, NODE_COLOR_DEFAULT, filePath, (void*)sym);
+        FisicsSymbol* symCopy = clone_symbol_for_tree(sym);
+        UITreeNode* symNode = createTreeNode(label, TREE_NODE_SECTION, NODE_COLOR_DEFAULT, filePath, (void*)symCopy);
+        if (symCopy) {
+            setTreeNodeUserDataFreeFn(symNode, free_tree_symbol_user_data);
+        }
         symNode->isExpanded = false;
 
         if (sym->kind == FISICS_SYMBOL_FUNCTION && sym->param_count > 0) {
@@ -402,7 +468,7 @@ static void append_symbols_to_file(UITreeNode* fileNode,
                 } else {
                     snprintf(paramLabel, sizeof(paramLabel), "<param>");
                 }
-                UITreeNode* paramNode = createTreeNode(paramLabel, TREE_NODE_FILE, NODE_COLOR_DEFAULT, filePath, (void*)sym);
+                UITreeNode* paramNode = createTreeNode(paramLabel, TREE_NODE_FILE, NODE_COLOR_DEFAULT, filePath, NULL);
                 addChildNode(symNode, paramNode);
             }
         }
@@ -442,7 +508,11 @@ static void append_symbols_to_file(UITreeNode* fileNode,
 
         char label[512];
         build_symbol_label(label, sizeof(label), sym);
-        UITreeNode* childNode = createTreeNode(label, TREE_NODE_FILE, NODE_COLOR_DEFAULT, filePath, (void*)sym);
+        FisicsSymbol* symCopy = clone_symbol_for_tree(sym);
+        UITreeNode* childNode = createTreeNode(label, TREE_NODE_FILE, NODE_COLOR_DEFAULT, filePath, (void*)symCopy);
+        if (symCopy) {
+            setTreeNodeUserDataFreeFn(childNode, free_tree_symbol_user_data);
+        }
         addChildNode(parentNode, childNode);
     }
 
@@ -472,8 +542,10 @@ static UITreeNode* build_project_tree_node(const DirEntry* entry,
         } else {
             fileNode->isExpanded = false;
         }
+        analysis_symbols_store_lock();
         const AnalysisFileSymbols* entrySymbols = find_symbols_for_path(entry->path);
         append_symbols_to_file(fileNode, entrySymbols, entry->path, showAutoParamNames, showMacros);
+        analysis_symbols_store_unlock();
         return fileNode;
     }
 
@@ -571,8 +643,10 @@ struct UITreeNode* buildSymbolTreeForWorkspace(const DirEntry* projectRoot,
                 fileNode->isExpanded = true;
             }
         }
+        analysis_symbols_store_lock();
         const AnalysisFileSymbols* entry = find_symbols_for_path(activeFilePath);
         append_symbols_to_file(fileNode, entry, activeFilePath, showAutoParamNames, showMacros);
+        analysis_symbols_store_unlock();
         addChildNode(activeSection, fileNode);
     } else {
         UITreeNode* empty = createTreeNode("No active file", TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, NULL);

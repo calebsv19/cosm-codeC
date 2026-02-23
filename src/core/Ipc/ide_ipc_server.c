@@ -343,6 +343,7 @@ static json_object* build_symbol_result(json_object* args, const char* project_r
 
     int total = 0;
     int returned = 0;
+    analysis_symbols_store_lock();
     size_t file_count = analysis_symbols_store_file_count();
     for (size_t fi = 0; fi < file_count; ++fi) {
         const AnalysisFileSymbols* file_entry = analysis_symbols_store_file_at(fi);
@@ -397,6 +398,7 @@ static json_object* build_symbol_result(json_object* args, const char* project_r
             returned++;
         }
     }
+    analysis_symbols_store_unlock();
 
     json_object_object_add(result, "symbols", arr);
     json_object_object_add(result, "total_count", json_object_new_int(total));
@@ -849,7 +851,7 @@ static json_object* build_build_result(json_object* args, const char* project_ro
         }
     } else {
         snprintf(shell_cmd, sizeof(shell_cmd),
-                 "cd \"%s\" && (mkdir -p build && find . -name '*.c' ! -path './build/*' -print0 | xargs -0 cc -std=c11 -Wall -Wextra -g -o build/app) 2>&1",
+                 "cd \"%s\" && (mkdir -p build && find . -name '*.c' ! -path './build/*' -print0 | xargs -0 cc -std=c11 -Wall -Wextra -g -Iinclude -Isrc -o build/app) 2>&1",
                  project_root);
     }
 

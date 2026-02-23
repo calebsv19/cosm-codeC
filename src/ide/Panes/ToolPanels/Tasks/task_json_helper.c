@@ -67,8 +67,12 @@ bool loadTaskTreeFromFile(const char* filepath, TaskNode*** outRoots, int* outRo
 
     if (size <= 0) {
         free(buffer);
-        fprintf(stderr, "[TaskJSON] File is empty or corrupt.\n");
-        return false;
+        fprintf(stderr, "[TaskJSON] File is empty or corrupt; resetting to empty task list.\n");
+        *outRoots = NULL;
+        *outRootCount = 0;
+        /* Best effort: repair on disk to a valid empty JSON array. */
+        (void)writeTextFile(filepath, "[]\n", 3u);
+        return true;
     }
     
 
@@ -77,9 +81,12 @@ bool loadTaskTreeFromFile(const char* filepath, TaskNode*** outRoots, int* outRo
     free(buffer);
 
     if (!rootArray || !json_object_is_type(rootArray, json_type_array)) {
-        fprintf(stderr, "[TaskJSON] JSON root is not an array or failed to parse.\n");
+        fprintf(stderr, "[TaskJSON] JSON root is not an array or failed to parse; resetting to empty task list.\n");
         if (rootArray) json_object_put(rootArray);
-        return false;
+        *outRoots = NULL;
+        *outRootCount = 0;
+        (void)writeTextFile(filepath, "[]\n", 3u);
+        return true;
     }
 
     int count = json_object_array_length(rootArray);
@@ -116,8 +123,8 @@ bool loadTaskTreeFromFile(const char* filepath, TaskNode*** outRoots, int* outRo
         free(roots);
         *outRoots = NULL;
         *outRootCount = 0;
-        fprintf(stderr, "[TaskJSON] No valid root tasks found.\n");
-        return false;
+        fprintf(stderr, "[TaskJSON] No valid root tasks found; treating as empty task list.\n");
+        return true;
     }
 
     *outRoots = roots;

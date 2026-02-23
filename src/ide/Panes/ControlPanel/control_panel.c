@@ -200,15 +200,7 @@ static void free_cached_path(void) {
 }
 
 static uint64_t compute_store_stamp(void) {
-    size_t count = analysis_symbols_store_file_count();
-    uint64_t stamp = (uint64_t)count;
-    for (size_t i = 0; i < count; ++i) {
-        const AnalysisFileSymbols* entry = analysis_symbols_store_file_at(i);
-        if (entry) {
-            stamp ^= entry->stamp;
-        }
-    }
-    return stamp;
+    return analysis_symbols_store_combined_stamp();
 }
 
 static size_t count_project_files(const DirEntry* entry, int depth) {

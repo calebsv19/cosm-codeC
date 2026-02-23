@@ -287,6 +287,16 @@ static uint64_t compute_projection_stamp(const OpenFile* file,
     uint64_t stamp = file ? file->bufferVersion : 0;
     stamp ^= 0x9e3779b97f4a7c15ULL;
 
+    analysis_symbols_store_lock();
+    const AnalysisFileSymbols* symbols = file ? find_symbols_for_path(file->filePath) : NULL;
+    if (symbols) {
+        stamp ^= symbols->stamp;
+        stamp ^= (uint64_t)symbols->count << 24;
+    } else {
+        stamp ^= 0x51ed270b4d31a6d3ULL;
+    }
+    analysis_symbols_store_unlock();
+
     const unsigned char* p = (const unsigned char*)(query ? query : "");
     while (*p) {
         unsigned char c = (unsigned char)tolower(*p++);
@@ -317,8 +327,12 @@ static bool build_symbol_projection(OpenFile* file,
                                     bool* lineMatched) {
     if (!file || !file->buffer || !out) return false;
 
+    analysis_symbols_store_lock();
     const AnalysisFileSymbols* symbols = find_symbols_for_path(file->filePath);
-    if (!symbols || !symbols->symbols || symbols->count == 0) return false;
+    if (!symbols || !symbols->symbols || symbols->count == 0) {
+        analysis_symbols_store_unlock();
+        return false;
+    }
 
     int lineCount = file->buffer->lineCount;
     bool addedAny = false;
@@ -345,12 +359,12 @@ static bool build_symbol_projection(OpenFile* file,
             int rangeStart = realLine;
             int rangeEnd = realLine;
             if (sym->kind == FISICS_SYMBOL_FUNCTION) {
-                if (endLine <= realLine) {
-                    int scanMax = realLine + PROJECTION_MAX_FUNCTION_LINES - 1;
-                    if (scanMax >= lineCount) scanMax = lineCount - 1;
-                    int inferredEnd = infer_block_end_line(file, realLine, scanMax);
-                    if (inferredEnd > endLine) endLine = inferredEnd;
-                }
+                int scanMax = realLine + PROJECTION_MAX_FUNCTION_LINES - 1;
+                if (scanMax >= lineCount) scanMax = lineCount - 1;
+                int inferredEnd = infer_block_end_line(file, realLine, scanMax);
+                // Symbols loaded from cache/startup can under-report function end lines.
+                // Always prefer the inferred closing-brace line when it extends the span.
+                if (inferredEnd > endLine) endLine = inferredEnd;
                 rangeStart = realLine;
                 rangeEnd = endLine;
                 int maxEnd = realLine + PROJECTION_MAX_FUNCTION_LINES - 1;
@@ -362,7 +376,10 @@ static bool build_symbol_projection(OpenFile* file,
 
             for (int line = rangeStart; line <= rangeEnd; ++line) {
                 const char* srcLine = file->buffer->lines[line] ? file->buffer->lines[line] : "";
-                if (!builder_push(out, srcLine, line, (line == realLine) ? realCol : 0)) return false;
+                if (!builder_push(out, srcLine, line, (line == realLine) ? realCol : 0)) {
+                    analysis_symbols_store_unlock();
+                    return false;
+                }
                 mark_line(lineMatched, lineCount, line);
             }
 
@@ -370,16 +387,24 @@ static bool build_symbol_projection(OpenFile* file,
                 int skipped = endLine - rangeEnd;
                 char truncated[96];
                 snprintf(truncated, sizeof(truncated), "... +%d lines", skipped);
-                if (!builder_push(out, truncated, rangeEnd, 0)) return false;
+                if (!builder_push(out, truncated, rangeEnd, 0)) {
+                    analysis_symbols_store_unlock();
+                    return false;
+                }
             }
 
             if (out->count > 0 && out->lines[out->count - 1] && out->lines[out->count - 1][0] != '\0') {
-                if (!builder_push(out, "", realLine, 0)) return false;
+                // Separator row between projected symbol blocks: keep gutter blank.
+                if (!builder_push(out, "", -1, -1)) {
+                    analysis_symbols_store_unlock();
+                    return false;
+                }
             }
             addedAny = true;
         }
     }
 
+    analysis_symbols_store_unlock();
     return addedAny;
 }
 

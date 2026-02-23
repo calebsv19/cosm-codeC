@@ -1,6 +1,7 @@
 #include "core/Analysis/analysis_symbols_store.h"
 
 #include <json-c/json.h>
+#include <SDL2/SDL.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -11,6 +12,22 @@ static AnalysisFileSymbols* g_files = NULL;
 static size_t g_file_count = 0;
 static size_t g_file_cap = 0;
 static uint64_t g_stamp_counter = 0;
+static SDL_mutex* g_symbols_mutex = NULL;
+
+static void ensure_symbols_mutex(void) {
+    if (!g_symbols_mutex) {
+        g_symbols_mutex = SDL_CreateMutex();
+    }
+}
+
+void analysis_symbols_store_lock(void) {
+    ensure_symbols_mutex();
+    if (g_symbols_mutex) SDL_LockMutex(g_symbols_mutex);
+}
+
+void analysis_symbols_store_unlock(void) {
+    if (g_symbols_mutex) SDL_UnlockMutex(g_symbols_mutex);
+}
 
 static void free_symbol_entry(AnalysisFileSymbols* f) {
     if (!f) return;
@@ -43,6 +60,7 @@ static void free_symbol_entry(AnalysisFileSymbols* f) {
 }
 
 void analysis_symbols_store_clear(void) {
+    analysis_symbols_store_lock();
     for (size_t i = 0; i < g_file_count; ++i) {
         free_symbol_entry(&g_files[i]);
     }
@@ -51,6 +69,7 @@ void analysis_symbols_store_clear(void) {
     g_file_count = 0;
     g_file_cap = 0;
     g_stamp_counter = 0;
+    analysis_symbols_store_unlock();
 }
 
 static char* dup_str(const char* s) {
@@ -101,6 +120,7 @@ void analysis_symbols_store_upsert(const char* filePath,
                                    const FisicsSymbol* symbols,
                                    size_t symbolCount) {
     if (!filePath) return;
+    analysis_symbols_store_lock();
 
     size_t existing = (size_t)-1;
     for (size_t i = 0; i < g_file_count; ++i) {
@@ -120,7 +140,10 @@ void analysis_symbols_store_upsert(const char* filePath,
     if (g_file_count >= g_file_cap) {
         size_t newCap = g_file_cap ? g_file_cap * 2 : 8;
         AnalysisFileSymbols* tmp = realloc(g_files, newCap * sizeof(AnalysisFileSymbols));
-        if (!tmp) return;
+        if (!tmp) {
+            analysis_symbols_store_unlock();
+            return;
+        }
         g_files = tmp;
         g_file_cap = newCap;
     }
@@ -134,12 +157,14 @@ void analysis_symbols_store_upsert(const char* filePath,
         entry.symbols = (FisicsSymbol*)calloc(symbolCount, sizeof(FisicsSymbol));
         if (!entry.symbols) {
             free(entry.path);
+            analysis_symbols_store_unlock();
             return;
         }
         for (size_t i = 0; i < symbolCount; ++i) {
             if (!clone_symbol(&entry.symbols[i], &symbols[i])) {
                 entry.count = i + 1;
                 free_symbol_entry(&entry);
+                analysis_symbols_store_unlock();
                 return;
             }
         }
@@ -150,10 +175,12 @@ void analysis_symbols_store_upsert(const char* filePath,
     }
     g_files[0] = entry;
     g_file_count++;
+    analysis_symbols_store_unlock();
 }
 
 void analysis_symbols_store_remove(const char* filePath) {
     if (!filePath) return;
+    analysis_symbols_store_lock();
     size_t existing = (size_t)-1;
     for (size_t i = 0; i < g_file_count; ++i) {
         if (g_files[i].path && strcmp(g_files[i].path, filePath) == 0) {
@@ -161,12 +188,16 @@ void analysis_symbols_store_remove(const char* filePath) {
             break;
         }
     }
-    if (existing == (size_t)-1) return;
+    if (existing == (size_t)-1) {
+        analysis_symbols_store_unlock();
+        return;
+    }
     free_symbol_entry(&g_files[existing]);
     for (size_t j = existing + 1; j < g_file_count; ++j) {
         g_files[j - 1] = g_files[j];
     }
     g_file_count--;
+    analysis_symbols_store_unlock();
 }
 
 size_t analysis_symbols_store_file_count(void) {
@@ -176,6 +207,16 @@ size_t analysis_symbols_store_file_count(void) {
 const AnalysisFileSymbols* analysis_symbols_store_file_at(size_t idx) {
     if (idx >= g_file_count) return NULL;
     return &g_files[idx];
+}
+
+uint64_t analysis_symbols_store_combined_stamp(void) {
+    analysis_symbols_store_lock();
+    uint64_t stamp = (uint64_t)g_file_count;
+    for (size_t i = 0; i < g_file_count; ++i) {
+        stamp ^= g_files[i].stamp;
+    }
+    analysis_symbols_store_unlock();
+    return stamp;
 }
 
 static void ensure_cache_dir(const char* workspaceRoot) {
@@ -194,6 +235,7 @@ static json_object* json_string_or_empty(const char* s) {
 
 void analysis_symbols_store_save(const char* workspaceRoot) {
     if (!workspaceRoot || !*workspaceRoot) return;
+    analysis_symbols_store_lock();
     ensure_cache_dir(workspaceRoot);
     char path[1024];
     snprintf(path, sizeof(path), "%s/ide_files/analysis_symbols.json", workspaceRoot);
@@ -249,6 +291,7 @@ void analysis_symbols_store_save(const char* workspaceRoot) {
         fclose(f);
     }
     json_object_put(arr);
+    analysis_symbols_store_unlock();
 }
 
 void analysis_symbols_store_load(const char* workspaceRoot) {
@@ -280,7 +323,6 @@ void analysis_symbols_store_load(const char* workspaceRoot) {
         if (root) json_object_put(root);
         return;
     }
-
     size_t arrLen = json_object_array_length(root);
     for (size_t i = 0; i < arrLen; ++i) {
         json_object* obj = json_object_array_get_idx(root, i);

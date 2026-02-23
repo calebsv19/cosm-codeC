@@ -51,6 +51,7 @@ typedef struct {
     int selectedCapacity;
     bool includeSystemHeaders;
     SDL_Rect systemToggleRect;
+    SDL_Rect logsToggleRect;
 } LibraryPanelState;
 
 extern LibraryPanelState g_libraryPanelState;

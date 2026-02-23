@@ -5,8 +5,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 
-// Minimal PTY-backed shell instance. Output is stored as a raw byte stream
-// (with CRLF normalized) for the UI layer to split into lines.
+// Minimal PTY-backed shell instance. Output is stored as a raw PTY byte stream.
 typedef struct TerminalBackend {
     int master_fd;
     pid_t child_pid;

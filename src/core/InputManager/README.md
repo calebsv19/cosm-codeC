@@ -21,3 +21,8 @@ state, and emits commands into the command bus.
 
 - [`UserInput/`](UserInput/README.md) – Higher-level flows that need to track
   temporary state across events (e.g. rename text entry).
+
+## Keybind Map
+
+- See `docs/keybind_reference.md` for the current shortcut map
+  across global routing and pane-specific handlers.

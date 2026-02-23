@@ -5,6 +5,7 @@
 #include "engine/Render/render_text_helpers.h"
 
 #include "core/Analysis/analysis_status.h"
+#include "core/Analysis/analysis_scheduler.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
 #include "ide/UI/scroll_manager.h"
 #include "ide/UI/shared_theme_font_adapter.h"
@@ -66,12 +67,22 @@ void renderLibrariesPanel(UIPane* pane) {
                  toggleRect,
                  st->includeSystemHeaders ? "System: On" : "System: Off");
 
+    SDL_Rect logsRect = { pane->x + 130, pane->y + 24, 98, 20 };
+    st->logsToggleRect = logsRect;
+    renderButton(pane,
+                 logsRect,
+                 analysis_frontend_logs_enabled() ? "Logs: On" : "Logs: Off");
+
     // Status indicator in header area (not clipped)
     AnalysisStatusSnapshot snap = {0};
+    AnalysisSchedulerSnapshot sched = {0};
     analysis_status_snapshot(&snap);
+    analysis_scheduler_snapshot(&sched);
     char statusBuf[128] = {0};
     if (snap.updating) {
-        snprintf(statusBuf, sizeof(statusBuf), "Updating...");
+        snprintf(statusBuf, sizeof(statusBuf),
+                 sched.active_run_id ? "Updating (#%llu)..." : "Updating...",
+                 (unsigned long long)sched.active_run_id);
     } else if (snap.last_error[0]) {
         snprintf(statusBuf, sizeof(statusBuf), "Analysis error");
     } else if (snap.has_cache) {

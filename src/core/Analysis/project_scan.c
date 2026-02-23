@@ -1,18 +1,23 @@
 #include "core/Analysis/project_scan.h"
 
 #include <dirent.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "fisics_frontend.h"
 #include "core/Analysis/analysis_store.h"
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
+#include "core/Analysis/analysis_status.h"
 #include "core/Analysis/include_graph.h"
 #include "core/Analysis/include_path_resolver.h"
 #include "core/Analysis/library_index.h"
+#include "core/Analysis/fisics_frontend_guard.h"
+#include "core/Analysis/analysis_job.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 
 static char* read_file(const char* path, size_t* outLen) {
@@ -58,6 +63,64 @@ static BuildFlagSet g_buildFlags = {0};
 static const BuildFlagSet* g_activeFlags = NULL;
 static const char* g_activeWorkspaceRoot = NULL;
 static bool g_update_library_index = false;
+static int g_analysis_progress_total = 0;
+static int g_analysis_progress_done = 0;
+
+static bool should_suppress_frontend_stderr(void) {
+    return !analysis_frontend_logs_enabled();
+}
+
+static bool should_print_file_progress(void) {
+    const char* env = getenv("IDE_ANALYSIS_FILE_PROGRESS");
+    // Default is on. Set IDE_ANALYSIS_FILE_PROGRESS=0 to disable per-file progress logs.
+    return !(env && env[0] == '0');
+}
+
+static int suppress_stderr_begin(void) {
+    int saved = dup(STDERR_FILENO);
+    if (saved < 0) return -1;
+    int devnull = open("/dev/null", O_WRONLY);
+    if (devnull < 0) {
+        close(saved);
+        return -1;
+    }
+    if (dup2(devnull, STDERR_FILENO) < 0) {
+        close(devnull);
+        close(saved);
+        return -1;
+    }
+    close(devnull);
+    return saved;
+}
+
+static void suppress_stderr_end(int saved_fd) {
+    if (saved_fd < 0) return;
+    (void)dup2(saved_fd, STDERR_FILENO);
+    close(saved_fd);
+}
+
+static int suppress_stdout_begin(void) {
+    int saved = dup(STDOUT_FILENO);
+    if (saved < 0) return -1;
+    int devnull = open("/dev/null", O_WRONLY);
+    if (devnull < 0) {
+        close(saved);
+        return -1;
+    }
+    if (dup2(devnull, STDOUT_FILENO) < 0) {
+        close(devnull);
+        close(saved);
+        return -1;
+    }
+    close(devnull);
+    return saved;
+}
+
+static void suppress_stdout_end(int saved_fd) {
+    if (saved_fd < 0) return;
+    (void)dup2(saved_fd, STDOUT_FILENO);
+    close(saved_fd);
+}
 
 static LibraryBucketKind map_origin(FisicsIncludeOrigin origin) {
     switch (origin) {
@@ -105,6 +168,7 @@ typedef struct {
 
 static void analyze_file_with_active_flags(const char* file_path) {
     if (!file_path || !*file_path) return;
+    if (analysis_job_cancel_requested()) return;
 
     size_t len = 0;
     char* buf = read_file(file_path, &len);
@@ -120,8 +184,28 @@ static void analyze_file_with_active_flags(const char* file_path) {
     opts.macro_defines = (const char* const*)flags->macro_defines;
     opts.macro_define_count = flags->macro_count;
 
+    int saved_stderr = -1;
+    int saved_stdout = -1;
+    fisics_frontend_guard_lock();
+    if (should_suppress_frontend_stderr()) {
+        saved_stdout = suppress_stdout_begin();
+        saved_stderr = suppress_stderr_begin();
+    }
     bool ok = fisics_analyze_buffer(file_path, buf, len, &opts, &res);
+    if (saved_stderr >= 0) {
+        suppress_stderr_end(saved_stderr);
+    }
+    if (saved_stdout >= 0) {
+        suppress_stdout_end(saved_stdout);
+    }
+    fisics_frontend_guard_unlock();
     (void)ok;
+
+    if (analysis_job_cancel_requested()) {
+        fisics_free_analysis_result(&res);
+        free(buf);
+        return;
+    }
 
     analysis_store_upsert(file_path, res.diagnostics, res.diag_count);
     analysis_symbols_store_upsert(file_path, res.symbols, res.symbol_count);
@@ -146,6 +230,18 @@ static void analyze_file_with_active_flags(const char* file_path) {
 
     fisics_free_analysis_result(&res);
     free(buf);
+
+    if (should_print_file_progress()) {
+        g_analysis_progress_done++;
+        printf("[Analysis] [%d] %s : %s (diag:%zu sym:%zu inc:%zu)\n",
+               g_analysis_progress_done,
+               file_path,
+               ok ? "ok" : "failed",
+               res.diag_count,
+               res.symbol_count,
+               res.include_count);
+    }
+    analysis_job_maybe_throttle();
 }
 
 static void scan_dir(const char* root) {
@@ -159,6 +255,7 @@ static void scan_dir(const char* root) {
     stack[count++] = (DirQueueEntry){ strdup(root), 0 };
 
     while (count > 0) {
+        if (analysis_job_cancel_requested()) break;
         DirQueueEntry cur = stack[--count];
         if (!cur.path) continue;
 
@@ -171,6 +268,7 @@ static void scan_dir(const char* root) {
         struct dirent* ent;
         char child[1024];
         while ((ent = readdir(dir)) != NULL) {
+            if (analysis_job_cancel_requested()) break;
             if (should_skip_dir(ent->d_name)) continue;
             if (cur.depth == 0 && !is_allowed_root_dir(ent->d_name)) {
                 continue;
@@ -193,6 +291,7 @@ static void scan_dir(const char* root) {
                 stack[count++] = (DirQueueEntry){ strdup(child), cur.depth + 1 };
             } else if (S_ISREG(st.st_mode)) {
                 if (!(has_ext(ent->d_name, ".c") || has_ext(ent->d_name, ".h"))) continue;
+                g_analysis_progress_total++;
                 analyze_file_with_active_flags(child);
             }
         }
@@ -205,6 +304,8 @@ static void scan_dir(const char* root) {
 void analysis_scan_workspace(const char* root) {
     if (!root || !*root) return;
     analysis_store_clear();
+    g_analysis_progress_total = 0;
+    g_analysis_progress_done = 0;
     const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
     const char* flags = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
     gather_build_flags(root, flags, &g_buildFlags);
@@ -222,6 +323,8 @@ void analysis_scan_workspace_with_flags(const char* root, const BuildFlagSet* fl
     if (!root || !*root || !flags) return;
     analysis_store_clear();
     include_graph_clear();
+    g_analysis_progress_total = 0;
+    g_analysis_progress_done = 0;
     g_activeFlags = flags;
     g_activeWorkspaceRoot = root;
     g_update_library_index = false;
@@ -248,8 +351,11 @@ void analysis_scan_files_with_flags(const char* root,
     g_activeFlags = flags;
     g_activeWorkspaceRoot = root;
     g_update_library_index = true;
+    g_analysis_progress_total = 0;
+    g_analysis_progress_done = 0;
 
     for (size_t i = 0; i < file_count; ++i) {
+        if (analysis_job_cancel_requested()) break;
         const char* path = files[i];
         if (!path || !*path) continue;
 
@@ -263,6 +369,7 @@ void analysis_scan_files_with_flags(const char* root,
             continue;
         }
         if (!(has_ext(path, ".c") || has_ext(path, ".h"))) continue;
+        g_analysis_progress_total++;
         analyze_file_with_active_flags(path);
     }
 

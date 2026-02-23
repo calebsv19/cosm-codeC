@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 
 
 #include "event_loop.h"
@@ -19,6 +20,7 @@
 #include "core/Analysis/analysis_status.h"
 #include "core/InputManager/UserInput/rename_flow.h"
 #include "ide/Panes/Terminal/terminal.h"
+#include "ide/Panes/Terminal/input_terminal.h"
 #include "ide/Panes/Popup/popup_pane.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
 #include "ide/Panes/ToolPanels/Assets/tool_assets.h"
@@ -35,6 +37,7 @@
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/analysis_cache.h"
 #include "core/Analysis/analysis_job.h"
+#include "core/Analysis/analysis_scheduler.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "core/Ipc/ide_ipc_server.h"
 
@@ -91,6 +94,14 @@ static bool forceFullRedrawEnabled(void) {
         s_force_full_redraw_initialized = true;
     }
     return s_force_full_redraw;
+}
+
+static bool workspace_has_diagnostics_cache(const char* project_root) {
+    if (!project_root || !project_root[0]) return false;
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", project_root);
+    struct stat st;
+    return (stat(path, &st) == 0) && S_ISREG(st.st_mode);
 }
 
 static bool update_layout_sync_state_snapshot(void) {
@@ -255,14 +266,6 @@ static bool tickBackgroundSystems() {
     return terminalChanged;
 }
 
-static void run_analysis_refresh_if_needed(void) {
-    if (analysis_refresh_running() || !analysis_refresh_pending()) return;
-    const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
-    const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
-    start_async_workspace_analysis(projectPath, buildArgs);
-}
-
-
 //                      Loop Logic
 //      ================================================
 //                      Render Logic
@@ -331,6 +334,14 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
 
     if (timerHudActive) ts_start_timer("Input");
     processInputEvents(ctx);
+    UIState* ui = getUIState();
+    if (ui && ui->terminalVisible && ui->terminalPanel) {
+        if (terminal_tick_drag_autoscroll(ui->terminalPanel, dt)) {
+            invalidatePane(ui->terminalPanel,
+                           RENDER_INVALIDATION_INPUT | RENDER_INVALIDATION_CONTENT);
+            requestFullRedraw(RENDER_INVALIDATION_INPUT | RENDER_INVALIDATION_CONTENT);
+        }
+    }
     if (timerHudActive) ts_stop_timer("Input");
 
     if (forceFullRedrawEnabled()) {
@@ -348,7 +359,9 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
                            RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
         }
     }
-    run_analysis_refresh_if_needed();
+    const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
+    const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
+    analysis_scheduler_tick(projectPath, buildArgs);
     bool analysisRunning = analysis_refresh_running();
     if (lastAnalysisRunning && !analysisRunning) {
         rebuildLibraryFlatRows();
@@ -382,13 +395,26 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
 
     if (pendingProjectRefresh) {
         if (timerHudActive) ts_start_timer("ProjectRefresh");
+        unsigned int reason_mask = pendingProjectRefreshReasonMask;
+        if (reason_mask == 0) {
+            reason_mask = ANALYSIS_REASON_WORKSPACE_RELOAD;
+        }
+        bool force_full = false;
+        bool slow_mode = false;
+        if (reason_mask & ANALYSIS_REASON_WORKSPACE_RELOAD) {
+            bool has_diag_cache = workspace_has_diagnostics_cache(projectPath);
+            force_full = !has_diag_cache; // No cache => quick full rebuild.
+            slow_mode = has_diag_cache;   // Cache exists => lazy background mode.
+        }
         refreshProjectDirectory();
         analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
-        analysis_request_refresh();
+        analysis_job_set_slow_mode_next_run(slow_mode);
+        analysis_scheduler_request((AnalysisRefreshReason)reason_mask, force_full);
         rebuildLibraryFlatRows();
         initAssetManagerPanel();
         resetGitTree();
         pendingProjectRefresh = false;
+        pendingProjectRefreshReasonMask = 0;
         invalidateAll(ctx->panes, *ctx->paneCount,
                       RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
         requestFullRedraw(RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_LAYOUT);

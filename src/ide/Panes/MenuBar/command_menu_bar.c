@@ -11,6 +11,7 @@
 #include "core/InputManager/UserInput/rename_flow.h"
 #include "core/InputManager/UserInput/rename_access.h"
 #include "core/Watcher/file_watcher.h"
+#include "core/Analysis/analysis_scheduler.h"
 #include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/UI/ui_state.h"
@@ -232,10 +233,11 @@ static void applyWorkspaceSelection(const char* oldValue, const char* newValue, 
     snprintf(projectPath, sizeof(projectPath), "%s", finalPath);
     setWorkspacePath(projectPath);
     setWorkspaceWatchPath(projectPath);
+    suppressWorkspaceWatchRefreshForMs(4000);
     setRunTargetPath(NULL);
     saveRunTargetPreference(NULL);
     saveWorkspacePreference(projectPath);
-    pendingProjectRefresh = true;
+    queueProjectRefresh(ANALYSIS_REASON_WORKSPACE_RELOAD);
     printf("[Workspace] Reloading workspace: %s\n", projectPath);
 }
 
@@ -333,7 +335,7 @@ void handleMenuBarCommand(UIPane* pane, InputCommandMetadata meta) {
             break;
 
         case COMMAND_RELOAD_WORKSPACE:
-            pendingProjectRefresh = true;
+            queueProjectRefresh(ANALYSIS_REASON_WORKSPACE_RELOAD);
             printf("[Workspace] Queued workspace refresh\n");
             break;
 
