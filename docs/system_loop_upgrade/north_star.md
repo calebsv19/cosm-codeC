@@ -45,7 +45,7 @@ Wake contract:
 ## Phase Plan
 
 ### Phase 01 - Wake/Event Foundation
-Status: `pending`
+Status: `completed`
 
 Objective:
 - Introduce a dedicated wake event path before changing loop semantics.
@@ -62,7 +62,7 @@ Primary files:
 - new module under `src/core/` for wake API (or adjacent to scheduler)
 
 ### Phase 02 - Timer Deadline Scheduler
-Status: `pending`
+Status: `completed`
 
 Objective:
 - Replace ad-hoc per-loop periodic polling with explicit deadlines.
@@ -84,7 +84,7 @@ Primary files:
 - `src/app/GlobalInfo/event_loop.c`
 
 ### Phase 03 - Worker -> Main Message Queue
-Status: `pending`
+Status: `completed`
 
 Objective:
 - Standardize background result delivery and decouple worker completion from polling.
@@ -106,7 +106,7 @@ Primary files:
 - `src/app/GlobalInfo/event_loop.c`
 
 ### Phase 04 - Main Loop Blocking Rewrite
-Status: `pending`
+Status: `completed`
 
 Objective:
 - Convert to phased event loop with `SDL_WaitEventTimeout(...)` blocking.
@@ -131,7 +131,7 @@ Primary files:
 - `src/core/InputManager/...` (interaction state signals)
 
 ### Phase 05 - Render/Interaction Coalescing
-Status: `pending`
+Status: `completed`
 
 Objective:
 - Keep responsiveness high while preventing wake/render thrash.
@@ -148,7 +148,7 @@ Primary files:
 - worker message handling module
 
 ### Phase 06 - Verification, Diagnostics, and Hardening
-Status: `pending`
+Status: `completed`
 
 Objective:
 - Prove behavior and prevent regressions.

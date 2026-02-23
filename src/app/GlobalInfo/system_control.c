@@ -36,6 +36,9 @@
 #include "core/Analysis/analysis_status.h"
 #include "core/Analysis/analysis_scheduler.h"
 #include "core/Analysis/analysis_job.h"
+#include "core/LoopWake/mainthread_wake.h"
+#include "core/LoopTimer/mainthread_timer_scheduler.h"
+#include "core/LoopMessages/mainthread_message_queue.h"
 #include "core/Ipc/ide_ipc_server.h"
 #include "core/Ipc/ide_ipc_edit_apply.h"
 #include "ide/Panes/Editor/Commands/editor_commands.h"
@@ -269,6 +272,11 @@ bool initializeSystem() {
         return false;
     }
 
+    if (!mainthread_wake_init()) {
+        fprintf(stderr, "[MainWake] Warning: failed to register SDL wake event: %s\n",
+                SDL_GetError());
+    }
+
     Uint32 windowFlags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
 #if USE_VULKAN
     windowFlags |= SDL_WINDOW_VULKAN;
@@ -356,6 +364,8 @@ bool initializeSystem() {
     initBuildOutputPanelState();
     analysis_status_init();
     analysis_scheduler_init();
+    mainthread_timer_scheduler_init();
+    mainthread_message_queue_init();
 
     initProjectPaths();
     loadInitialWorkspace();
@@ -506,5 +516,8 @@ void shutdownSystem(UIPane** panes, int paneCount) {
 #endif
     if (ctx->window) SDL_DestroyWindow(ctx->window);
 
+    mainthread_wake_shutdown();
+    mainthread_timer_scheduler_shutdown();
+    mainthread_message_queue_shutdown();
     SDL_Quit();
 }

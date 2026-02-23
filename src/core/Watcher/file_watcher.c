@@ -19,7 +19,6 @@ typedef struct WatchedFile {
 static WatchedFile* head = NULL;
 static char watchedWorkspacePath[PATH_MAX];
 static time_t workspaceLastModified = 0;
-static Uint32 nextPollMs = 0;
 static Uint32 pollIntervalMs = 250;
 static Uint32 suppressWorkspaceRefreshUntilMs = 0;
 static Uint32 suppressInternalRefreshUntilMs = 0;
@@ -90,7 +89,6 @@ void initFileWatcher() {
     head = NULL;
     watchedWorkspacePath[0] = '\0';
     workspaceLastModified = 0;
-    nextPollMs = 0;
     pollIntervalMs = file_watcher_poll_interval_ms();
     workspaceDebounceMs = file_watcher_debounce_ms();
     workspaceCooldownMs = file_watcher_cooldown_ms();
@@ -165,8 +163,6 @@ void suppressInternalWatcherRefreshForMs(unsigned int durationMs) {
 
 void pollFileWatcher() {
     Uint32 now = SDL_GetTicks();
-    if (now < nextPollMs) return;
-    nextPollMs = now + pollIntervalMs;
 
     WatchedFile* current = head;
     while (current) {
@@ -260,4 +256,10 @@ void pollFileWatcher() {
             queueProjectRefresh(ANALYSIS_REASON_WATCHER_CHANGE);
         }
     }
+}
+
+Uint32 fileWatcherPollIntervalMs(void) {
+    Uint32 v = file_watcher_poll_interval_ms();
+    if (v < 50) v = 50;
+    return v;
 }

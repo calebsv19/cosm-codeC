@@ -44,6 +44,7 @@ void refreshGitLog(int maxEntries);
 
 // Polls git status summary and marks the Git panel dirty when repository state changes.
 void pollGitStatusWatcher(void);
+Uint32 gitStatusWatchIntervalMs(void);
 void resetGitStatusWatcher(void);
 
 // Git panel UI state helpers

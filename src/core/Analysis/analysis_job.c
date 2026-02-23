@@ -16,6 +16,8 @@
 #include "core/Analysis/include_path_resolver.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/project_scan.h"
+#include "core/LoopMessages/mainthread_message_queue.h"
+#include "core/LoopWake/mainthread_wake.h"
 
 static SDL_Thread* g_thread = NULL;
 static bool g_thread_running = false;
@@ -26,6 +28,20 @@ static char g_build_args[1024];
 static SDL_atomic_t g_cancel_requested;
 static SDL_atomic_t g_slow_mode_next_run;
 static SDL_atomic_t g_slow_mode_active;
+
+static void analysis_queue_finished_message(bool cancelled, bool had_error) {
+    MainThreadMessage msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = MAINTHREAD_MSG_ANALYSIS_FINISHED;
+    msg.payload.analysis_finished.cancelled = cancelled;
+    msg.payload.analysis_finished.had_error = had_error;
+    snprintf(msg.payload.analysis_finished.project_root,
+             sizeof(msg.payload.analysis_finished.project_root),
+             "%s",
+             g_project_root);
+    msg.payload.analysis_finished.project_root[sizeof(msg.payload.analysis_finished.project_root) - 1] = '\0';
+    mainthread_message_queue_push(&msg);
+}
 
 static bool library_index_has_entries(void) {
     bool has_entries = false;
@@ -256,6 +272,8 @@ static int analysis_thread_fn(void* data) {
         analysis_status_set(ANALYSIS_STATUS_IDLE);
         analysis_refresh_set_running(false);
         SDL_AtomicSet(&g_slow_mode_active, 0);
+        analysis_queue_finished_message(false, true);
+        mainthread_wake_push();
         return -1;
     }
 
@@ -269,6 +287,8 @@ static int analysis_thread_fn(void* data) {
         g_thread_running = false;
         g_thread = NULL;
         SDL_AtomicSet(&g_slow_mode_active, 0);
+        analysis_queue_finished_message(true, false);
+        mainthread_wake_push();
         return 0;
     }
 
@@ -308,10 +328,12 @@ static int analysis_thread_fn(void* data) {
         analysis_status_set_last_error(NULL);
         analysis_status_set(ANALYSIS_STATUS_IDLE);
     }
+    analysis_queue_finished_message(cancelled, false);
     analysis_refresh_set_running(false);
     g_thread_running = false;
     g_thread = NULL;
     SDL_AtomicSet(&g_slow_mode_active, 0);
+    mainthread_wake_push();
     return 0;
 }
 
@@ -365,6 +387,7 @@ void start_async_workspace_analysis(const char* project_root, const char* build_
         analysis_refresh_set_running(false);
         analysis_status_set(ANALYSIS_STATUS_IDLE);
         g_thread_running = false;
+        mainthread_wake_push();
         return;
     }
     SDL_DetachThread(g_thread);

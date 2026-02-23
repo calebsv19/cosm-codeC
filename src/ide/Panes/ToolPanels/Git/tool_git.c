@@ -23,7 +23,6 @@ static int g_commitCursor = 0;
 static char g_statusText[256] = {0};
 
 static uint64_t g_lastStatusHash = 0;
-static Uint32 g_nextWatchPollMs = 0;
 static char g_lastWorkspacePath[1024] = {0};
 
 static uint64_t fnv1a64_bytes(const unsigned char* data, size_t len, uint64_t seed) {
@@ -105,7 +104,6 @@ static bool run_git_command(const char* gitArgs, char* outLine, size_t outLineCa
 
 void resetGitStatusWatcher(void) {
     g_lastStatusHash = 0;
-    g_nextWatchPollMs = 0;
     g_lastWorkspacePath[0] = '\0';
 }
 
@@ -324,10 +322,6 @@ void refreshGitLog(int maxEntries) {
 void pollGitStatusWatcher(void) {
     if (!projectPath[0]) return;
 
-    Uint32 now = SDL_GetTicks();
-    if (now < g_nextWatchPollMs) return;
-    g_nextWatchPollMs = now + 1500; // Throttle git polling to avoid terminal spam/cost.
-
     if (strncmp(g_lastWorkspacePath, projectPath, sizeof(g_lastWorkspacePath)) != 0) {
         snprintf(g_lastWorkspacePath, sizeof(g_lastWorkspacePath), "%s", projectPath);
         g_lastWorkspacePath[sizeof(g_lastWorkspacePath) - 1] = '\0';
@@ -360,4 +354,14 @@ void pollGitStatusWatcher(void) {
         resetGitTree();
     }
     g_lastStatusHash = hash;
+}
+
+Uint32 gitStatusWatchIntervalMs(void) {
+    const Uint32 defaultMs = 1500;
+    const char* env = getenv("IDE_GIT_WATCHER_POLL_MS");
+    if (!env || !env[0]) return defaultMs;
+    char* end = NULL;
+    long v = strtol(env, &end, 10);
+    if (end == env || v < 200 || v > 10000) return defaultMs;
+    return (Uint32)v;
 }

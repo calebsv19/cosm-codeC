@@ -4,12 +4,14 @@
 #define FILE_WATCHER_H
 
 #include "ide/Panes/Editor/editor_view.h"
+#include <SDL2/SDL.h>
 
 void initFileWatcher();
 void shutdownFileWatcher();
 
-// Must be called every frame or second
+// Poll watcher state on scheduler tick.
 void pollFileWatcher();
+Uint32 fileWatcherPollIntervalMs(void);
 
 void watchFile(OpenFile* file);
 void unwatchFile(OpenFile* file);

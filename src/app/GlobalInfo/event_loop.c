@@ -38,6 +38,9 @@
 #include "core/Analysis/analysis_cache.h"
 #include "core/Analysis/analysis_job.h"
 #include "core/Analysis/analysis_scheduler.h"
+#include "core/LoopWake/mainthread_wake.h"
+#include "core/LoopTimer/mainthread_timer_scheduler.h"
+#include "core/LoopMessages/mainthread_message_queue.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "core/Ipc/ide_ipc_server.h"
 
@@ -70,6 +73,178 @@ static bool s_heartbeat_interval_initialized = false;
 static float s_heartbeat_interval_seconds = 0.50f;
 static bool s_force_full_redraw_initialized = false;
 static bool s_force_full_redraw = false;
+static bool s_loop_timers_registered = false;
+static int s_file_watcher_timer_id = -1;
+static int s_git_watcher_timer_id = -1;
+static bool s_loop_diag_initialized = false;
+static bool s_loop_diag_enabled = false;
+static int s_loop_max_wait_ms_override = -1;
+
+typedef struct LoopRuntimeDiag {
+    Uint32 periodStartMs;
+    Uint64 frames;
+    Uint64 waitCalls;
+    Uint64 blockedMs;
+    Uint64 activeMs;
+    Uint64 wakeDelta;
+    Uint64 timerFiredDelta;
+    uint32_t queueDepthPeak;
+    uint32_t queueDepthLast;
+    uint32_t lastWakeReceived;
+    uint32_t lastTimerFired;
+} LoopRuntimeDiag;
+
+static LoopRuntimeDiag s_loop_diag = {0};
+
+static void init_loop_diag_config(void) {
+    if (s_loop_diag_initialized) return;
+    const char* env = getenv("IDE_LOOP_DIAG_LOG");
+    s_loop_diag_enabled = (env && env[0] &&
+                           (strcmp(env, "1") == 0 || strcasecmp(env, "true") == 0));
+    const char* waitEnv = getenv("IDE_LOOP_MAX_WAIT_MS");
+    if (waitEnv && waitEnv[0]) {
+        char* end = NULL;
+        long v = strtol(waitEnv, &end, 10);
+        if (end != waitEnv && v >= 1 && v <= 5000) {
+            s_loop_max_wait_ms_override = (int)v;
+        }
+    }
+    s_loop_diag_initialized = true;
+}
+
+static void loop_timer_file_watcher_cb(void* user_data) {
+    (void)user_data;
+    pollFileWatcher();
+}
+
+static void loop_timer_git_watcher_cb(void* user_data) {
+    (void)user_data;
+    pollGitStatusWatcher();
+}
+
+static void ensure_loop_timers_registered(void) {
+    if (s_loop_timers_registered) return;
+    s_file_watcher_timer_id = mainthread_timer_schedule_repeating(fileWatcherPollIntervalMs(),
+                                                                  loop_timer_file_watcher_cb,
+                                                                  NULL,
+                                                                  "file_watcher");
+    s_git_watcher_timer_id = mainthread_timer_schedule_repeating(gitStatusWatchIntervalMs(),
+                                                                 loop_timer_git_watcher_cb,
+                                                                 NULL,
+                                                                 "git_watcher");
+    s_loop_timers_registered = true;
+}
+
+static void loop_diag_tick(Uint32 frameStartMs, Uint32 blockedMs, bool didWaitCall) {
+    init_loop_diag_config();
+    if (!s_loop_diag_enabled) return;
+
+    Uint32 nowMs = SDL_GetTicks();
+    if (s_loop_diag.periodStartMs == 0) {
+        s_loop_diag.periodStartMs = nowMs;
+        MainThreadWakeStats wake = {0};
+        mainthread_wake_snapshot(&wake);
+        s_loop_diag.lastWakeReceived = wake.received;
+        MainThreadTimerSchedulerStats timerStats = {0};
+        mainthread_timer_scheduler_snapshot(&timerStats);
+        s_loop_diag.lastTimerFired = timerStats.fired_count;
+    }
+
+    Uint32 frameElapsedMs = (nowMs >= frameStartMs) ? (nowMs - frameStartMs) : 0;
+    Uint32 activeMs = (frameElapsedMs > blockedMs) ? (frameElapsedMs - blockedMs) : 0;
+
+    s_loop_diag.frames++;
+    s_loop_diag.blockedMs += blockedMs;
+    s_loop_diag.activeMs += activeMs;
+    if (didWaitCall) s_loop_diag.waitCalls++;
+
+    MainThreadWakeStats wake = {0};
+    mainthread_wake_snapshot(&wake);
+    if (wake.received >= s_loop_diag.lastWakeReceived) {
+        s_loop_diag.wakeDelta += (wake.received - s_loop_diag.lastWakeReceived);
+    }
+    s_loop_diag.lastWakeReceived = wake.received;
+
+    MainThreadTimerSchedulerStats timerStats = {0};
+    mainthread_timer_scheduler_snapshot(&timerStats);
+    if (timerStats.fired_count >= s_loop_diag.lastTimerFired) {
+        s_loop_diag.timerFiredDelta += (timerStats.fired_count - s_loop_diag.lastTimerFired);
+    }
+    s_loop_diag.lastTimerFired = timerStats.fired_count;
+
+    MainThreadMessageQueueStats msgStats = {0};
+    mainthread_message_queue_snapshot(&msgStats);
+    s_loop_diag.queueDepthLast = msgStats.depth;
+    if (msgStats.depth > s_loop_diag.queueDepthPeak) {
+        s_loop_diag.queueDepthPeak = msgStats.depth;
+    }
+
+    Uint32 periodMs = nowMs - s_loop_diag.periodStartMs;
+    if (periodMs < 1000) return;
+
+    Uint64 totalMs = s_loop_diag.blockedMs + s_loop_diag.activeMs;
+    double blockedPct = (totalMs > 0) ? (100.0 * (double)s_loop_diag.blockedMs / (double)totalMs) : 0.0;
+    double activePct = (totalMs > 0) ? (100.0 * (double)s_loop_diag.activeMs / (double)totalMs) : 0.0;
+    printf("[LoopDiag] period=%ums frames=%llu waits=%llu blocked=%llums(%.1f%%) active=%llums(%.1f%%) wakes=%llu timers=%llu q_last=%u q_peak=%u\n",
+           (unsigned int)periodMs,
+           (unsigned long long)s_loop_diag.frames,
+           (unsigned long long)s_loop_diag.waitCalls,
+           (unsigned long long)s_loop_diag.blockedMs,
+           blockedPct,
+           (unsigned long long)s_loop_diag.activeMs,
+           activePct,
+           (unsigned long long)s_loop_diag.wakeDelta,
+           (unsigned long long)s_loop_diag.timerFiredDelta,
+           s_loop_diag.queueDepthLast,
+           s_loop_diag.queueDepthPeak);
+
+    s_loop_diag.periodStartMs = nowMs;
+    s_loop_diag.frames = 0;
+    s_loop_diag.waitCalls = 0;
+    s_loop_diag.blockedMs = 0;
+    s_loop_diag.activeMs = 0;
+    s_loop_diag.wakeDelta = 0;
+    s_loop_diag.timerFiredDelta = 0;
+    s_loop_diag.queueDepthPeak = 0;
+}
+
+static void apply_worker_message(FrameContext* ctx, const MainThreadMessage* msg) {
+    if (!ctx || !msg) return;
+
+    if (msg->type == MAINTHREAD_MSG_ANALYSIS_FINISHED) {
+        const MainThreadAnalysisFinishedPayload* p = &msg->payload.analysis_finished;
+        if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
+            return;
+        }
+
+        rebuildLibraryFlatRows();
+        UIState* ui = getUIState();
+        if (ui) {
+            invalidatePane(ui->toolPanel,
+                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
+            invalidatePane(ui->controlPanel,
+                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
+            invalidatePane(ui->editorPanel,
+                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
+        } else {
+            invalidateAll(ctx->panes, *ctx->paneCount,
+                          RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
+        }
+        requestFullRedraw(RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
+    }
+}
+
+static int drain_worker_messages(FrameContext* ctx) {
+    enum { kDrainBudget = 64 };
+    int applied = 0;
+    MainThreadMessage msg;
+    while (applied < kDrainBudget && mainthread_message_queue_pop(&msg)) {
+        apply_worker_message(ctx, &msg);
+        mainthread_message_release(&msg);
+        applied++;
+    }
+    return applied;
+}
 
 static float getHeartbeatIntervalSeconds(void) {
     if (!s_heartbeat_interval_initialized) {
@@ -113,15 +288,15 @@ static bool update_layout_sync_state_snapshot(void) {
 
     LayoutDimensions* dims = getLayoutDimensions();
     UIState* ui = getUIState();
-    LayoutSyncState next = {
-        .winW = winW,
-        .winH = winH,
-        .toolWidth = dims ? dims->toolWidth : 0,
-        .controlWidth = dims ? dims->controlWidth : 0,
-        .terminalHeight = dims ? dims->terminalHeight : 0,
-        .toolPanelVisible = ui ? ui->toolPanelVisible : false,
-        .controlPanelVisible = ui ? ui->controlPanelVisible : false,
-    };
+    LayoutSyncState next;
+    memset(&next, 0, sizeof(next));
+    next.winW = winW;
+    next.winH = winH;
+    next.toolWidth = dims ? dims->toolWidth : 0;
+    next.controlWidth = dims ? dims->controlWidth : 0;
+    next.terminalHeight = dims ? dims->terminalHeight : 0;
+    next.toolPanelVisible = ui ? ui->toolPanelVisible : false;
+    next.controlPanelVisible = ui ? ui->controlPanelVisible : false;
 
     if (!s_layout_sync_state_valid ||
         memcmp(&s_layout_sync_state, &next, sizeof(next)) != 0) {
@@ -224,31 +399,73 @@ static void invalidateInputTargetPanes(FrameContext* ctx,
     }
 }
 
-static bool processInputEvents(FrameContext* ctx) {
+static bool process_single_input_event(FrameContext* ctx,
+                                       const SDL_Event* src,
+                                       bool debugKeyLog) {
+    if (!ctx || !src) return false;
+    SDL_Event e = *src;
+    if (mainthread_wake_is_event(&e)) {
+        mainthread_wake_note_received();
+        return false;
+    }
+
+    IDECoreState* core = getCoreState();
+    UIPane* beforeMousePane = core ? core->activeMousePane : NULL;
+    UIPane* beforeFocusedPane = core ? core->focusedPane : NULL;
+
+    bool visualEvent = shouldInvalidateForEvent(&e);
+    if (debugKeyLog && e.type == SDL_KEYDOWN) {
+        SDL_Keycode key = e.key.keysym.sym;
+        printf("KEYDOWN: %s (%d)\n", SDL_GetKeyName(key), key);
+    }
+
+    *ctx->event = e;
+    handleInput(ctx->event, ctx->panes, *ctx->paneCount,
+                ctx->resizeZones, *ctx->resizeZoneCount,
+                ctx->paneCount, ctx->running);
+
+    if (visualEvent) {
+        invalidateInputTargetPanes(ctx, &e, beforeMousePane, beforeFocusedPane);
+    }
+    return visualEvent;
+}
+
+static bool processInputEvents(FrameContext* ctx, const SDL_Event* firstEvent) {
     bool sawVisualEvent = false;
     const char* debugKeysEnv = getenv("IDE_DEBUG_KEY_LOG");
     const bool debugKeyLog = (debugKeysEnv && debugKeysEnv[0] &&
                               (strcmp(debugKeysEnv, "1") == 0 ||
                                strcasecmp(debugKeysEnv, "true") == 0));
-    while (SDL_PollEvent(ctx->event)) {
-        IDECoreState* core = getCoreState();
-        UIPane* beforeMousePane = core ? core->activeMousePane : NULL;
-        UIPane* beforeFocusedPane = core ? core->focusedPane : NULL;
-        if (shouldInvalidateForEvent(ctx->event)) {
-            sawVisualEvent = true;
-        }
-        if (debugKeyLog && ctx->event->type == SDL_KEYDOWN) {
-            SDL_Keycode key = ctx->event->key.keysym.sym;
-            printf("KEYDOWN: %s (%d)\n", SDL_GetKeyName(key), key);
-        }
 
-        handleInput(ctx->event, ctx->panes, *ctx->paneCount,
-                    ctx->resizeZones, *ctx->resizeZoneCount,
-                    ctx->paneCount, ctx->running);
+    bool havePendingMotion = false;
+    SDL_Event pendingMotion;
+    memset(&pendingMotion, 0, sizeof(pendingMotion));
 
-        if (shouldInvalidateForEvent(ctx->event)) {
-            invalidateInputTargetPanes(ctx, ctx->event, beforeMousePane, beforeFocusedPane);
+    if (firstEvent) {
+        if (firstEvent->type == SDL_MOUSEMOTION) {
+            pendingMotion = *firstEvent;
+            havePendingMotion = true;
+        } else {
+            sawVisualEvent |= process_single_input_event(ctx, firstEvent, debugKeyLog);
         }
+    }
+
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        if (e.type == SDL_MOUSEMOTION) {
+            pendingMotion = e;
+            havePendingMotion = true;
+            continue;
+        }
+        if (havePendingMotion) {
+            sawVisualEvent |= process_single_input_event(ctx, &pendingMotion, debugKeyLog);
+            havePendingMotion = false;
+        }
+        sawVisualEvent |= process_single_input_event(ctx, &e, debugKeyLog);
+    }
+
+    if (havePendingMotion) {
+        sawVisualEvent |= process_single_input_event(ctx, &pendingMotion, debugKeyLog);
     }
     return sawVisualEvent;
 }
@@ -258,12 +475,82 @@ static bool tickBackgroundSystems() {
     bool terminalChanged = false;
     ide_ipc_pump();
     tickCommandBus();
-    pollFileWatcher();
+    mainthread_timer_scheduler_fire_due(SDL_GetTicks());
     terminalChanged = terminal_tick_backend();
-    pollGitStatusWatcher();
     // tickDiagnosticsEngine(dt), tickUndoSystem(dt), etc.
     analysis_job_poll();
     return terminalChanged;
+}
+
+static bool main_loop_has_immediate_work(void) {
+    if (pendingProjectRefresh) return true;
+    if (hasFrameInvalidation()) return true;
+
+    MainThreadMessageQueueStats msgStats = {0};
+    mainthread_message_queue_snapshot(&msgStats);
+    if (msgStats.depth > 0) return true;
+    return false;
+}
+
+static int compute_wait_timeout_ms(FrameContext* ctx) {
+    if (!ctx) return 0;
+
+    IDECoreState* core = getCoreState();
+    const bool activeInteraction =
+        (core && core->projectDrag.active) || gResizeDrag.active || isRenaming();
+    const bool invalidated = hasFrameInvalidation();
+
+    const Uint64 perfNow = SDL_GetPerformanceCounter();
+    const float freq = (float)SDL_GetPerformanceFrequency();
+    const float elapsedSinceRender = (perfNow - *ctx->lastRender) / freq;
+
+    int timeoutMs = -1;
+    if (activeInteraction || invalidated) {
+        float frameRemain = ctx->targetFrameTime - elapsedSinceRender;
+        int frameMs = frameRemain > 0.0f ? (int)(frameRemain * 1000.0f) : 0;
+        if (frameMs < 0) frameMs = 0;
+        if (frameMs > 16) frameMs = 16;
+        timeoutMs = frameMs;
+    }
+
+    Uint32 nextDeadlineMs = 0;
+    if (mainthread_timer_scheduler_next_deadline_ms(&nextDeadlineMs)) {
+        Uint32 nowMs = SDL_GetTicks();
+        int timerMs = (int)(nextDeadlineMs - nowMs);
+        if (timerMs < 0) timerMs = 0;
+        if (timeoutMs < 0 || timerMs < timeoutMs) timeoutMs = timerMs;
+    }
+
+    float heartbeat = getHeartbeatIntervalSeconds();
+    int heartbeatMs = (int)((heartbeat - elapsedSinceRender) * 1000.0f);
+    if (heartbeatMs < 0) heartbeatMs = 0;
+    if (timeoutMs < 0 || heartbeatMs < timeoutMs) timeoutMs = heartbeatMs;
+
+    if (timeoutMs < 0) timeoutMs = 500;
+    if (!activeInteraction && timeoutMs > 500) timeoutMs = 500;
+    init_loop_diag_config();
+    if (s_loop_max_wait_ms_override > 0 && timeoutMs > s_loop_max_wait_ms_override) {
+        timeoutMs = s_loop_max_wait_ms_override;
+    }
+    return timeoutMs;
+}
+
+static Uint32 wait_for_next_wake(FrameContext* ctx, bool* outWaitCalled) {
+    if (outWaitCalled) *outWaitCalled = false;
+    if (!ctx || !ctx->running || !(*ctx->running)) return 0;
+    if (main_loop_has_immediate_work()) return 0;
+
+    int timeoutMs = compute_wait_timeout_ms(ctx);
+    if (timeoutMs < 0) return 0;
+
+    if (outWaitCalled) *outWaitCalled = true;
+    Uint32 waitStart = SDL_GetTicks();
+    SDL_Event waitedEvent;
+    if (SDL_WaitEventTimeout(&waitedEvent, timeoutMs)) {
+        processInputEvents(ctx, &waitedEvent);
+    }
+    Uint32 waitEnd = SDL_GetTicks();
+    return (waitEnd >= waitStart) ? (waitEnd - waitStart) : 0;
 }
 
 //                      Loop Logic
@@ -316,9 +603,13 @@ static bool checkRenderFrame(FrameContext* ctx, Uint64 now) {
 void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     IDECoreState* core = getCoreState();
     const bool timerHudActive = core->timerHudEnabled;
-    static bool lastAnalysisRunning = false;
+    Uint32 frameStartMs = SDL_GetTicks();
+    Uint32 blockedMs = 0;
+    bool didWaitCall = false;
 
     if (timerHudActive) ts_start_timer("SystemLoop");
+
+    ensure_loop_timers_registered();
 
     EditorView* savedView = saveEditorViewState();
 
@@ -333,7 +624,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     if (timerHudActive) ts_stop_timer("LayoutSync");
 
     if (timerHudActive) ts_start_timer("Input");
-    processInputEvents(ctx);
+    processInputEvents(ctx, NULL);
     UIState* ui = getUIState();
     if (ui && ui->terminalVisible && ui->terminalPanel) {
         if (terminal_tick_drag_autoscroll(ui->terminalPanel, dt)) {
@@ -352,6 +643,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
 
     if (timerHudActive) ts_start_timer("BackgroundTick");
     const bool terminalChanged = tickBackgroundSystems();
+    drain_worker_messages(ctx);
     if (terminalChanged) {
         UIState* ui = getUIState();
         if (ui && ui->terminalPanel && ui->terminalVisible) {
@@ -362,23 +654,6 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
     const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
     analysis_scheduler_tick(projectPath, buildArgs);
-    bool analysisRunning = analysis_refresh_running();
-    if (lastAnalysisRunning && !analysisRunning) {
-        rebuildLibraryFlatRows();
-        UIState* ui = getUIState();
-        if (ui) {
-            invalidatePane(ui->toolPanel,
-                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
-            invalidatePane(ui->controlPanel,
-                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
-            invalidatePane(ui->editorPanel,
-                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
-        } else {
-            invalidateAll(ctx->panes, *ctx->paneCount,
-                          RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
-        }
-    }
-    lastAnalysisRunning = analysisRunning;
     if (timerHudActive) ts_stop_timer("BackgroundTick");
 
     if (tickRenameAnimation(SDL_GetTicks())) {
@@ -433,19 +708,10 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
         }
     }
 
-    // Soft frame pacing: yield briefly when we're early for next render frame.
     if (!didRender) {
-        float elapsedSinceRender = (now - *ctx->lastRender) / (float)SDL_GetPerformanceFrequency();
-        float remaining = hasFrameInvalidation()
-            ? (ctx->targetFrameTime - elapsedSinceRender)
-            : (getHeartbeatIntervalSeconds() - elapsedSinceRender);
-        if (remaining > 0.002f) {
-            Uint32 delayMs = (Uint32)(remaining * 1000.0f) - 1u;
-            Uint32 maxDelay = hasFrameInvalidation() ? 4u : 16u;
-            if (delayMs > maxDelay) delayMs = maxDelay;
-            if (delayMs >= 1u) SDL_Delay(delayMs);
-        }
+        blockedMs = wait_for_next_wake(ctx, &didWaitCall);
     }
+    loop_diag_tick(frameStartMs, blockedMs, didWaitCall);
 
     if (timerHudActive) ts_stop_timer("SystemLoop");
 }
