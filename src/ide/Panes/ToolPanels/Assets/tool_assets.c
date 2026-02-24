@@ -79,6 +79,9 @@ static AssetCategory classify_extension(const char* extLower) {
         !strcmp(extLower, ".yaml") || !strcmp(extLower, ".yml")) {
         return ASSET_CATEGORY_DATA;
     }
+    if (!strcmp(extLower, ".md") || !strcmp(extLower, ".markdown")) {
+        return ASSET_CATEGORY_DOCS;
+    }
     return ASSET_CATEGORY_OTHER;
 }
 
@@ -210,6 +213,12 @@ bool assets_category_collapsed(AssetCategory cat) {
 void assets_toggle_collapse(AssetCategory cat) {
     if (cat < 0 || cat >= ASSET_CATEGORY_COUNT) return;
     gCatalog.categories[cat].collapsed = !gCatalog.categories[cat].collapsed;
+}
+
+void assets_set_all_collapsed(bool collapsed) {
+    for (int c = 0; c < ASSET_CATEGORY_COUNT; ++c) {
+        gCatalog.categories[c].collapsed = collapsed;
+    }
 }
 
 // Persistence helpers

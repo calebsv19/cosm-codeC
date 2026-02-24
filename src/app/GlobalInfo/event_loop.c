@@ -41,6 +41,9 @@
 #include "core/LoopWake/mainthread_wake.h"
 #include "core/LoopTimer/mainthread_timer_scheduler.h"
 #include "core/LoopMessages/mainthread_message_queue.h"
+#include "core/LoopJobs/mainthread_jobs.h"
+#include "core/LoopKernel/mainthread_kernel.h"
+#include "core/LoopTime/loop_time.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "core/Ipc/ide_ipc_server.h"
 
@@ -122,6 +125,11 @@ static void loop_timer_git_watcher_cb(void* user_data) {
     pollGitStatusWatcher();
 }
 
+static void tick_command_bus_job(void* user_data) {
+    (void)user_data;
+    tickCommandBus();
+}
+
 static void ensure_loop_timers_registered(void) {
     if (s_loop_timers_registered) return;
     s_file_watcher_timer_id = mainthread_timer_schedule_repeating(fileWatcherPollIntervalMs(),
@@ -135,11 +143,12 @@ static void ensure_loop_timers_registered(void) {
     s_loop_timers_registered = true;
 }
 
-static void loop_diag_tick(Uint32 frameStartMs, Uint32 blockedMs, bool didWaitCall) {
+static void loop_diag_tick(uint64_t frameStartNs, uint64_t blockedNs, bool didWaitCall) {
     init_loop_diag_config();
     if (!s_loop_diag_enabled) return;
 
-    Uint32 nowMs = SDL_GetTicks();
+    uint64_t nowNs = loop_time_now_ns();
+    Uint32 nowMs = (Uint32)(nowNs / 1000000ULL);
     if (s_loop_diag.periodStartMs == 0) {
         s_loop_diag.periodStartMs = nowMs;
         MainThreadWakeStats wake = {0};
@@ -150,8 +159,10 @@ static void loop_diag_tick(Uint32 frameStartMs, Uint32 blockedMs, bool didWaitCa
         s_loop_diag.lastTimerFired = timerStats.fired_count;
     }
 
-    Uint32 frameElapsedMs = (nowMs >= frameStartMs) ? (nowMs - frameStartMs) : 0;
-    Uint32 activeMs = (frameElapsedMs > blockedMs) ? (frameElapsedMs - blockedMs) : 0;
+    uint64_t frameElapsedNs = loop_time_diff_ns(nowNs, frameStartNs);
+    uint64_t activeNs = (frameElapsedNs > blockedNs) ? (frameElapsedNs - blockedNs) : 0;
+    Uint32 blockedMs = (Uint32)(blockedNs / 1000000ULL);
+    Uint32 activeMs = (Uint32)(activeNs / 1000000ULL);
 
     s_loop_diag.frames++;
     s_loop_diag.blockedMs += blockedMs;
@@ -474,8 +485,8 @@ static bool processInputEvents(FrameContext* ctx, const SDL_Event* firstEvent) {
 static bool tickBackgroundSystems() {
     bool terminalChanged = false;
     ide_ipc_pump();
-    tickCommandBus();
-    mainthread_timer_scheduler_fire_due(SDL_GetTicks());
+    mainthread_jobs_enqueue(tick_command_bus_job, NULL);
+    mainthread_kernel_tick(loop_time_now_ns());
     terminalChanged = terminal_tick_backend();
     // tickDiagnosticsEngine(dt), tickUndoSystem(dt), etc.
     analysis_job_poll();
@@ -515,7 +526,7 @@ static int compute_wait_timeout_ms(FrameContext* ctx) {
 
     Uint32 nextDeadlineMs = 0;
     if (mainthread_timer_scheduler_next_deadline_ms(&nextDeadlineMs)) {
-        Uint32 nowMs = SDL_GetTicks();
+        Uint32 nowMs = loop_time_now_ms32();
         int timerMs = (int)(nextDeadlineMs - nowMs);
         if (timerMs < 0) timerMs = 0;
         if (timeoutMs < 0 || timerMs < timeoutMs) timeoutMs = timerMs;
@@ -535,7 +546,7 @@ static int compute_wait_timeout_ms(FrameContext* ctx) {
     return timeoutMs;
 }
 
-static Uint32 wait_for_next_wake(FrameContext* ctx, bool* outWaitCalled) {
+static uint64_t wait_for_next_wake(FrameContext* ctx, bool* outWaitCalled) {
     if (outWaitCalled) *outWaitCalled = false;
     if (!ctx || !ctx->running || !(*ctx->running)) return 0;
     if (main_loop_has_immediate_work()) return 0;
@@ -544,13 +555,13 @@ static Uint32 wait_for_next_wake(FrameContext* ctx, bool* outWaitCalled) {
     if (timeoutMs < 0) return 0;
 
     if (outWaitCalled) *outWaitCalled = true;
-    Uint32 waitStart = SDL_GetTicks();
+    uint64_t waitStartNs = loop_time_now_ns();
     SDL_Event waitedEvent;
-    if (SDL_WaitEventTimeout(&waitedEvent, timeoutMs)) {
+    if (mainthread_wake_wait_for_event((uint32_t)timeoutMs, &waitedEvent)) {
         processInputEvents(ctx, &waitedEvent);
     }
-    Uint32 waitEnd = SDL_GetTicks();
-    return (waitEnd >= waitStart) ? (waitEnd - waitStart) : 0;
+    uint64_t waitEndNs = loop_time_now_ns();
+    return loop_time_diff_ns(waitEndNs, waitStartNs);
 }
 
 //                      Loop Logic
@@ -603,8 +614,8 @@ static bool checkRenderFrame(FrameContext* ctx, Uint64 now) {
 void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     IDECoreState* core = getCoreState();
     const bool timerHudActive = core->timerHudEnabled;
-    Uint32 frameStartMs = SDL_GetTicks();
-    Uint32 blockedMs = 0;
+    uint64_t frameStartNs = loop_time_now_ns();
+    uint64_t blockedNs = 0;
     bool didWaitCall = false;
 
     if (timerHudActive) ts_start_timer("SystemLoop");
@@ -656,7 +667,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     analysis_scheduler_tick(projectPath, buildArgs);
     if (timerHudActive) ts_stop_timer("BackgroundTick");
 
-    if (tickRenameAnimation(SDL_GetTicks())) {
+    if (tickRenameAnimation(loop_time_now_ms32())) {
         requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
     }
 
@@ -709,9 +720,9 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     }
 
     if (!didRender) {
-        blockedMs = wait_for_next_wake(ctx, &didWaitCall);
+        blockedNs = wait_for_next_wake(ctx, &didWaitCall);
     }
-    loop_diag_tick(frameStartMs, blockedMs, didWaitCall);
+    loop_diag_tick(frameStartNs, blockedNs, didWaitCall);
 
     if (timerHudActive) ts_stop_timer("SystemLoop");
 }

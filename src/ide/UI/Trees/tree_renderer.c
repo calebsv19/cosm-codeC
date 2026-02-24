@@ -16,13 +16,13 @@ static const int TREE_INDENT_WIDTH = 10;
 
 // Optional color overrides
 static SDL_Color statusColors[8] = {
-    { 220, 220, 220, 255 },  // DEFAULT
-    { 255, 215, 0,   255 },  // MODIFIED
-    { 0,   255, 100, 255 },  // ADDED
-    { 255, 80,  80,  255 },  // DELETED
-    { 100, 100, 255, 255 },  // UNTRACKED
-    { 180, 180, 180, 255 },  // STAGED
-    { 160, 160, 255, 255 }   // SECTION
+    { 226, 231, 238, 255 },  // DEFAULT
+    { 245, 233, 206, 255 },  // MODIFIED (warm near-white)
+    { 214, 241, 223, 255 },  // ADDED (green-tinted near-white)
+    { 244, 214, 214, 255 },  // DELETED (red-tinted near-white)
+    { 214, 223, 245, 255 },  // UNTRACKED (blue-tinted near-white)
+    { 222, 228, 237, 255 },  // STAGED
+    { 224, 226, 244, 255 }   // SECTION
 };
 
 static int tree_line_height_for_pane(const UIPane* pane) {

@@ -1,5 +1,7 @@
 #include "tool_git.h"
 #include "ide/Panes/ToolPanels/Git/render_tool_git.h"
+#include "ide/Panes/ToolPanels/tool_panel_chrome.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 
 #include "engine/Render/render_pipeline.h"
 #include "app/GlobalInfo/project.h"
@@ -123,6 +125,34 @@ void git_panel_set_message(const char* text) {
     g_commitCursor = (int)strlen(g_commitMessage);
 }
 const char* git_panel_get_status_text(void) { return g_statusText; }
+int git_panel_content_top(const UIPane* pane) {
+    if (!pane) return 0;
+
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    const int controlsY = pane->y + d.controls_top - 1;
+    const int controlsHeight = d.button_h;
+    const int metadataGap = d.row_gap;
+    const int metadataLineGap = 12;
+    const int branchY = controlsY + controlsHeight + metadataGap;
+
+    int infoLines = g_statusText[0] ? 2 : 1;
+    int bottomPadding = g_statusText[0] ? 10 : 14;
+    int minContentTop = g_statusText[0] ? (pane->y + 72) : (pane->y + 68);
+    ToolPanelHeaderMetrics metrics = {
+        .controls_y = controlsY,
+        .controls_h = controlsHeight,
+        .info_start_y = branchY,
+        .info_line_gap = metadataLineGap,
+        .info_line_count = infoLines,
+        .bottom_padding = bottomPadding,
+        .min_content_top = minContentTop
+    };
+    return tool_panel_compute_content_top(&metrics);
+}
+
+int git_panel_tree_content_top(const UIPane* pane) {
+    return git_panel_content_top(pane) + tool_panel_content_inset_default();
+}
 
 void git_panel_insert_text(const char* text) {
     if (!text || !text[0]) return;
@@ -205,7 +235,6 @@ void refreshGitStatus() {
     // Get branch name
     char branchCmd[1024];
     snprintf(branchCmd, sizeof(branchCmd), "cd %s && git branch --show-current", projectPath);
-    printf("[Git] Using projectPath: %s\n", projectPath);
 
     FILE* bpipe = popen(branchCmd, "r");
     if (bpipe) {
@@ -239,9 +268,6 @@ void refreshGitStatus() {
         strncpy(f->path, filePath, sizeof(f->path) - 1);
         f->path[sizeof(f->path) - 1] = '\0';
 
-        printf("[GitDebug] Raw line: %s", line);
-        printf("[GitDebug] Parsed status: '%s', file: '%s'\n", statusCode, f->path);
-
         // Parse status into enum
         if (statusCode[0] == 'M') {
             f->status = GIT_STATUS_STAGED;
@@ -264,7 +290,6 @@ void refreshGitStatus() {
         }
     }
 
-    printf("[GitDebug] Final file count: %d\n", gitFileCount);
     pclose(pipe);
 }
 

@@ -2,31 +2,13 @@
 #include "engine/Render/render_pipeline.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"
-#include "ide/UI/shared_theme_font_adapter.h"
+#include "ide/Panes/ToolPanels/tool_panel_chrome.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 
 #include "ide/Panes/ToolPanels/Tasks/tool_tasks.h"
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <string.h>
-
-static Uint8 clamp_u8(int v) {
-    if (v < 0) return 0;
-    if (v > 255) return 255;
-    return (Uint8)v;
-}
-
-static SDL_Color darken_color(SDL_Color c, int amount) {
-    return (SDL_Color){
-        clamp_u8((int)c.r - amount),
-        clamp_u8((int)c.g - amount),
-        clamp_u8((int)c.b - amount),
-        c.a
-    };
-}
-
-static bool same_rgb(SDL_Color a, SDL_Color b) {
-    return a.r == b.r && a.g == b.g && a.b == b.b;
-}
 
 
 
@@ -105,8 +87,9 @@ static void renderTaskTreeRecursive(TaskNode* node, int x, int* y, int maxY) {
 
 
 void renderTasksPanel(UIPane* pane) {
-    int x = pane->x + TASK_PANEL_LEFT_PADDING;
-    int y = pane->y + TASK_PANEL_TOP_PADDING;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    int x = pane->x + d.pad_left;
+    int y = pane->y + d.controls_top + 8;
     int maxY = pane->y + pane->h;
 
     const int iconBtnSize = 24;
@@ -127,25 +110,11 @@ void renderTasksPanel(UIPane* pane) {
 
     int contentTop = y;
     y = contentTop + TASK_TREE_TOP_GAP;
-    int listHeight = (pane->y + pane->h) - contentTop;
-    if (listHeight < 0) listHeight = 0;
 
     RenderContext* ctx = getRenderContext();
     SDL_Renderer* renderer = ctx ? ctx->renderer : NULL;
     if (renderer) {
-        SDL_Color editorBg = ide_shared_theme_background_color();
-        SDL_Color listBg = editorBg;
-        if (same_rgb(listBg, pane->bgColor)) {
-            listBg = darken_color(pane->bgColor, 14);
-        }
-        SDL_Rect treeBg = {
-            pane->x + 1,
-            contentTop,
-            pane->w - 2,
-            listHeight
-        };
-        SDL_SetRenderDrawColor(renderer, listBg.r, listBg.g, listBg.b, 255);
-        SDL_RenderFillRect(renderer, &treeBg);
+        tool_panel_render_split_background(renderer, pane, contentTop, 14);
     }
 
     for (int i = 0; i < taskRootCount; i++) {

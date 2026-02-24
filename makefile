@@ -6,13 +6,20 @@
 
   # Shared include/lib search paths
   VK_RENDERER_DIR := ../shared/vk_renderer
-  CORE_BASE_DIR := ../shared/core_base
-  CORE_IO_DIR := ../shared/core_io
-  CORE_DATA_DIR := ../shared/core_data
-  CORE_PACK_DIR := ../shared/core_pack
-  CORE_THEME_DIR := ../shared/core_theme
-  CORE_FONT_DIR := ../shared/core_font
-  INC_DIRS := -I./src -I./include -I$(VK_RENDERER_DIR)/include -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_DATA_DIR)/include -I$(CORE_PACK_DIR)/include -I$(CORE_THEME_DIR)/include -I$(CORE_FONT_DIR)/include
+  CORE_BASE_DIR := ../shared/core/core_base
+  CORE_IO_DIR := ../shared/core/core_io
+  CORE_DATA_DIR := ../shared/core/core_data
+  CORE_PACK_DIR := ../shared/core/core_pack
+  CORE_THEME_DIR := ../shared/core/core_theme
+  CORE_FONT_DIR := ../shared/core/core_font
+  CORE_TIME_DIR := ../shared/core/core_time
+  CORE_QUEUE_DIR := ../shared/core/core_queue
+  CORE_SCHED_DIR := ../shared/core/core_sched
+  CORE_JOBS_DIR := ../shared/core/core_jobs
+  CORE_WORKERS_DIR := ../shared/core/core_workers
+  CORE_WAKE_DIR := ../shared/core/core_wake
+  CORE_KERNEL_DIR := ../shared/core/core_kernel
+  INC_DIRS := -I./src -I./include -I$(VK_RENDERER_DIR)/include -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_DATA_DIR)/include -I$(CORE_PACK_DIR)/include -I$(CORE_THEME_DIR)/include -I$(CORE_FONT_DIR)/include -I$(CORE_TIME_DIR)/include -I$(CORE_QUEUE_DIR)/include -I$(CORE_SCHED_DIR)/include -I$(CORE_JOBS_DIR)/include -I$(CORE_WORKERS_DIR)/include -I$(CORE_WAKE_DIR)/include -I$(CORE_KERNEL_DIR)/include
   LIB_DIRS :=
 
   ifneq ($(strip $(BREW_PREFIX)),)
@@ -125,6 +132,18 @@
   CORE_PACK_SRCS := $(CORE_PACK_DIR)/src/core_pack.c
   CORE_THEME_SRCS := $(CORE_THEME_DIR)/src/core_theme.c
   CORE_FONT_SRCS := $(CORE_FONT_DIR)/src/core_font.c
+  CORE_TIME_SRCS := $(CORE_TIME_DIR)/src/core_time.c
+  ifeq ($(shell uname -s),Darwin)
+  CORE_TIME_SRCS += $(CORE_TIME_DIR)/src/core_time_mac.c
+  else
+  CORE_TIME_SRCS += $(CORE_TIME_DIR)/src/core_time_posix.c
+  endif
+  CORE_QUEUE_SRCS := $(CORE_QUEUE_DIR)/src/core_queue.c
+  CORE_SCHED_SRCS := $(CORE_SCHED_DIR)/src/core_sched.c
+  CORE_JOBS_SRCS := $(CORE_JOBS_DIR)/src/core_jobs.c
+  CORE_WORKERS_SRCS := $(CORE_WORKERS_DIR)/src/core_workers.c
+  CORE_WAKE_SRCS := $(CORE_WAKE_DIR)/src/core_wake.c
+  CORE_KERNEL_SRCS := $(CORE_KERNEL_DIR)/src/core_kernel.c
   VK_RENDERER_OBJS := $(patsubst $(VK_RENDERER_DIR)/src/%.c,$(BUILD_DIR)/vk_renderer/%.o,$(VK_RENDERER_SRCS))
   TIMER_HUD_OBJS := $(patsubst $(TIMER_HUD_DIR)/src/%.c,$(BUILD_DIR)/timer_hud/%.o,$(TIMER_HUD_SRCS))
   TIMER_HUD_EXTERNAL_OBJS := $(patsubst $(TIMER_HUD_DIR)/external/%.c,$(BUILD_DIR)/timer_hud_external/%.o,$(TIMER_HUD_EXTERNAL_SRCS))
@@ -134,8 +153,15 @@
   CORE_PACK_OBJS := $(patsubst $(CORE_PACK_DIR)/src/%.c,$(BUILD_DIR)/core_pack/%.o,$(CORE_PACK_SRCS))
   CORE_THEME_OBJS := $(patsubst $(CORE_THEME_DIR)/src/%.c,$(BUILD_DIR)/core_theme/%.o,$(CORE_THEME_SRCS))
   CORE_FONT_OBJS := $(patsubst $(CORE_FONT_DIR)/src/%.c,$(BUILD_DIR)/core_font/%.o,$(CORE_FONT_SRCS))
+  CORE_TIME_OBJS := $(patsubst $(CORE_TIME_DIR)/src/%.c,$(BUILD_DIR)/core_time/%.o,$(CORE_TIME_SRCS))
+  CORE_QUEUE_OBJS := $(patsubst $(CORE_QUEUE_DIR)/src/%.c,$(BUILD_DIR)/core_queue/%.o,$(CORE_QUEUE_SRCS))
+  CORE_SCHED_OBJS := $(patsubst $(CORE_SCHED_DIR)/src/%.c,$(BUILD_DIR)/core_sched/%.o,$(CORE_SCHED_SRCS))
+  CORE_JOBS_OBJS := $(patsubst $(CORE_JOBS_DIR)/src/%.c,$(BUILD_DIR)/core_jobs/%.o,$(CORE_JOBS_SRCS))
+  CORE_WORKERS_OBJS := $(patsubst $(CORE_WORKERS_DIR)/src/%.c,$(BUILD_DIR)/core_workers/%.o,$(CORE_WORKERS_SRCS))
+  CORE_WAKE_OBJS := $(patsubst $(CORE_WAKE_DIR)/src/%.c,$(BUILD_DIR)/core_wake/%.o,$(CORE_WAKE_SRCS))
+  CORE_KERNEL_OBJS := $(patsubst $(CORE_KERNEL_DIR)/src/%.c,$(BUILD_DIR)/core_kernel/%.o,$(CORE_KERNEL_SRCS))
 
-  OBJ_FILES := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC_FILES)) $(VK_RENDERER_OBJS) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(CORE_BASE_OBJS) $(CORE_IO_OBJS) $(CORE_DATA_OBJS) $(CORE_PACK_OBJS) $(CORE_THEME_OBJS) $(CORE_FONT_OBJS)
+  OBJ_FILES := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC_FILES)) $(VK_RENDERER_OBJS) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(CORE_BASE_OBJS) $(CORE_IO_OBJS) $(CORE_DATA_OBJS) $(CORE_PACK_OBJS) $(CORE_THEME_OBJS) $(CORE_FONT_OBJS) $(CORE_TIME_OBJS) $(CORE_QUEUE_OBJS) $(CORE_SCHED_OBJS) $(CORE_JOBS_OBJS) $(CORE_WORKERS_OBJS) $(CORE_WAKE_OBJS) $(CORE_KERNEL_OBJS)
   DEP_FILES := $(OBJ_FILES:.o=.d)
 
   OUT = ide
@@ -240,6 +266,48 @@ $(BUILD_DIR)/core_theme/%.o: $(CORE_THEME_DIR)/src/%.c
 	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
 $(BUILD_DIR)/core_font/%.o: $(CORE_FONT_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<"
+	@echo "CFLAGS: $(CFLAGS)"
+	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+
+$(BUILD_DIR)/core_time/%.o: $(CORE_TIME_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<"
+	@echo "CFLAGS: $(CFLAGS)"
+	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+
+$(BUILD_DIR)/core_queue/%.o: $(CORE_QUEUE_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<"
+	@echo "CFLAGS: $(CFLAGS)"
+	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+
+$(BUILD_DIR)/core_sched/%.o: $(CORE_SCHED_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<"
+	@echo "CFLAGS: $(CFLAGS)"
+	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+
+$(BUILD_DIR)/core_jobs/%.o: $(CORE_JOBS_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<"
+	@echo "CFLAGS: $(CFLAGS)"
+	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+
+$(BUILD_DIR)/core_workers/%.o: $(CORE_WORKERS_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<"
+	@echo "CFLAGS: $(CFLAGS)"
+	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+
+$(BUILD_DIR)/core_wake/%.o: $(CORE_WAKE_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<"
+	@echo "CFLAGS: $(CFLAGS)"
+	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+
+$(BUILD_DIR)/core_kernel/%.o: $(CORE_KERNEL_DIR)/src/%.c
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@echo "CFLAGS: $(CFLAGS)"

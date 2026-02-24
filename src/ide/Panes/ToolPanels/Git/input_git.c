@@ -99,7 +99,7 @@ void handleGitMouseInput(UIPane* pane, SDL_Event* event) {
 
         // Hit-test with scroll awareness and select
         UIPane treePane = *pane;
-        treePane.y = pane->y + GIT_PANEL_HEADER_HEIGHT - 30;
+        treePane.y = git_panel_tree_content_top(pane) - 30;
         treePane.h = (pane->y + pane->h) - treePane.y;
         if (treePane.h < 0) treePane.h = 0;
         handleTreeClickWithScroll(&treePane, gitTree, &gitScroll, mx, my);

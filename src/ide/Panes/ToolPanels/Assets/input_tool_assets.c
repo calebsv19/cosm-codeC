@@ -1,6 +1,7 @@
 #include "input_tool_assets.h"
 #include "ide/Panes/ToolPanels/Assets/tool_assets.h"
 #include "ide/Panes/ToolPanels/Assets/render_tool_assets.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/UI/scroll_manager.h"
 #include "core/Clipboard/clipboard.h"
 #include "app/GlobalInfo/project.h"
@@ -48,7 +49,7 @@ static void copy_selection(void) {
         if (!assets_is_selected(i) || refs[i].isMoreLine) continue;
         const AssetEntry* e = refs[i].entry;
         const char* label = refs[i].isHeader
-            ? (const char*[]){"Images","Audio","Data","Other"}[refs[i].category]
+            ? (const char*[]){"Images","Audio","Data","Docs","Other"}[refs[i].category]
             : (e && e->relPath) ? e->relPath : (e && e->name ? e->name : "(unknown)");
         size_t add = strlen(label) + 1;
         if (len + add + 1 > cap) {
@@ -84,7 +85,9 @@ void handleAssetsMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
     const int headerHeight = 18;
     const int lineHeight = 16;
-    const int startY = pane->y + 28;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    const int contentTop = pane->y + d.controls_top + d.button_h + d.row_gap;
+    const int startY = contentTop + tool_panel_content_inset_default();
 
     PaneScrollState* scroll = assets_get_scroll_state(pane);
     SDL_Rect track = assets_get_scroll_track_rect();
@@ -96,6 +99,18 @@ void handleAssetsMouseInput(UIPane* pane, SDL_Event* event) {
     float offset = scroll ? scroll_state_get_offset(scroll) : 0.0f;
 
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
+        SDL_Point p = { event->button.x, event->button.y };
+        SDL_Rect openAllRect = assets_get_open_all_rect();
+        SDL_Rect closeAllRect = assets_get_close_all_rect();
+        if (SDL_PointInRect(&p, &openAllRect)) {
+            assets_set_all_collapsed(false);
+            return;
+        }
+        if (SDL_PointInRect(&p, &closeAllRect)) {
+            assets_set_all_collapsed(true);
+            return;
+        }
+
         AssetFlatRef refs[1024];
         int count = assets_flatten(refs, 1024);
         int my = event->button.y;

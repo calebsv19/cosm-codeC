@@ -3,6 +3,9 @@
 
 #include <stdbool.h>
 
+bool analysis_job_system_init(void);
+void analysis_job_system_shutdown(void);
+
 // Kick off async analysis (scan + library build + persistence). No-op if already running.
 void start_async_workspace_analysis(const char* project_root, const char* build_args);
 // Force the next async run to bypass incremental mode and execute a full rebuild.

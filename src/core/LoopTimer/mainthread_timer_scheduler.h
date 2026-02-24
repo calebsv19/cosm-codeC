@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <SDL2/SDL.h>
+#include "core_sched.h"
 
 typedef void (*MainThreadTimerCallback)(void* user_data);
 
@@ -31,6 +32,6 @@ bool mainthread_timer_cancel(int timer_id);
 bool mainthread_timer_scheduler_next_deadline_ms(Uint32* out_deadline_ms);
 int mainthread_timer_scheduler_fire_due(Uint32 now_ms);
 void mainthread_timer_scheduler_snapshot(MainThreadTimerSchedulerStats* out);
+CoreSched* mainthread_timer_scheduler_get_core_sched(void);
 
 #endif // MAINTHREAD_TIMER_SCHEDULER_H
-

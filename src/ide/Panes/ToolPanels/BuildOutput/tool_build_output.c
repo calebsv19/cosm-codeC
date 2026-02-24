@@ -2,6 +2,7 @@
 #include "core/BuildSystem/build_diagnostics.h"
 #include "core/Clipboard/clipboard.h"
 #include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include <SDL2/SDL.h>
 #include "app/GlobalInfo/core_state.h"
 #include "ide/Panes/Editor/editor_view.h"
@@ -161,7 +162,8 @@ static void jump_to_diag(const BuildDiagnostic* d) {
 void handleBuildOutputEvent(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
     const int lineHeight = 20;
-    const int firstY = pane->y + 32;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    const int firstY = pane->y + d.controls_top + 8 + tool_panel_content_inset_default();
     static Uint32 lastClickTicks = 0;
     static int lastClickIndex = -1;
     const Uint32 doubleClickMs = 400;

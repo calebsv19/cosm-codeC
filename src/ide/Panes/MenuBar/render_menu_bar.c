@@ -7,6 +7,7 @@
 
 #include "engine/Render/render_text_helpers.h"
 #include "engine/Render/render_helpers.h"
+#include "engine/Render/render_font.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/Panes/MenuBar/render_menu_bar.h"
 
@@ -119,6 +120,7 @@ void renderMenuBarStandard(UIPane* pane, SDL_Renderer* renderer, struct IDECoreS
 void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDECoreState* core) {
     int y = pane->y + 6;
     const char* fileName = getActiveFileName();
+    const char* workspaceName = getWorkspaceDirName();
 
     // 1. Left side: Load, Save, [modified]  
     const char* leftLabels[MENU_BUTTON_LEFT_COUNT] = { "Load", "Save" };
@@ -174,18 +176,53 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
         }
     }
 
-    // 3. Centered filename
+    // 3. Center seam-anchored workspace + filename group
     int centerX = pane->x + pane->w / 2;
-    int nameWidth = getTextWidth(fileName);
     int boxPadding = 10;
-    SDL_Rect nameBox = {
-        centerX - nameWidth / 2 - boxPadding,
+    int seamGap = 10;
+    int centerLeftEdge = centerX - seamGap / 2;
+    int centerRightEdge = centerX + seamGap / 2;
+    int leftBoundary = pane->x + 180;
+    int rightBoundary = getRightMenuButtonRect(pane, 0).x - 12;
+    int leftAvail = centerLeftEdge - leftBoundary;
+    int rightAvail = rightBoundary - centerRightEdge;
+    if (leftAvail < 0) leftAvail = 0;
+    if (rightAvail < 0) rightAvail = 0;
+    int workspaceBoxW = getTextWidth(workspaceName) + boxPadding * 2;
+    int nameBoxW = getTextWidth(fileName) + boxPadding * 2;
+    if (workspaceBoxW > leftAvail) workspaceBoxW = leftAvail;
+    if (nameBoxW > rightAvail) nameBoxW = rightAvail;
+
+    SDL_Rect workspaceBox = {
+        centerLeftEdge - workspaceBoxW,
         pane->y + BUTTON_HEIGHT_PADDING / 2,
-        nameWidth + boxPadding * 2,
+        workspaceBoxW,
+        pane->h - BUTTON_HEIGHT_PADDING
+    };
+    SDL_Rect nameBox = {
+        centerRightEdge,
+        pane->y + BUTTON_HEIGHT_PADDING / 2,
+        nameBoxW,
         pane->h - BUTTON_HEIGHT_PADDING
     };
 
-    // Draw box & filename (optional highlight box here if desired)
+    TTF_Font* menuFont = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
+    if (!menuFont) menuFont = getActiveFont();
+    int textH = menuFont ? TTF_FontHeight(menuFont) : 16;
+    int textYWorkspace = workspaceBox.y + (workspaceBox.h - textH) / 2;
+    int textYName = nameBox.y + (nameBox.h - textH) / 2;
+    int workspaceTextW = getTextWidth(workspaceName);
+    int workspaceInnerW = workspaceBox.w - boxPadding * 2;
+    if (workspaceInnerW < 0) workspaceInnerW = 0;
+    if (workspaceTextW > workspaceInnerW) {
+        size_t keep = getTextClampedLength(workspaceName, workspaceInnerW);
+        workspaceTextW = getTextWidthN(workspaceName, (int)keep);
+    }
+    int workspaceTextX = workspaceBox.x + workspaceBox.w - boxPadding - workspaceTextW;
+    int workspaceMinX = workspaceBox.x + boxPadding;
+    if (workspaceTextX < workspaceMinX) workspaceTextX = workspaceMinX;
+
+    // Draw workspace box + text
     {
         SDL_Color fill = {80, 80, 80, 100};
         SDL_Color fill_active = {100, 100, 100, 120};
@@ -194,17 +231,33 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
         (void)text;
         ide_shared_theme_button_colors(&fill, &fill_active, &border, &text);
         SDL_SetRenderDrawColor(renderer, fill_active.r, fill_active.g, fill_active.b, 120);
+        SDL_RenderFillRect(renderer, &workspaceBox);
+        SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, 140);
+        SDL_RenderDrawRect(renderer, &workspaceBox);
+        SDL_SetRenderDrawColor(renderer, fill_active.r, fill_active.g, fill_active.b, 120);
         SDL_RenderFillRect(renderer, &nameBox);
         SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, 140);
         SDL_RenderDrawRect(renderer, &nameBox);
     }
+    SelectableTextOptions workspaceOpts = {
+        .pane = pane,
+        .owner = pane,
+        .owner_role = pane->role,
+        .x = workspaceTextX,
+        .y = textYWorkspace,
+        .maxWidth = workspaceBox.w - boxPadding * 2,
+        .text = workspaceName,
+        .flags = TEXT_SELECTION_FLAG_SELECTABLE,
+    };
+    drawSelectableText(&workspaceOpts);
+
     SelectableTextOptions centeredNameOpts = {
         .pane = pane,
         .owner = pane,
         .owner_role = pane->role,
-        .x = centerX - nameWidth / 2,
-        .y = y,
-        .maxWidth = nameWidth,
+        .x = nameBox.x + boxPadding,
+        .y = textYName,
+        .maxWidth = nameBox.w - boxPadding * 2,
         .text = fileName,
         .flags = TEXT_SELECTION_FLAG_SELECTABLE,
     };

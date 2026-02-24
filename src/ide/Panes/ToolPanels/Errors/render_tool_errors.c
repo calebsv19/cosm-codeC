@@ -3,6 +3,8 @@
 #include "engine/Render/render_font.h"
 
 #include "ide/Panes/ToolPanels/Errors/tool_errors.h"
+#include "ide/Panes/ToolPanels/tool_panel_chrome.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/Analysis/analysis_status.h"
 #include "core/Analysis/analysis_scheduler.h"
@@ -22,25 +24,6 @@ TTF_Font* get_error_font(void);
 void errors_get_layout_metrics(const UIPane* pane, int* contentTop, int* headerHeight, int* diagHeight, int* lineHeight);
 static SDL_Rect gErrorScrollTrack = {0};
 static SDL_Rect gErrorScrollThumb = {0};
-
-static Uint8 clamp_u8(int v) {
-    if (v < 0) return 0;
-    if (v > 255) return 255;
-    return (Uint8)v;
-}
-
-static SDL_Color darken_color(SDL_Color c, int amount) {
-    return (SDL_Color){
-        clamp_u8((int)c.r - amount),
-        clamp_u8((int)c.g - amount),
-        clamp_u8((int)c.b - amount),
-        c.a
-    };
-}
-
-static bool same_rgb(SDL_Color a, SDL_Color b) {
-    return a.r == b.r && a.g == b.g && a.b == b.b;
-}
 
 static void render_state_button(const UIPane* pane,
                                 SDL_Rect rect,
@@ -93,11 +76,12 @@ static void layout_errors_controls(const UIPane* pane,
                                    SDL_Rect* outWarnings,
                                    SDL_Rect* outOpenAll,
                                    SDL_Rect* outCloseAll) {
-    const int padX = 12;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    const int padX = d.pad_left;
     const int rowX = pane->x + padX;
-    const int topY = pane->y + 24;
-    const int rowGap = 6;
-    const int buttonH = 20;
+    const int topY = pane->y + d.controls_top;
+    const int rowGap = d.row_gap;
+    const int buttonH = d.button_h;
     int gapX = 5;
     const int titleGap = 7;
     const char* title1 = "Show";
@@ -173,6 +157,8 @@ void renderErrorsPanel(UIPane* pane) {
     int diagHeight = 0;
     int lineHeight = 0;
     errors_get_layout_metrics(pane, &contentTop, &headerHeight, &diagHeight, &lineHeight);
+    const int contentInset = tool_panel_content_inset_default();
+    const int firstRowY = contentTop + contentInset;
     TTF_Font* font = get_error_font();
     int paddingX = 12;
     int x = pane->x + paddingX;
@@ -202,19 +188,7 @@ void renderErrorsPanel(UIPane* pane) {
     renderButton(pane, btnOpenAll, "Open All");
     renderButton(pane, btnCloseAll, "Close All");
 
-    SDL_Color editorBg = ide_shared_theme_background_color();
-    SDL_Color listBg = editorBg;
-    if (same_rgb(listBg, pane->bgColor)) {
-        listBg = darken_color(pane->bgColor, 14);
-    }
-    SDL_Rect bodyBg = {
-        pane->x + 1,
-        contentTop,
-        pane->w - 2,
-        viewportH
-    };
-    SDL_SetRenderDrawColor(getRenderContext()->renderer, listBg.r, listBg.g, listBg.b, 255);
-    SDL_RenderFillRect(getRenderContext()->renderer, &bodyBg);
+    tool_panel_render_split_background(getRenderContext()->renderer, pane, contentTop, 14);
 
     AnalysisStatusSnapshot snap = {0};
     AnalysisSchedulerSnapshot sched = {0};
@@ -233,7 +207,7 @@ void renderErrorsPanel(UIPane* pane) {
     if (statusBuf[0]) {
         int tw = getTextWidth(statusBuf);
         int tx = pane->x + pane->w - tw - 16;
-        int ty = pane->y + 8;
+        int ty = tool_panel_info_line_y(pane, 0);
         drawTextWithFont(tx, ty, statusBuf, font ? font : getActiveFont());
     }
 
@@ -241,11 +215,11 @@ void renderErrorsPanel(UIPane* pane) {
     FlatDiagRef refs[512];
     int flatCount = flatten_diagnostics(refs, 512);
     if (flatCount == 0) {
-        drawTextWithFont(x, contentTop, "(No errors or warnings)", font ? font : getActiveFont());
+        drawTextWithFont(x, firstRowY, "(No errors or warnings)", font ? font : getActiveFont());
         return;
     }
 
-    float contentHeight = 0.0f;
+    float contentHeight = (float)contentInset;
     for (int i = 0; i < flatCount; ++i) {
         contentHeight += refs[i].isHeader ? (float)headerHeight : (float)diagHeight;
     }
@@ -255,12 +229,12 @@ void renderErrorsPanel(UIPane* pane) {
     SDL_Rect clip = { pane->x, contentTop, pane->w - 8, viewportH };
     pushClipRect(&clip);
 
-    int y = contentTop - (int)offset;
+    int y = firstRowY - (int)offset;
     int maxY = contentTop + viewportH;
 
     for (int i = 0; i < flatCount; ++i) {
         int entryHeight = refs[i].isHeader ? headerHeight : diagHeight;
-        if (y + entryHeight < contentTop) { y += entryHeight; continue; }
+        if (y + entryHeight < firstRowY) { y += entryHeight; continue; }
         if (y > maxY) break;
 
         bool sel = is_error_selected(i);

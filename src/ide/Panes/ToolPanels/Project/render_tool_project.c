@@ -1,9 +1,10 @@
 #include "ide/Panes/ToolPanels/Project/render_tool_project.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
+#include "ide/Panes/ToolPanels/tool_panel_chrome.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"
 #include "ide/UI/scroll_manager.h"
-#include "ide/UI/shared_theme_font_adapter.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
 
@@ -34,25 +35,6 @@ static const PaneScrollConfig s_projectScrollConfig = {
 };
 static SDL_Rect s_projectScrollTrack = {0};
 static SDL_Rect s_projectScrollThumb = {0};
-
-static Uint8 clamp_u8(int v) {
-    if (v < 0) return 0;
-    if (v > 255) return 255;
-    return (Uint8)v;
-}
-
-static SDL_Color darken_color(SDL_Color c, int amount) {
-    return (SDL_Color){
-        clamp_u8((int)c.r - amount),
-        clamp_u8((int)c.g - amount),
-        clamp_u8((int)c.b - amount),
-        c.a
-    };
-}
-
-static bool same_rgb(SDL_Color a, SDL_Color b) {
-    return a.r == b.r && a.g == b.g && a.b == b.b;
-}
 
 static const char* project_entry_display_name(const DirEntry* entry) {
     if (!entry || !entry->path) return "";
@@ -215,7 +197,8 @@ void renderProjectFilesPanel(UIPane* pane) {
     bool paneHovered = coreState && coreState->activeMousePane == pane;
     bool paneActive = coreState && coreState->focusedPane == pane;
 
-    int x = pane->x + 12;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    int x = pane->x + d.pad_left;
     const char* workspace = getWorkspacePath();
     char workspaceLabel[512];
     if (workspace && workspace[0]) {
@@ -223,7 +206,7 @@ void renderProjectFilesPanel(UIPane* pane) {
     } else {
         snprintf(workspaceLabel, sizeof(workspaceLabel), "Workspace: (sample project)");
     }
-    drawClippedText(x, pane->y + 8, workspaceLabel, pane->w - 24);
+    drawClippedText(x, tool_panel_info_line_y(pane, 0), workspaceLabel, pane->w - (d.pad_left + d.pad_right));
 
     const char* runTarget = getRunTargetPath();
     char runLabel[512];
@@ -232,9 +215,9 @@ void renderProjectFilesPanel(UIPane* pane) {
     } else {
         snprintf(runLabel, sizeof(runLabel), "Run target: (auto-select on build)");
     }
-    drawClippedText(x, pane->y + 22, runLabel, pane->w - 24);
+    drawClippedText(x, tool_panel_info_line_y(pane, 1), runLabel, pane->w - (d.pad_left + d.pad_right));
 
-    int y = pane->y + 42;
+    int y = tool_panel_info_line_y(pane, 1) + d.button_h;
     int maxY = pane->y + pane->h;
     hoveredEntry = NULL;
     hoveredEntryRect = (SDL_Rect){0};
@@ -266,22 +249,8 @@ void renderProjectFilesPanel(UIPane* pane) {
     const int treeTopGap = 8;
     int contentTop = y;
     int treeStartY = contentTop + treeTopGap;
-    int listHeight = (pane->y + pane->h) - contentTop;
-    if (listHeight < 0) listHeight = 0;
 
-    SDL_Color editorBg = ide_shared_theme_background_color();
-    SDL_Color listBg = editorBg;
-    if (same_rgb(listBg, pane->bgColor)) {
-        listBg = darken_color(pane->bgColor, 14);
-    }
-    SDL_Rect treeBg = {
-        pane->x + 1,
-        contentTop,
-        pane->w - 2,
-        listHeight
-    };
-    SDL_SetRenderDrawColor(renderer, listBg.r, listBg.g, listBg.b, 255);
-    SDL_RenderFillRect(renderer, &treeBg);
+    tool_panel_render_split_background(renderer, pane, contentTop, 14);
 
     const int trackWidth = 6;
     const int trackPadding = 4;

@@ -9,6 +9,7 @@ typedef enum {
     ASSET_CATEGORY_IMAGES = 0,
     ASSET_CATEGORY_AUDIO,
     ASSET_CATEGORY_DATA,
+    ASSET_CATEGORY_DOCS,
     ASSET_CATEGORY_OTHER,
     ASSET_CATEGORY_COUNT
 } AssetCategory;
@@ -56,6 +57,7 @@ void assets_select_range(int a, int b);
 // Collapse control
 void assets_toggle_collapse(AssetCategory cat);
 bool assets_category_collapsed(AssetCategory cat);
+void assets_set_all_collapsed(bool collapsed);
 
 // Text-like check for double-click open behavior
 bool assets_is_text_like(const AssetEntry* e);

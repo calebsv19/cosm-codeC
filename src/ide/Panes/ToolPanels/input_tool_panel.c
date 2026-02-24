@@ -82,6 +82,22 @@ void handleToolPanelHoverInput(UIPane* pane, int x, int y) {
     }
 }
 
+// ==== Text Input ====
+void handleToolPanelTextInput(UIPane* pane, SDL_Event* event) {
+    IconTool current = getActiveIcon();
+
+    switch (current) {
+        case ICON_PROJECT_FILES:     handleProjectFilesKeyboardInput(pane, event); break;
+        case ICON_LIBRARIES:         handleLibrariesKeyboardInput(pane, event); break;
+        case ICON_TASKS:             handleTasksKeyboardInput(pane, event); break;
+        case ICON_BUILD_OUTPUT:      handleBuildOutputKeyboardInput(pane, event); break;
+        case ICON_ERRORS:            handleErrorsKeyboardInput(pane, event); break;
+        case ICON_ASSET_MANAGER:     handleAssetsKeyboardInput(pane, event); break;
+        case ICON_VERSION_CONTROL:   handleGitKeyboardInput(pane, event); break;
+        default: break;
+    }
+}
+
 
 // ==== Handler Struct Export ====
 UIPaneInputHandler toolPanelInputHandler = {
@@ -90,5 +106,5 @@ UIPaneInputHandler toolPanelInputHandler = {
     .onMouse = handleToolPanelMouseInput,
     .onScroll = handleToolPanelScrollInput,
     .onHover = handleToolPanelHoverInput,
+    .onTextInput = handleToolPanelTextInput,
 };
-

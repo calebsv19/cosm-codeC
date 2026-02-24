@@ -1,5 +1,7 @@
 #include "engine/Render/render_helpers.h"
 
+#include "ide/Panes/ToolPanels/tool_panel_chrome.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/Panes/ToolPanels/BuildOutput/render_tool_build_output.h"
 #include "ide/Panes/ToolPanels/BuildOutput/tool_build_output.h"
 #include "core/BuildSystem/build_diagnostics.h"
@@ -39,10 +41,13 @@ static void renderDiagnosticsList(const BuildDiagnostic* diags, size_t count, in
 }
 
 void renderBuildOutputPanel(UIPane* pane) {
-    int x = pane->x + 12;
-    int y = pane->y + 32;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    int x = pane->x + d.pad_left;
+    int contentTop = pane->y + d.controls_top + 8;
+    int y = contentTop + tool_panel_content_inset_default();
     int maxY = pane->y + pane->h;
     int lineHeight = 20;
+    tool_panel_render_split_background(getRenderContext()->renderer, pane, contentTop, 14);
 
     size_t count = 0;
     const BuildDiagnostic* diags = build_diagnostics_get(&count);

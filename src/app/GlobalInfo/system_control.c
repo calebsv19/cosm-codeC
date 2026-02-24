@@ -39,6 +39,8 @@
 #include "core/LoopWake/mainthread_wake.h"
 #include "core/LoopTimer/mainthread_timer_scheduler.h"
 #include "core/LoopMessages/mainthread_message_queue.h"
+#include "core/LoopJobs/mainthread_jobs.h"
+#include "core/LoopKernel/mainthread_kernel.h"
 #include "core/Ipc/ide_ipc_server.h"
 #include "core/Ipc/ide_ipc_edit_apply.h"
 #include "ide/Panes/Editor/Commands/editor_commands.h"
@@ -363,9 +365,12 @@ bool initializeSystem() {
     initBuildSystem();
     initBuildOutputPanelState();
     analysis_status_init();
+    analysis_job_system_init();
     analysis_scheduler_init();
     mainthread_timer_scheduler_init();
     mainthread_message_queue_init();
+    mainthread_jobs_init();
+    mainthread_kernel_init();
 
     initProjectPaths();
     loadInitialWorkspace();
@@ -517,7 +522,10 @@ void shutdownSystem(UIPane** panes, int paneCount) {
     if (ctx->window) SDL_DestroyWindow(ctx->window);
 
     mainthread_wake_shutdown();
+    analysis_job_system_shutdown();
+    mainthread_kernel_shutdown();
     mainthread_timer_scheduler_shutdown();
     mainthread_message_queue_shutdown();
+    mainthread_jobs_shutdown();
     SDL_Quit();
 }

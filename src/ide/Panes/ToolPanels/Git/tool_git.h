@@ -22,7 +22,7 @@ typedef struct {
 #define MAX_GIT_ENTRIES 512
 #define MAX_GIT_LOG_ENTRIES 128
 #define GIT_LOG_LINE_MAX 512
-#define GIT_PANEL_HEADER_HEIGHT 56
+#define GIT_PANEL_HEADER_HEIGHT 80
 
 extern GitFileEntry gitFiles[MAX_GIT_ENTRIES];
 extern int gitFileCount;
@@ -67,6 +67,8 @@ void git_panel_move_cursor_right(void);
 void git_panel_move_cursor_home(void);
 void git_panel_move_cursor_end(void);
 const char* git_panel_get_status_text(void);
+int git_panel_content_top(const UIPane* pane);
+int git_panel_tree_content_top(const UIPane* pane);
 bool git_stage_all_changes(void);
 bool git_commit_with_message(void);
 

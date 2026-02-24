@@ -57,7 +57,7 @@ void handleCommandLoad(void);
 void handleCommandSave(void);
 
 const char* getActiveFileName(void);
+const char* getWorkspaceDirName(void);
 
 
 #endif
-

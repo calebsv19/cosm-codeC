@@ -5,6 +5,7 @@
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/Editor/editor_state.h"
 
@@ -192,7 +193,8 @@ void errors_get_layout_metrics(const UIPane* pane,
     if (headerHeight) *headerHeight = lh;
     if (diagHeight) *diagHeight = lh * 2;
     if (contentTop && pane) {
-        const int paddingY = 76;
+        ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+        const int paddingY = d.controls_top + d.button_h + d.row_gap + d.button_h + d.row_gap;
         *contentTop = pane->y + paddingY;
     }
 }
@@ -399,6 +401,7 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
     int diagHeight = 0;
     int lineHeight = 0;
     errors_get_layout_metrics(pane, &firstY, &headerHeight, &diagHeight, &lineHeight);
+    firstY += tool_panel_content_inset_default();
     static Uint32 lastClickTicks = 0;
     static int lastClickIndex = -1;
     const Uint32 doubleClickMs = 400;

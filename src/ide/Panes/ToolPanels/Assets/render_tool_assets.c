@@ -2,8 +2,9 @@
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_pipeline.h"
 #include "ide/Panes/ToolPanels/Assets/tool_assets.h"
+#include "ide/Panes/ToolPanels/tool_panel_chrome.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/UI/scroll_manager.h"
-#include "ide/UI/shared_theme_font_adapter.h"
 
 #include <SDL2/SDL.h>
 #include <stdio.h>
@@ -12,26 +13,9 @@ static PaneScrollState gScrollState;
 static bool gScrollInit = false;
 static SDL_Rect gScrollTrack = {0};
 static SDL_Rect gScrollThumb = {0};
+static SDL_Rect gOpenAllRect = {0};
+static SDL_Rect gCloseAllRect = {0};
 static const PaneScrollConfig gScrollCfg = { .line_height_px = 18.0f, .deceleration_px = 0.0f, .allow_negative = false };
-
-static Uint8 clamp_u8(int v) {
-    if (v < 0) return 0;
-    if (v > 255) return 255;
-    return (Uint8)v;
-}
-
-static SDL_Color darken_color(SDL_Color c, int amount) {
-    return (SDL_Color){
-        clamp_u8((int)c.r - amount),
-        clamp_u8((int)c.g - amount),
-        clamp_u8((int)c.b - amount),
-        c.a
-    };
-}
-
-static bool same_rgb(SDL_Color a, SDL_Color b) {
-    return a.r == b.r && a.g == b.g && a.b == b.b;
-}
 
 void renderAssetManagerPanel(UIPane* pane) {
     if (!gScrollInit) {
@@ -41,34 +25,31 @@ void renderAssetManagerPanel(UIPane* pane) {
 
     const int headerHeight = 18;
     const int lineHeight = 16;
-    const int paddingX = 8;
-    const int paddingY = 28;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    const int contentInset = tool_panel_content_inset_default();
+    const int paddingX = d.pad_left;
+    const int controlsY = pane->y + d.controls_top;
+    const int paddingY = d.controls_top + d.button_h + d.row_gap;
     const int trackWidth = 6;
     const int trackPadding = 4;
+
+    ToolPanelControlRow controls = tool_panel_control_row_at(pane, controlsY);
+    gOpenAllRect = tool_panel_row_take_left(&controls, 84);
+    gCloseAllRect = tool_panel_row_take_left(&controls, 84);
+    renderButton(pane, gOpenAllRect, "Open All");
+    renderButton(pane, gCloseAllRect, "Close All");
 
     int contentTop = pane->y + paddingY;
     int viewportH = pane->h - (contentTop - pane->y);
     if (viewportH < 0) viewportH = 0;
     scroll_state_set_viewport(&gScrollState, (float)viewportH);
 
-    SDL_Color editorBg = ide_shared_theme_background_color();
-    SDL_Color listBg = editorBg;
-    if (same_rgb(listBg, pane->bgColor)) {
-        listBg = darken_color(pane->bgColor, 14);
-    }
-    SDL_Rect bodyBg = {
-        pane->x + 1,
-        contentTop,
-        pane->w - 2,
-        viewportH
-    };
-    SDL_SetRenderDrawColor(getRenderContext()->renderer, listBg.r, listBg.g, listBg.b, 255);
-    SDL_RenderFillRect(getRenderContext()->renderer, &bodyBg);
+    tool_panel_render_split_background(getRenderContext()->renderer, pane, contentTop, 14);
 
     AssetFlatRef refs[1024];
     int count = assets_flatten(refs, 1024);
 
-    float contentHeight = 0.0f;
+    float contentHeight = (float)contentInset;
     for (int i = 0; i < count; ++i) {
         contentHeight += (refs[i].isHeader ? (float)headerHeight : (float)lineHeight);
     }
@@ -86,7 +67,7 @@ void renderAssetManagerPanel(UIPane* pane) {
     pushClipRect(&clipRect);
 
     int x = pane->x + paddingX;
-    int y = contentTop - (int)offset;
+    int y = (contentTop + contentInset) - (int)offset;
     int maxY = contentTop + viewportH;
 
     if (count == 0) {
@@ -105,7 +86,7 @@ void renderAssetManagerPanel(UIPane* pane) {
                     const AssetCategoryList* list = &assets_get_catalog()->categories[refs[i].category];
                     char buf[128];
                     snprintf(buf, sizeof(buf), "%s (%d)%s",
-                             (const char*[]){"Images","Audio","Data","Other"}[refs[i].category],
+                             (const char*[]){"Images","Audio","Data","Docs","Other"}[refs[i].category],
                              list->count,
                              list->collapsed ? " [collapsed]" : "");
                     drawText(x, y, buf);
@@ -162,4 +143,12 @@ SDL_Rect assets_get_scroll_track_rect(void) {
 
 SDL_Rect assets_get_scroll_thumb_rect(void) {
     return gScrollThumb;
+}
+
+SDL_Rect assets_get_open_all_rect(void) {
+    return gOpenAllRect;
+}
+
+SDL_Rect assets_get_close_all_rect(void) {
+    return gCloseAllRect;
 }

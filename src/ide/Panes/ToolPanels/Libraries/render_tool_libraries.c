@@ -7,29 +7,11 @@
 #include "core/Analysis/analysis_status.h"
 #include "core/Analysis/analysis_scheduler.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
+#include "ide/Panes/ToolPanels/tool_panel_chrome.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/UI/scroll_manager.h"
-#include "ide/UI/shared_theme_font_adapter.h"
 #include <SDL2/SDL.h>
 #include <string.h>
-
-static Uint8 clamp_u8(int v) {
-    if (v < 0) return 0;
-    if (v > 255) return 255;
-    return (Uint8)v;
-}
-
-static SDL_Color darken_color(SDL_Color c, int amount) {
-    return (SDL_Color){
-        clamp_u8((int)c.r - amount),
-        clamp_u8((int)c.g - amount),
-        clamp_u8((int)c.b - amount),
-        c.a
-    };
-}
-
-static bool same_rgb(SDL_Color a, SDL_Color b) {
-    return a.r == b.r && a.g == b.g && a.b == b.b;
-}
 
 static const char* bucket_label(LibraryBucketKind kind) {
     switch (kind) {
@@ -52,22 +34,22 @@ void renderLibrariesPanel(UIPane* pane) {
     RenderContext* ctx = getRenderContext();
     SDL_Renderer* renderer = ctx->renderer;
 
-    // Title space is already drawn by the pane; reserve vertical space for it.
-    // Respect pane chrome: title bar already rendered; clip starts just below it.
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
     const int headerHeight = LIBRARIES_HEADER_HEIGHT;
-    int contentX = pane->x + 12;
+    int contentX = pane->x + d.pad_left;
     int contentY = pane->y + headerHeight;
     int contentH = pane->h - headerHeight;
     if (contentH < 0) contentH = 0;
     int viewBottom = contentY + contentH;
 
-    SDL_Rect toggleRect = { pane->x + 12, pane->y + 24, 112, 20 };
+    ToolPanelControlRow row = tool_panel_control_row_at(pane, pane->y + d.controls_top);
+    SDL_Rect toggleRect = tool_panel_row_take_left(&row, 112);
     st->systemToggleRect = toggleRect;
     renderButton(pane,
                  toggleRect,
                  st->includeSystemHeaders ? "System: On" : "System: Off");
 
-    SDL_Rect logsRect = { pane->x + 130, pane->y + 24, 98, 20 };
+    SDL_Rect logsRect = tool_panel_row_take_left(&row, 98);
     st->logsToggleRect = logsRect;
     renderButton(pane,
                  logsRect,
@@ -91,23 +73,11 @@ void renderLibrariesPanel(UIPane* pane) {
     if (statusBuf[0]) {
         int tw = getTextWidth(statusBuf);
         int tx = pane->x + pane->w - tw - 16;
-        int ty = pane->y + 8;
+        int ty = tool_panel_info_line_y(pane, 0);
         drawText(tx, ty, statusBuf);
     }
 
-    SDL_Color editorBg = ide_shared_theme_background_color();
-    SDL_Color listBg = editorBg;
-    if (same_rgb(listBg, pane->bgColor)) {
-        listBg = darken_color(pane->bgColor, 14);
-    }
-    SDL_Rect bodyBg = {
-        pane->x + 1,
-        contentY,
-        pane->w - 2,
-        contentH
-    };
-    SDL_SetRenderDrawColor(renderer, listBg.r, listBg.g, listBg.b, 255);
-    SDL_RenderFillRect(renderer, &bodyBg);
+    tool_panel_render_split_background(renderer, pane, contentY, 14);
 
     SDL_Rect clip = { pane->x, contentY, pane->w, contentH };
     pushClipRect(&clip);

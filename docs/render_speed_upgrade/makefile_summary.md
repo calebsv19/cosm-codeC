@@ -6,7 +6,7 @@
 - Shared components are compiled into the same build:
   - `../shared/vk_renderer`
   - `../shared/timer_hud`
-  - `../shared/core_base`, `../shared/core_io`, `../shared/core_theme`, `../shared/core_font`
+  - `../shared/core/core_base`, `../shared/core/core_io`, `../shared/core/core_theme`, `../shared/core/core_font`
   - `../fisiCs/libfisics_frontend.a`
 
 ## Build Profiles

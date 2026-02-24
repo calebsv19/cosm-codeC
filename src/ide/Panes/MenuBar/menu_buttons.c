@@ -7,8 +7,10 @@
 #include "core/CommandBus/command_bus.h"
 #include "ide/Panes/PaneInfo/pane.h"
 #include "ide/Panes/Editor/editor_view.h"
+#include "app/GlobalInfo/project.h"
 
 #include <SDL2/SDL.h>
+#include <string.h>
 
 
     
@@ -49,7 +51,27 @@ const char* getActiveFileName() {
         return "(no file)";
 
     OpenFile* file = activeEditorView->openFiles[activeEditorView->activeTab];
+    if (!file || !file->filePath || !file->filePath[0]) return "(no file)";
     return getFileName(file->filePath);
+}
+
+const char* getWorkspaceDirName(void) {
+    static char label[256];
+    const char* path = getWorkspacePath();
+    if (!path || !path[0]) path = projectPath;
+    if (!path || !path[0]) return "(workspace)";
+
+    const char* slash = strrchr(path, '/');
+    const char* name = slash ? slash + 1 : path;
+    if (!name[0] && slash && slash > path) {
+        const char* end = slash - 1;
+        while (end > path && *end != '/') end--;
+        name = (*end == '/') ? end + 1 : path;
+    }
+
+    if (!name[0]) return "(workspace)";
+    snprintf(label, sizeof(label), "%s", name);
+    return label;
 }
 
 
@@ -99,7 +121,6 @@ void handleCommandSave(void) {
         }
     }
 }
-
 
 
 

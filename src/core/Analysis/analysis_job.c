@@ -29,6 +29,14 @@ static SDL_atomic_t g_cancel_requested;
 static SDL_atomic_t g_slow_mode_next_run;
 static SDL_atomic_t g_slow_mode_active;
 
+bool analysis_job_system_init(void) {
+    return true;
+}
+
+void analysis_job_system_shutdown(void) {
+    // Analysis worker is detached; no shutdown join path.
+}
+
 static void analysis_queue_finished_message(bool cancelled, bool had_error) {
     MainThreadMessage msg;
     memset(&msg, 0, sizeof(msg));

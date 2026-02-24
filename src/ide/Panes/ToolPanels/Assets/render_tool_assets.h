@@ -9,5 +9,7 @@ void renderAssetManagerPanel(UIPane* pane);
 PaneScrollState* assets_get_scroll_state(UIPane* pane);
 SDL_Rect assets_get_scroll_track_rect(void);
 SDL_Rect assets_get_scroll_thumb_rect(void);
+SDL_Rect assets_get_open_all_rect(void);
+SDL_Rect assets_get_close_all_rect(void);
 
 #endif
