@@ -113,6 +113,11 @@ static int should_skip_dir(const char* name) {
            strcmp(name, ".git") == 0;
 }
 
+static bool is_allowed_root_dir(const char* name) {
+    if (!name) return false;
+    return strcmp(name, "src") == 0 || strcmp(name, "include") == 0;
+}
+
 static LibraryBucketKind map_origin(FisicsIncludeOrigin origin) {
     switch (origin) {
         case FISICS_INCLUDE_PROJECT:        return LIB_BUCKET_PROJECT;
@@ -147,7 +152,7 @@ static const char* include_label_or_fallback(const FisicsInclude* inc,
     return fallback[0] ? fallback : NULL;
 }
 
-static void scan_dir(const char* root) {
+static void scan_dir(const char* root, int depth) {
     if (analysis_job_cancel_requested()) return;
     DIR* dir = opendir(root);
     if (!dir) return;
@@ -157,13 +162,14 @@ static void scan_dir(const char* root) {
     while ((ent = readdir(dir)) != NULL) {
         if (analysis_job_cancel_requested()) break;
         if (should_skip_dir(ent->d_name)) continue;
+        if (depth == 0 && !is_allowed_root_dir(ent->d_name)) continue;
 
         snprintf(child, sizeof(child), "%s/%s", root, ent->d_name);
         struct stat st;
         if (stat(child, &st) != 0) continue;
 
-    if (S_ISDIR(st.st_mode)) {
-            scan_dir(child);
+        if (S_ISDIR(st.st_mode)) {
+            scan_dir(child, depth + 1);
         } else if (S_ISREG(st.st_mode)) {
             if (!(has_ext(ent->d_name, ".c") || has_ext(ent->d_name, ".h"))) continue;
 
@@ -253,7 +259,7 @@ void library_index_build_workspace(const char* project_root) {
         g_buildFlags = (BuildFlagSet){0};
         return;
     }
-    scan_dir(project_root);
+    scan_dir(project_root, 0);
     library_index_finalize();
     g_activeFlags = NULL;
     free_build_flag_set(&g_buildFlags);
@@ -287,7 +293,7 @@ void library_index_build_workspace_with_flags(const char* project_root, const Bu
     library_index_begin(project_root);
     g_activeFlags = flags;
     if (project_root && *project_root) {
-        scan_dir(project_root);
+        scan_dir(project_root, 0);
     }
     library_index_finalize();
     g_activeFlags = NULL;

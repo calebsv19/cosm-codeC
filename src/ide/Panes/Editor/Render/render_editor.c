@@ -13,12 +13,14 @@
 #include "ide/Panes/Editor/editor_core.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
 #include "ide/UI/shared_theme_font_adapter.h"
+#include "ide/UI/ui_selection_style.h"
 
 #include "core/TextSelection/text_selection_manager.h"
 
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 static bool use_projection_render_source(const OpenFile* file) {
     return file &&
@@ -461,7 +463,12 @@ void renderEditorScrollbar(EditorView* view, OpenFile* file) {
     if (totalLines <= visibleLines) return;
     
     int maxScroll = totalLines - visibleLines;
-    float scrollYRatio = (float)state->viewTopRow / (float)(maxScroll > 0 ? maxScroll : 1);
+    if (maxScroll < 0) maxScroll = 0;
+    float maxOffsetPx = (float)maxScroll * (float)lineHeight;
+    float offsetPx = state->scrollOffsetPx;
+    if (offsetPx < 0.0f) offsetPx = 0.0f;
+    if (offsetPx > maxOffsetPx) offsetPx = maxOffsetPx;
+    float scrollYRatio = (maxOffsetPx > 0.0f) ? (offsetPx / maxOffsetPx) : 0.0f;
     float visibleRatio = (float)visibleLines / (float)totalLines;
     
     // Clamp scrollYRatio
@@ -549,29 +556,46 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
     SDL_SetRenderDrawColor(renderer, 66, 68, 76, 255);
     SDL_RenderDrawLine(renderer, x + gutterW - 1, y, x + gutterW - 1, y + h);
 
-    // Scroll bounding
-    if (!projectionMode) {
-        if (state->cursorRow < state->viewTopRow) {
-            state->viewTopRow = state->cursorRow;
-        } else if (state->cursorRow >= state->viewTopRow + maxVisibleLines) {
-            state->viewTopRow = state->cursorRow - maxVisibleLines + 1;
+    int maxScrollRows = totalLines - maxVisibleLines;
+    if (maxScrollRows < 0) maxScrollRows = 0;
+    float maxScrollPx = (float)maxScrollRows * (float)lineHeight;
+
+    bool cursorChangedForScroll = (state->cursorRow != state->lastScrollAnchorCursorRow) ||
+                                  (state->cursorCol != state->lastScrollAnchorCursorCol);
+    if (!projectionMode && cursorChangedForScroll) {
+        int topRow = (int)(state->scrollOffsetPx / (float)lineHeight);
+        if (state->cursorRow < topRow) {
+            state->scrollTargetPx = (float)state->cursorRow * (float)lineHeight;
+        } else if (state->cursorRow >= topRow + maxVisibleLines) {
+            state->scrollTargetPx = (float)(state->cursorRow - maxVisibleLines + 1) * (float)lineHeight;
         }
     }
 
-    if (state->viewTopRow < 0) state->viewTopRow = 0;
-    if (totalLines < maxVisibleLines) state->viewTopRow = 0;
-    if (state->viewTopRow > totalLines - maxVisibleLines)
-        state->viewTopRow = totalLines - maxVisibleLines;
-    if (state->viewTopRow < 0) state->viewTopRow = 0;
+    if (state->scrollTargetPx < 0.0f) state->scrollTargetPx = 0.0f;
+    if (state->scrollTargetPx > maxScrollPx) state->scrollTargetPx = maxScrollPx;
+    if (state->scrollOffsetPx < 0.0f) state->scrollOffsetPx = 0.0f;
+    if (state->scrollOffsetPx > maxScrollPx) state->scrollOffsetPx = maxScrollPx;
+
+    state->scrollOffsetPx = state->scrollTargetPx;
+
+    int topRow = (int)(state->scrollOffsetPx / (float)lineHeight);
+    if (topRow < 0) topRow = 0;
+    if (topRow > maxScrollRows) topRow = maxScrollRows;
+    int intraOffset = (int)(state->scrollOffsetPx - (float)topRow * (float)lineHeight);
+    if (intraOffset < 0) intraOffset = 0;
+    if (intraOffset >= lineHeight) intraOffset = lineHeight - 1;
+    state->viewTopRow = topRow;
+    state->lastScrollAnchorCursorRow = state->cursorRow;
+    state->lastScrollAnchorCursorCol = state->cursorCol;
 
     // Draw visible lines
-    for (int i = 0; i < maxVisibleLines; i++) {
-        int bufferLineIndex = state->viewTopRow + i;
+    for (int i = 0; i < maxVisibleLines + 2; i++) {
+        int bufferLineIndex = topRow + i;
         if (bufferLineIndex >= totalLines) break;
 
         const char* line = editor_render_line_at(file, bufferLineIndex);
 
-        int yLine = startY + i * lineHeight;
+        int yLine = startY - intraOffset + i * lineHeight;
         int maxWidth = w - gutterW - 14;
         if (maxWidth < 0) maxWidth = 0;
         int visibleXMin = textX;
@@ -599,8 +623,12 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
                 if (selXStart < visibleXMin) selXStart = visibleXMin;
                 if (selXEnd > visibleXMax) selXEnd = visibleXMax;
                 SDL_Rect highlight = { selXStart, yLine, selXEnd - selXStart, lineHeight };
+                if (highlight.w <= 0) {
+                    highlight.w = 2;
+                }
                 if (highlight.w > 0) {
-                    SDL_SetRenderDrawColor(renderer, 80, 120, 200, 100);
+                    SDL_Color sel = ui_selection_fill_color();
+                    SDL_SetRenderDrawColor(renderer, sel.r, sel.g, sel.b, sel.a);
                     SDL_RenderFillRect(renderer, &highlight);
                 }
             }

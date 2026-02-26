@@ -37,7 +37,7 @@ static void jump_from_projection_to_source(OpenFile* activeFile) {
 
     state->cursorRow = sourceRow;
     state->cursorCol = sourceCol;
-    state->viewTopRow = (sourceRow > 2) ? sourceRow - 2 : 0;
+    editorStateSetTopRow(state, (sourceRow > 2) ? sourceRow - 2 : 0);
     state->selecting = false;
     state->draggingWithMouse = false;
     editor_set_file_render_source(activeFile, EDITOR_RENDER_REAL);

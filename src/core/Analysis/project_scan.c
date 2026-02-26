@@ -72,8 +72,8 @@ static bool should_suppress_frontend_stderr(void) {
 
 static bool should_print_file_progress(void) {
     const char* env = getenv("IDE_ANALYSIS_FILE_PROGRESS");
-    // Default is on. Set IDE_ANALYSIS_FILE_PROGRESS=0 to disable per-file progress logs.
-    return !(env && env[0] == '0');
+    // Default is off. Set IDE_ANALYSIS_FILE_PROGRESS=1 to enable per-file progress logs.
+    return (env && env[0] == '1');
 }
 
 static int suppress_stderr_begin(void) {
@@ -166,6 +166,77 @@ typedef struct {
     int depth;
 } DirQueueEntry;
 
+static int count_scannable_files_in_dir(const char* root) {
+    if (!root || !*root) return 0;
+
+    size_t count = 0;
+    size_t capacity = 32;
+    int total = 0;
+    DirQueueEntry* stack = (DirQueueEntry*)malloc(capacity * sizeof(DirQueueEntry));
+    if (!stack) return 0;
+
+    stack[count++] = (DirQueueEntry){ strdup(root), 0 };
+
+    while (count > 0) {
+        DirQueueEntry cur = stack[--count];
+        if (!cur.path) continue;
+
+        DIR* dir = opendir(cur.path);
+        if (!dir) {
+            free(cur.path);
+            continue;
+        }
+
+        struct dirent* ent;
+        char child[1024];
+        while ((ent = readdir(dir)) != NULL) {
+            if (analysis_job_cancel_requested()) break;
+            if (should_skip_dir(ent->d_name)) continue;
+            if (cur.depth == 0 && !is_allowed_root_dir(ent->d_name)) continue;
+
+            snprintf(child, sizeof(child), "%s/%s", cur.path, ent->d_name);
+            struct stat st;
+            if (stat(child, &st) != 0) continue;
+
+            if (S_ISDIR(st.st_mode)) {
+                if (count >= capacity) {
+                    size_t newCap = capacity * 2;
+                    DirQueueEntry* grown = (DirQueueEntry*)realloc(stack, newCap * sizeof(DirQueueEntry));
+                    if (!grown) continue;
+                    stack = grown;
+                    capacity = newCap;
+                }
+                stack[count++] = (DirQueueEntry){ strdup(child), cur.depth + 1 };
+            } else if (S_ISREG(st.st_mode)) {
+                if (has_ext(ent->d_name, ".c") || has_ext(ent->d_name, ".h")) {
+                    total++;
+                }
+            }
+        }
+        closedir(dir);
+        free(cur.path);
+    }
+
+    free(stack);
+    return total;
+}
+
+static int count_scannable_files_in_list(const char* const* files, size_t file_count) {
+    if (!files || file_count == 0) return 0;
+    int total = 0;
+    for (size_t i = 0; i < file_count; ++i) {
+        if (analysis_job_cancel_requested()) break;
+        const char* path = files[i];
+        if (!path || !*path) continue;
+
+        struct stat st;
+        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        if (!(has_ext(path, ".c") || has_ext(path, ".h"))) continue;
+        total++;
+    }
+    return total;
+}
+
 static void analyze_file_with_active_flags(const char* file_path) {
     if (!file_path || !*file_path) return;
     if (analysis_job_cancel_requested()) return;
@@ -231,8 +302,9 @@ static void analyze_file_with_active_flags(const char* file_path) {
     fisics_free_analysis_result(&res);
     free(buf);
 
+    g_analysis_progress_done++;
+    analysis_status_set_progress(g_analysis_progress_done, g_analysis_progress_total);
     if (should_print_file_progress()) {
-        g_analysis_progress_done++;
         printf("[Analysis] [%d] %s : %s (diag:%zu sym:%zu inc:%zu)\n",
                g_analysis_progress_done,
                file_path,
@@ -291,7 +363,6 @@ static void scan_dir(const char* root) {
                 stack[count++] = (DirQueueEntry){ strdup(child), cur.depth + 1 };
             } else if (S_ISREG(st.st_mode)) {
                 if (!(has_ext(ent->d_name, ".c") || has_ext(ent->d_name, ".h"))) continue;
-                g_analysis_progress_total++;
                 analyze_file_with_active_flags(child);
             }
         }
@@ -304,8 +375,9 @@ static void scan_dir(const char* root) {
 void analysis_scan_workspace(const char* root) {
     if (!root || !*root) return;
     analysis_store_clear();
-    g_analysis_progress_total = 0;
+    g_analysis_progress_total = count_scannable_files_in_dir(root);
     g_analysis_progress_done = 0;
+    analysis_status_set_progress(0, g_analysis_progress_total);
     const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
     const char* flags = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
     gather_build_flags(root, flags, &g_buildFlags);
@@ -323,8 +395,9 @@ void analysis_scan_workspace_with_flags(const char* root, const BuildFlagSet* fl
     if (!root || !*root || !flags) return;
     analysis_store_clear();
     include_graph_clear();
-    g_analysis_progress_total = 0;
+    g_analysis_progress_total = count_scannable_files_in_dir(root);
     g_analysis_progress_done = 0;
+    analysis_status_set_progress(0, g_analysis_progress_total);
     g_activeFlags = flags;
     g_activeWorkspaceRoot = root;
     g_update_library_index = false;
@@ -351,8 +424,9 @@ void analysis_scan_files_with_flags(const char* root,
     g_activeFlags = flags;
     g_activeWorkspaceRoot = root;
     g_update_library_index = true;
-    g_analysis_progress_total = 0;
+    g_analysis_progress_total = count_scannable_files_in_list(files, file_count);
     g_analysis_progress_done = 0;
+    analysis_status_set_progress(0, g_analysis_progress_total);
 
     for (size_t i = 0; i < file_count; ++i) {
         if (analysis_job_cancel_requested()) break;
@@ -369,7 +443,6 @@ void analysis_scan_files_with_flags(const char* root,
             continue;
         }
         if (!(has_ext(path, ".c") || has_ext(path, ".h"))) continue;
-        g_analysis_progress_total++;
         analyze_file_with_active_flags(path);
     }
 

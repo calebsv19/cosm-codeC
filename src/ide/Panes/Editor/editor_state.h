@@ -10,7 +10,11 @@
 typedef struct {
     int cursorRow;
     int cursorCol;
+    int lastScrollAnchorCursorRow;
+    int lastScrollAnchorCursorCol;
     int viewTopRow;
+    float scrollOffsetPx;
+    float scrollTargetPx;
     int verticalPadding;
 
 
@@ -39,6 +43,7 @@ typedef struct {
 // Lifecycle
 EditorState* createEditorState(void);
 void setEditorVerticalPaddingIfUnset(EditorState* state, int padding);
+void editorStateSetTopRow(EditorState* state, int topRow);
 void resetEditorState(EditorState* state);
 void freeEditorState(EditorState* state);
 
@@ -51,4 +56,3 @@ bool isDragging(EditorState* state);
 
 
 #endif // EDITOR_STATE_H
-

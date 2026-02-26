@@ -6,6 +6,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+static bool ensure_line_capacity(EditorBuffer* buffer, int additional_lines) {
+    if (!buffer || additional_lines <= 0) return true;
+    if (buffer->lineCount + additional_lines <= buffer->capacity) return true;
+
+    int newCapacity = (buffer->capacity > 0) ? buffer->capacity : INITIAL_CAPACITY;
+    while (newCapacity < buffer->lineCount + additional_lines) {
+        if (newCapacity > (1 << 28)) return false;
+        newCapacity *= 2;
+    }
+
+    char** grown = (char**)realloc(buffer->lines, sizeof(char*) * (size_t)newCapacity);
+    if (!grown) return false;
+    buffer->lines = grown;
+    buffer->capacity = newCapacity;
+    return true;
+}
+
 static void selection_buffer_store(const char* text) {
     if (!text) {
         selectionBuffer[0] = '\0';
@@ -126,6 +143,15 @@ bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state) {
 
     pushUndoState(file);
 
+    int requiredExtraLines = 0;
+    for (const char* p = source; *p; ++p) {
+        if (*p == '\n') requiredExtraLines++;
+    }
+    if (!ensure_line_capacity(buffer, requiredExtraLines)) {
+        clipboard_free_text(clipboardText);
+        return false;
+    }
+
     // 🔁 NEW: If selection exists, delete it first (and move cursor)
     if (state->selecting) {
 	removeSelectedText(buffer, state);
@@ -163,14 +189,12 @@ bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state) {
     }
 
     while ((line = strtok(NULL, "\n")) != NULL) {
-        if (buffer->lineCount < buffer->capacity) {
-            for (int i = buffer->lineCount; i > row + 1; i--) {
-                buffer->lines[i] = buffer->lines[i - 1];
-            }
-            buffer->lines[row + 1] = strdup(line);
-            buffer->lineCount++;
-            row++;
+        for (int i = buffer->lineCount; i > row + 1; i--) {
+            buffer->lines[i] = buffer->lines[i - 1];
         }
+        buffer->lines[row + 1] = strdup(line);
+        buffer->lineCount++;
+        row++;
     }
 
     char* lastLine = buffer->lines[row];
@@ -277,7 +301,7 @@ static bool handleCommandDuplicateLine(EditorView* view, EditorBuffer* buffer, E
     commitWordEdit(file);
     pushUndoState(file);
      
-    if (buffer->lineCount >= buffer->capacity) return false;
+    if (!ensure_line_capacity(buffer, 1)) return false;
     
     int row = state->cursorRow;
     const char* src = buffer->lines[row];
@@ -336,7 +360,7 @@ static bool handleCommandPasteCutBuffer(EditorView* view, EditorBuffer* buffer, 
     pushUndoState(file);
                         
     if (editorCutBuffer.count == 0 ||
-        buffer->lineCount + editorCutBuffer.count > buffer->capacity)
+        !ensure_line_capacity(buffer, editorCutBuffer.count))
         return false;
              
     int row = state->cursorRow;

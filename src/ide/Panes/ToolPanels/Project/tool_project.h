@@ -28,6 +28,10 @@ extern char newlyCreatedPath[1024];
 extern char runTargetPath[1024];
 
 void restoreRunTargetSelection(void);
+void project_select_all_visible_entries(void);
+bool project_copy_visible_entries_to_clipboard(void);
+bool project_select_all_visual_active(void);
+void project_clear_select_all_visual(void);
 
 
 void updateHoveredMousePosition(int x, int y);

@@ -143,8 +143,15 @@ void setWorkspaceWatchPath(const char* path) {
         return;
     }
 
-    strncpy(watchedWorkspacePath, path, sizeof(watchedWorkspacePath) - 1);
-    watchedWorkspacePath[sizeof(watchedWorkspacePath) - 1] = '\0';
+    size_t len = strlen(path);
+    while (len > 1 && (path[len - 1] == '/' || path[len - 1] == '\\')) {
+        len--;
+    }
+    if (len >= sizeof(watchedWorkspacePath)) {
+        len = sizeof(watchedWorkspacePath) - 1;
+    }
+    memcpy(watchedWorkspacePath, path, len);
+    watchedWorkspacePath[len] = '\0';
     workspaceLastModified = 0;
     pendingWorkspaceStamp = 0;
     pendingWorkspaceStampSinceMs = 0;

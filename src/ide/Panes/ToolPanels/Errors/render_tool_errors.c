@@ -8,10 +8,13 @@
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/Analysis/analysis_status.h"
 #include "core/Analysis/analysis_scheduler.h"
+#include "app/GlobalInfo/core_state.h"
+#include "app/GlobalInfo/project.h"
 #include "engine/Render/render_pipeline.h"
 #include "ide/UI/scroll_manager.h"
 #include "engine/Render/render_text_helpers.h"
 #include "ide/UI/shared_theme_font_adapter.h"
+#include "ide/UI/ui_selection_style.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -24,6 +27,29 @@ TTF_Font* get_error_font(void);
 void errors_get_layout_metrics(const UIPane* pane, int* contentTop, int* headerHeight, int* diagHeight, int* lineHeight);
 static SDL_Rect gErrorScrollTrack = {0};
 static SDL_Rect gErrorScrollThumb = {0};
+
+static const char* error_display_path(const char* rawPath, char* outBuf, size_t outCap) {
+    if (!rawPath || !rawPath[0]) return "(unknown file)";
+    if (!outBuf || outCap == 0) return rawPath;
+
+    const char* roots[2] = { getWorkspacePath(), projectPath };
+    for (int i = 0; i < 2; ++i) {
+        const char* root = roots[i];
+        if (!root || !root[0]) continue;
+        size_t rootLen = strlen(root);
+        if (strncmp(rawPath, root, rootLen) != 0) continue;
+
+        const char* rel = rawPath + rootLen;
+        if (*rel == '/' || *rel == '\\') rel++;
+        if (!rel[0]) break;
+
+        snprintf(outBuf, outCap, "%s", rel);
+        return outBuf;
+    }
+
+    snprintf(outBuf, outCap, "%s", rawPath);
+    return outBuf;
+}
 
 static void render_state_button(const UIPane* pane,
                                 SDL_Rect rect,
@@ -192,13 +218,24 @@ void renderErrorsPanel(UIPane* pane) {
 
     AnalysisStatusSnapshot snap = {0};
     AnalysisSchedulerSnapshot sched = {0};
+    int progressCompleted = 0;
+    int progressTotal = 0;
     analysis_status_snapshot(&snap);
+    analysis_status_get_progress(&progressCompleted, &progressTotal);
     analysis_scheduler_snapshot(&sched);
     char statusBuf[128] = {0};
     if (snap.updating) {
-        snprintf(statusBuf, sizeof(statusBuf),
-                 sched.active_run_id ? "Updating (#%llu)..." : "Updating...",
-                 (unsigned long long)sched.active_run_id);
+        if (progressTotal > 0) {
+            snprintf(statusBuf, sizeof(statusBuf),
+                     sched.active_run_id ? "Updating %d/%d (#%llu)" : "Updating %d/%d",
+                     progressCompleted,
+                     progressTotal,
+                     (unsigned long long)sched.active_run_id);
+        } else {
+            snprintf(statusBuf, sizeof(statusBuf),
+                     sched.active_run_id ? "Updating (#%llu)..." : "Updating...",
+                     (unsigned long long)sched.active_run_id);
+        }
     } else if (snap.last_error[0]) {
         snprintf(statusBuf, sizeof(statusBuf), "Analysis error");
     } else if (snap.has_cache) {
@@ -240,12 +277,15 @@ void renderErrorsPanel(UIPane* pane) {
         bool sel = is_error_selected(i);
         if (sel) {
             SDL_Rect highlight = { x - 8, y - 2, clip.w - paddingX + 8, entryHeight };
-            SDL_SetRenderDrawColor(getRenderContext()->renderer, 60, 80, 120, 120);
+            SDL_Color selColor = ui_selection_fill_color();
+            SDL_SetRenderDrawColor(getRenderContext()->renderer, selColor.r, selColor.g, selColor.b, selColor.a);
             SDL_RenderFillRect(getRenderContext()->renderer, &highlight);
         }
 
         if (refs[i].isHeader) {
-            drawTextWithFont(x, y, refs[i].path ? refs[i].path : "(unknown file)", font ? font : getActiveFont());
+            char pathBuf[1024];
+            const char* displayPath = error_display_path(refs[i].path, pathBuf, sizeof(pathBuf));
+            drawTextWithFont(x, y, displayPath, font ? font : getActiveFont());
             y += entryHeight;
         } else {
             const Diagnostic* diag = refs[i].diag;

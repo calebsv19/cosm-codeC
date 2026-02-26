@@ -76,9 +76,18 @@ void selectAllText(EditorView* view) {
     if (!file || !file->buffer) return;
     
     EditorState* state = &file->state;
+    if (file->buffer->lineCount <= 0 || !file->buffer->lines) {
+        state->selStartRow = 0;
+        state->selStartCol = 0;
+        state->cursorRow = 0;
+        state->cursorCol = 0;
+        state->selecting = true;
+        return;
+    }
     state->selStartRow = 0;
     state->selStartCol = 0;
     state->cursorRow = file->buffer->lineCount - 1;
     state->cursorCol = strlen(file->buffer->lines[state->cursorRow]);
     state->selecting = true;
+    editorStateSetTopRow(state, 0);
 }

@@ -64,6 +64,7 @@ void endLibrarySelectionDrag(void);
 void rebuildLibraryFlatRows(void);
 bool library_row_is_selected(int idx);
 void copy_selected_rows(void);
+void select_all_library_rows(void);
 bool handleLibraryHeaderClick(UIPane* pane, int clickX, int clickY);
 
 #endif // TOOL_LIBRARIES_H

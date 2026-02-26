@@ -10,6 +10,7 @@
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/FileIO/file_ops.h"
 #include "core/Analysis/analysis_scheduler.h"
+#include "core/Clipboard/clipboard.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +22,7 @@
 #include <errno.h>
 
 static const int PROJECT_TREE_INDENT_WIDTH = 10;
+static bool g_projectSelectAllVisible = false;
 
 
 static Uint32 lastClickTime = 0;
@@ -91,6 +93,128 @@ static void setSelectedFile(DirEntry* entry) {
     } else {
         selectedFilePath[0] = '\0';
     }
+}
+
+typedef struct ProjectTextBuilder {
+    char* data;
+    size_t len;
+    size_t cap;
+} ProjectTextBuilder;
+
+static bool project_builder_reserve(ProjectTextBuilder* b, size_t extra) {
+    if (!b) return false;
+    size_t need = b->len + extra + 1;
+    if (need <= b->cap) return true;
+    size_t nextCap = b->cap > 0 ? b->cap : 256;
+    while (nextCap < need) nextCap *= 2;
+    char* next = (char*)realloc(b->data, nextCap);
+    if (!next) return false;
+    b->data = next;
+    b->cap = nextCap;
+    return true;
+}
+
+static bool project_builder_append(ProjectTextBuilder* b, const char* text) {
+    if (!b || !text) return false;
+    size_t n = strlen(text);
+    if (!project_builder_reserve(b, n)) return false;
+    memcpy(b->data + b->len, text, n);
+    b->len += n;
+    b->data[b->len] = '\0';
+    return true;
+}
+
+static bool project_builder_append_char(ProjectTextBuilder* b, char ch) {
+    if (!project_builder_reserve(b, 1)) return false;
+    b->data[b->len++] = ch;
+    b->data[b->len] = '\0';
+    return true;
+}
+
+static const char* project_display_name(const DirEntry* entry) {
+    if (!entry || !entry->path) return "";
+    const char* slash = strrchr(entry->path, '/');
+    return slash ? (slash + 1) : entry->path;
+}
+
+static bool project_snapshot_skip_entry(const DirEntry* entry) {
+    if (!entry) return true;
+    const char* name = project_display_name(entry);
+    if (!name || !name[0]) return true;
+    if (entry->parent == NULL) return false;
+    if (name[0] == '.' && strcmp(name, "..") != 0) return true;
+    if (entry->type == ENTRY_FILE) {
+        const char* ext = strrchr(name, '.');
+        if (ext && (strcmp(ext, ".o") == 0 ||
+                    strcmp(ext, ".obj") == 0 ||
+                    strcmp(ext, ".out") == 0)) {
+            return true;
+        }
+        if (strcmp(name, "last_build") == 0) return true;
+    }
+    return false;
+}
+
+static bool project_append_visible_entry(ProjectTextBuilder* b, const DirEntry* entry, int depth) {
+    if (!b || !entry) return true;
+    if (project_snapshot_skip_entry(entry)) return true;
+
+    const char* name = project_display_name(entry);
+    for (int i = 0; i < depth; ++i) {
+        if (!project_builder_append(b, "  ")) return false;
+    }
+    if (entry->type == ENTRY_FOLDER) {
+        if (!project_builder_append(b, entry->isExpanded ? "[-] " : "[+] ")) return false;
+    }
+    if (!project_builder_append(b, name ? name : "")) return false;
+    if (!project_builder_append_char(b, '\n')) return false;
+
+    if (entry->type == ENTRY_FOLDER && entry->isExpanded) {
+        for (int i = 0; i < entry->childCount; ++i) {
+            if (!project_append_visible_entry(b, entry->children[i], depth + 1)) return false;
+        }
+    }
+    return true;
+}
+
+void project_select_all_visible_entries(void) {
+    g_projectSelectAllVisible = true;
+}
+
+bool project_select_all_visual_active(void) {
+    return g_projectSelectAllVisible;
+}
+
+void project_clear_select_all_visual(void) {
+    g_projectSelectAllVisible = false;
+}
+
+bool project_copy_visible_entries_to_clipboard(void) {
+    if (!projectRoot) return false;
+    if (!g_projectSelectAllVisible && hoveredEntry) {
+        const char* name = project_display_name(hoveredEntry);
+        char line[1024];
+        if (hoveredEntry->type == ENTRY_FOLDER) {
+            snprintf(line, sizeof(line), "%s%s",
+                     hoveredEntry->isExpanded ? "[-] " : "[+] ",
+                     name ? name : "");
+        } else {
+            snprintf(line, sizeof(line), "%s", name ? name : "");
+        }
+        return clipboard_copy_text(line);
+    }
+
+    ProjectTextBuilder b = {0};
+    if (!project_builder_reserve(&b, 512)) return false;
+    b.data[0] = '\0';
+    if (!project_append_visible_entry(&b, projectRoot, 0) || b.len == 0) {
+        free(b.data);
+        return false;
+    }
+    g_projectSelectAllVisible = false;
+    bool ok = clipboard_copy_text(b.data);
+    free(b.data);
+    return ok;
 }
 
 void selectDirectoryEntry(DirEntry* entry) {
@@ -700,7 +824,11 @@ static DirEntry* findEntryByPath(DirEntry* root, const char* targetPath) {
 
 static void restoreExpandedStateRecursive(DirEntry* entry) {
     if (entry->type == ENTRY_FOLDER) {
-        entry->isExpanded = findCachedExpandedState(entry->path);
+        if (entry->parent == NULL) {
+            entry->isExpanded = true;
+        } else {
+            entry->isExpanded = findCachedExpandedState(entry->path);
+        }
         for (int i = 0; i < entry->childCount; i++) {
             restoreExpandedStateRecursive(entry->children[i]);
         }

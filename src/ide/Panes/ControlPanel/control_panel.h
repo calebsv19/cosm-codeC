@@ -98,6 +98,9 @@ int control_panel_get_symbol_list_top(const struct UIPane* pane);
 int control_panel_get_symbol_tree_origin_y(const struct UIPane* pane);
 void control_panel_set_symbol_list_top(int y);
 void control_panel_reset_symbol_tree(void);
+bool control_panel_copy_visible_symbol_tree(void);
+void control_panel_select_all_visible(void);
+bool control_panel_point_in_symbol_tree_content(const struct UIPane* pane, int x, int y);
 
 const char* control_panel_get_search_query(void);
 int control_panel_get_search_cursor(void);

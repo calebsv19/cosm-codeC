@@ -189,9 +189,9 @@ static void loadInitialWorkspace(void) {
         return;
     }
 
-    snprintf(projectPath, sizeof(projectPath), "%s", finalPath);
+    setWorkspacePath(finalPath);
+    snprintf(projectPath, sizeof(projectPath), "%s", getWorkspacePath());
     ensureIdeFilesDir(projectPath);
-    setWorkspacePath(projectPath);
     setWorkspaceWatchPath(projectPath);
     resetGitStatusWatcher();
     build_diagnostics_load(projectPath);

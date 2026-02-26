@@ -57,6 +57,9 @@ SDL_Rect gitScrollTrack = {0};
 SDL_Rect gitScrollThumb = {0};
 
 void resetGitTree(void) {
+    if (tree_select_all_visual_active_for(gitTree)) {
+        clearTreeSelectAllVisual();
+    }
     if (gitTree) {
         freeGitTree(gitTree);
         gitTree = NULL;

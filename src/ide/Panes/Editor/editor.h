@@ -11,7 +11,7 @@
 
 
 #define MAX_CUT_BUFFER 256
-#define MAX_SELECTION_LENGTH 4096
+#define MAX_SELECTION_LENGTH (1024 * 1024)
 #define clamp(v, lo, hi) ((v) < (lo) ? (lo) : ((v) > (hi) ? (hi) : (v)))
 
 typedef struct {

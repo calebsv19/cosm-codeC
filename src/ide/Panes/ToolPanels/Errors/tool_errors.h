@@ -20,6 +20,8 @@ void setSelectedErrorDiag(int index);
 bool is_error_selected(int idx);
 int flatten_diagnostics(FlatDiagRef* out, int max);
 void errors_refresh_snapshot(void);
+void errors_select_all_visible(void);
+bool errors_copy_selection_to_clipboard(void);
 
 // Scroll helpers
 struct PaneScrollState;

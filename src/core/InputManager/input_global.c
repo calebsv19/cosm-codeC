@@ -6,7 +6,13 @@
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
 #include "ide/Panes/Terminal/terminal.h"
 #include "ide/Panes/PaneInfo/pane.h"
+#include <stdlib.h>
 #include <stdio.h>
+
+static bool should_log_focus_events(void) {
+    const char* env = getenv("IDE_LOG_FOCUS_EVENTS");
+    return (env && env[0] == '1');
+}
 
 void handleWindowGlobalEvents(SDL_Event* event,
                               UIPane** panes, int* paneCountRef,
@@ -62,11 +68,15 @@ void handleWindowEvent(SDL_Event* event) {
             break;
 
         case SDL_WINDOWEVENT_FOCUS_GAINED:
-            printf("[Global] Window gained focus.\n");
+            if (should_log_focus_events()) {
+                printf("[Global] Window gained focus.\n");
+            }
             break;
 
         case SDL_WINDOWEVENT_FOCUS_LOST:
-            printf("[Global] Window lost focus.\n");
+            if (should_log_focus_events()) {
+                printf("[Global] Window lost focus.\n");
+            }
             break;
     }
 }

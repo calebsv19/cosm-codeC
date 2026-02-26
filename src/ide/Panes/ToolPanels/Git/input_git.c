@@ -1,9 +1,13 @@
 #include "input_tool_git.h"
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
 #include "ide/UI/Trees/tree_renderer.h"
+#include "ide/UI/Trees/tree_snapshot.h"
 #include "ide/UI/scroll_manager.h"
+#include "core/Clipboard/clipboard.h"
+#include "app/GlobalInfo/core_state.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 // Scroll state/rects are owned by render_tool_git.c
 extern PaneScrollState gitScroll;
@@ -21,6 +25,8 @@ void handleGitKeyboardInput(UIPane* pane, SDL_Event* event) {
 
     if (event->type != SDL_KEYDOWN) return;
     SDL_Keycode key = event->key.keysym.sym;
+    Uint16 mod = event->key.keysym.mod;
+    bool accel = (mod & (KMOD_CTRL | KMOD_GUI)) != 0;
 
     if (git_panel_is_message_focused()) {
         switch (key) {
@@ -51,6 +57,28 @@ void handleGitKeyboardInput(UIPane* pane, SDL_Event* event) {
                 return;
             default:
                 break;
+        }
+    }
+
+    IDECoreState* core = getCoreState();
+    int mx = core ? core->mouseX : -1;
+    int my = core ? core->mouseY : -1;
+    int treeTop = git_panel_tree_content_top(pane);
+    bool inTreeArea = (mx >= pane->x && mx <= (pane->x + pane->w) &&
+                       my >= treeTop && my <= (pane->y + pane->h));
+    if (accel && inTreeArea) {
+        if (key == SDLK_a) {
+            setTreeSelectAllVisualRoot(gitTree);
+            return;
+        }
+        if (key == SDLK_c && gitTree) {
+            TreeSnapshotOptions opts = { .include_root = true, .include_indent = true };
+            char* snapshot = tree_build_visible_text_snapshot(gitTree, &opts);
+            if (snapshot && snapshot[0]) {
+                clipboard_copy_text(snapshot);
+            }
+            free(snapshot);
+            return;
         }
     }
 

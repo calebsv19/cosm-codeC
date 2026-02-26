@@ -5,6 +5,7 @@
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/UI/ui_selection_style.h"
 
 #include <SDL2/SDL.h>
 #include <stdio.h>
@@ -78,7 +79,8 @@ void renderAssetManagerPanel(UIPane* pane) {
             if (y + h > contentTop && y < maxY) {
                 if (assets_is_selected(i)) {
                     SDL_Rect rect = { x - 6, y - 2, clipRect.w - paddingX + 4, h };
-                    SDL_SetRenderDrawColor(getRenderContext()->renderer, 60, 80, 120, 120);
+                    SDL_Color sel = ui_selection_fill_color();
+                    SDL_SetRenderDrawColor(getRenderContext()->renderer, sel.r, sel.g, sel.b, sel.a);
                     SDL_RenderFillRect(getRenderContext()->renderer, &rect);
                 }
 

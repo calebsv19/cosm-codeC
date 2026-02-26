@@ -23,7 +23,7 @@ UIPane* getDraggingEditorPane() {
 }
 
 bool isEditorDraggingScrollbar() {
-    return getCoreState()->editorViewState->draggingPane != NULL;
+    return getCoreState()->editorViewState->draggingScrollbar;
 }
 
 void beginEditorScrollbarDrag(UIPane* pane, EditorView* view) {

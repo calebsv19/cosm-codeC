@@ -338,7 +338,7 @@ static void copy_diag(const Diagnostic* d) {
     clipboard_copy_text(buf);
 }
 
-static void copy_selected_block(void) {
+bool errors_copy_selection_to_clipboard(void) {
     errors_refresh_snapshot_from_store();
     FlatDiagRef refs[512];
     flatCount = flatten_diagnostics(refs, 512);
@@ -346,7 +346,7 @@ static void copy_selected_block(void) {
     size_t len = 0;
     char* out = malloc(cap);
     if (!out) {
-        return;
+        return false;
     }
     out[0] = '\0';
 
@@ -375,7 +375,7 @@ static void copy_selected_block(void) {
             char* tmp = realloc(out, cap);
             if (!tmp) {
                 free(out);
-                return;
+                return false;
             }
             out = tmp;
         }
@@ -391,6 +391,18 @@ static void copy_selected_block(void) {
         if (sel >= 0 && sel < flatCount) copy_diag(refs[sel].diag);
     }
     free(out);
+    return any;
+}
+
+void errors_select_all_visible(void) {
+    errors_refresh_snapshot_from_store();
+    FlatDiagRef refs[512];
+    flatCount = flatten_diagnostics(refs, 512);
+    memset(selected, 0, sizeof(selected));
+    int maxSel = (int)(sizeof(selected) / sizeof(selected[0]));
+    for (int i = 0; i < flatCount && i < maxSel; ++i) {
+        selected[i] = true;
+    }
 }
 
 void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
@@ -535,8 +547,13 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
         Uint16 mod = event->key.keysym.mod;
         bool ctrl = (mod & KMOD_CTRL) != 0;
         bool gui = (mod & KMOD_GUI) != 0;
+        if ((ctrl || gui) && key == SDLK_a) {
+            errors_select_all_visible();
+            return;
+        }
         if ((ctrl || gui) && key == SDLK_c) {
-            copy_selected_block();
+            errors_copy_selection_to_clipboard();
+            return;
         }
     }
 }

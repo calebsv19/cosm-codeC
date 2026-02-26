@@ -5,6 +5,7 @@
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/UI/ui_selection_style.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
 
@@ -47,6 +48,7 @@ static bool project_should_skip_entry(DirEntry* entry, const char** outName) {
     const char* displayName = project_entry_display_name(entry);
     if (outName) *outName = displayName;
     if (!displayName) return true;
+    if (entry->parent == NULL) return false;
     if (displayName[0] == '.' && strcmp(displayName, "..") != 0) return true;
     if (entry->type == ENTRY_FILE) {
         const char* ext = strrchr(displayName, '.');
@@ -98,6 +100,7 @@ static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int
 
     bool insideViewport = (drawY >= ctx->viewportTop) &&
                           (drawY <= ctx->viewportBottom - ctx->lineHeight);
+    const bool selectAllVisual = project_select_all_visual_active();
 
     const char* prefix = "";
     if (entry->type == ENTRY_FOLDER) {
@@ -123,6 +126,14 @@ static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int
                                  ctx->drag->targetDirectory == entry;
 
     if (insideViewport) {
+        if (selectAllVisual) {
+            SDL_Color fill = ui_selection_fill_color();
+            SDL_SetRenderDrawColor(ctx->renderer, fill.r, fill.g, fill.b, fill.a);
+            SDL_RenderFillRect(ctx->renderer, &box);
+            SDL_Color outline = ui_selection_outline_color();
+            SDL_SetRenderDrawColor(ctx->renderer, outline.r, outline.g, outline.b, outline.a);
+            SDL_RenderDrawRect(ctx->renderer, &box);
+        }
         if (entry == selectedDirectory) {
             SDL_SetRenderDrawColor(ctx->renderer, 80, 160, 90, 120);
             SDL_RenderFillRect(ctx->renderer, &box);

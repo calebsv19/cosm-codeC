@@ -7,10 +7,12 @@
 #include "core/Analysis/analysis_symbols_store.h"
 #include "ide/Panes/ControlPanel/symbol_tree_adapter.h"
 #include "ide/UI/Trees/tree_renderer.h"
+#include "ide/UI/Trees/tree_snapshot.h"
 #include "ide/UI/Trees/ui_tree_node.h"
 #include "ide/Panes/PaneInfo/pane.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "app/GlobalInfo/project.h"
+#include "core/Clipboard/clipboard.h"
 
 static bool liveParseEnabled = false;
 static bool showInlineErrors = false;
@@ -80,6 +82,7 @@ static bool cachedShowAutoParams = false;
 static bool cachedShowMacros = false;
 static size_t cachedProjectFileCount = 0;
 static const DirEntry* cachedProjectRoot = NULL;
+static bool symbolSelectionAllVisible = false;
 
 static bool is_ignored_name(const char* name) {
     if (!name) return false;
@@ -637,6 +640,10 @@ void control_panel_set_editor_view_mode(ControlEditorViewMode mode) {
 }
 
 void control_panel_reset_symbol_tree(void) {
+    if (tree_select_all_visual_active_for(visibleSymbolTree) ||
+        tree_select_all_visual_active_for(baseSymbolTree)) {
+        clearTreeSelectAllVisual();
+    }
     clearTreeSelectionState();
     clear_visible_tree_only();
     if (baseSymbolTree) {
@@ -661,8 +668,53 @@ void control_panel_reset_symbol_tree(void) {
     cachedShowMacros = showMacros;
     cachedProjectFileCount = 0;
     cachedProjectRoot = NULL;
+    symbolSelectionAllVisible = false;
     free_cached_path();
     editor_sync_active_file_projection_mode();
+}
+
+void control_panel_select_all_visible(void) {
+    symbolSelectionAllVisible = true;
+}
+
+bool control_panel_copy_visible_symbol_tree(void) {
+    UITreeNode* tree = control_panel_get_symbol_tree();
+    if (!tree) return false;
+
+    char* snapshot = NULL;
+    if (symbolSelectionAllVisible) {
+        TreeSnapshotOptions opts = {
+            .include_root = true,
+            .include_indent = true
+        };
+        snapshot = tree_build_visible_text_snapshot(tree, &opts);
+        symbolSelectionAllVisible = false;
+    } else {
+        UITreeNode* selected = getSelectedTreeNode();
+        if (!selected) return false;
+        char line[768];
+        const char* prefix = "";
+        if (selected->type == TREE_NODE_FOLDER || selected->type == TREE_NODE_SECTION) {
+            prefix = selected->isExpanded ? "[-] " : "[+] ";
+        }
+        snprintf(line, sizeof(line), "%s%s", prefix, selected->label ? selected->label : "");
+        snapshot = strdup(line);
+    }
+    if (!snapshot || !snapshot[0]) {
+        free(snapshot);
+        return false;
+    }
+
+    bool ok = clipboard_copy_text(snapshot);
+    free(snapshot);
+    return ok;
+}
+
+bool control_panel_point_in_symbol_tree_content(const UIPane* pane, int x, int y) {
+    if (!pane) return false;
+    int listTop = control_panel_get_symbol_list_top(pane);
+    return (x >= pane->x && x <= (pane->x + pane->w) &&
+            y >= listTop && y <= (pane->y + pane->h));
 }
 
 void control_panel_refresh_symbol_tree(const DirEntry* projectRoot,
@@ -680,6 +732,7 @@ void control_panel_refresh_symbol_tree(const DirEntry* projectRoot,
     if (!needsRebuild) return;
 
     clearTreeSelectionState();
+    clearTreeSelectAllVisual();
     clear_visible_tree_only();
     if (baseSymbolTree) {
         freeTreeNodeRecursive(baseSymbolTree);

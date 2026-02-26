@@ -81,13 +81,13 @@ static void copy_diag_to_clipboard(const BuildDiagnostic* d) {
     clipboard_copy_text(buf);
 }
 
-static void copy_selected_block(void) {
+bool build_output_copy_selection_to_clipboard(void) {
     size_t count = 0;
     const BuildDiagnostic* diags = build_diagnostics_get(&count);
     size_t cap = 4096;
     size_t len = 0;
     char* out = malloc(cap);
-    if (!out) return;
+    if (!out) return false;
     out[0] = '\0';
 
     bool any = false;
@@ -110,7 +110,7 @@ static void copy_selected_block(void) {
         if (len + add + 1 > cap) {
             cap = (len + add + 1) * 2;
             char* tmp = realloc(out, cap);
-            if (!tmp) { free(out); return; }
+            if (!tmp) { free(out); return false; }
             out = tmp;
         }
         memcpy(out + len, buf, add);
@@ -127,6 +127,21 @@ static void copy_selected_block(void) {
         }
     }
     free(out);
+    return any;
+}
+
+void build_output_select_all_visible(void) {
+    size_t count = 0;
+    (void)build_diagnostics_get(&count);
+    memset(selected, 0, sizeof(selected));
+    int maxSel = (int)(sizeof(selected) / sizeof(selected[0]));
+    for (size_t i = 0; i < count && (int)i < maxSel; ++i) {
+        selected[i] = true;
+    }
+    if (count > 0) {
+        int idx = (count - 1) < (size_t)maxSel ? (int)(count - 1) : (maxSel - 1);
+        setSelectedBuildDiag(idx);
+    }
 }
 
 static void jump_to_diag(const BuildDiagnostic* d) {
@@ -203,8 +218,13 @@ void handleBuildOutputEvent(UIPane* pane, SDL_Event* event) {
         Uint16 mod = event->key.keysym.mod;
         bool ctrl = (mod & KMOD_CTRL) != 0;
         bool gui = (mod & KMOD_GUI) != 0;
+        if ((ctrl || gui) && key == SDLK_a) {
+            build_output_select_all_visible();
+            return;
+        }
         if ((ctrl || gui) && key == SDLK_c) {
-            copy_selected_block();
+            build_output_copy_selection_to_clipboard();
+            return;
         }
     }
 }

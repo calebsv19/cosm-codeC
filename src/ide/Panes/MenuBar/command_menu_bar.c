@@ -230,8 +230,8 @@ static void applyWorkspaceSelection(const char* oldValue, const char* newValue, 
         }
     }
 
-    snprintf(projectPath, sizeof(projectPath), "%s", finalPath);
-    setWorkspacePath(projectPath);
+    setWorkspacePath(finalPath);
+    snprintf(projectPath, sizeof(projectPath), "%s", getWorkspacePath());
     setWorkspaceWatchPath(projectPath);
     suppressWorkspaceWatchRefreshForMs(4000);
     setRunTargetPath(NULL);

@@ -53,6 +53,8 @@ bool assets_is_selected(int flatIndex);
 void assets_clear_selection(void);
 void assets_select_toggle(int flatIndex, bool additive);
 void assets_select_range(int a, int b);
+void assets_select_all_visible(void);
+bool assets_copy_selection_to_clipboard(void);
 
 // Collapse control
 void assets_toggle_collapse(AssetCategory cat);

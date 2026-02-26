@@ -28,12 +28,24 @@ void setEditorVerticalPaddingIfUnset(EditorState* state, int padding) {
     }
 }
 
+void editorStateSetTopRow(EditorState* state, int topRow) {
+    if (!state) return;
+    if (topRow < 0) topRow = 0;
+    state->viewTopRow = topRow;
+    state->scrollOffsetPx = (float)topRow * (float)EDITOR_LINE_HEIGHT;
+    state->scrollTargetPx = state->scrollOffsetPx;
+}
+
 
 void resetEditorState(EditorState* state) {
     if (!state) return;
     state->cursorRow = 0;
     state->cursorCol = 0;
+    state->lastScrollAnchorCursorRow = -1;
+    state->lastScrollAnchorCursorCol = -1;
     state->viewTopRow = 0;
+    state->scrollOffsetPx = 0.0f;
+    state->scrollTargetPx = 0.0f;
     state->verticalPadding = 80;
 
     state->lastMouseX = 0;
@@ -76,7 +88,3 @@ void stopSelection(EditorState* state) {
 bool isDragging(EditorState* state) {
     return state && (state->draggingWithMouse || isEditorDraggingScrollbar());
 }
-
-
-
-

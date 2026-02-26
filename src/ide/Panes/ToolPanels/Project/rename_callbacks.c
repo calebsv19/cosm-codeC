@@ -7,51 +7,58 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 #include <unistd.h>  // for rename()
 
 void handleProjectFileRenameCallback(const char* oldName, const char* newName, void* context) {
-    DirEntry* entry = (DirEntry*)context;
-    if (!entry || !entry->path || !newName) return;
+    (void)oldName;
+    ProjectRenameContext* ctx = (ProjectRenameContext*)context;
+    if (!ctx || !ctx->originalPath[0] || !newName || !newName[0]) return;
+    if (strcmp(newName, ".") == 0 || strcmp(newName, "..") == 0) return;
+    if (strchr(newName, '/')) return;
 
-    const char* lastSlash = strrchr(entry->path, '/');
+    const char* lastSlash = strrchr(ctx->originalPath, '/');
     if (!lastSlash) return;
 
-    size_t dirLen = lastSlash - entry->path;
+    size_t dirLen = (size_t)(lastSlash - ctx->originalPath);
 
     char newPath[1024];
-    snprintf(newPath, sizeof(newPath), "%.*s/%s", (int)dirLen, entry->path, newName);
-
-    if (rename(entry->path, newPath) != 0) {
-        fprintf(stderr, "[Rename] Failed to rename file: %s → %s\n", entry->path, newPath);
+    if (snprintf(newPath, sizeof(newPath), "%.*s/%s", (int)dirLen, ctx->originalPath, newName) >= (int)sizeof(newPath)) {
+        fprintf(stderr, "[Rename] New path too long.\n");
         return;
     }
 
-    printf("[Rename] Renamed: %s → %s\n", entry->path, newPath);
+    if (rename(ctx->originalPath, newPath) != 0) {
+        fprintf(stderr, "[Rename] Failed to rename file: %s → %s (errno=%d: %s)\n",
+                ctx->originalPath,
+                newPath,
+                errno,
+                strerror(errno));
+        return;
+    }
 
-    // Replace old path/name with newly allocated copies
-    free(entry->path);
-    entry->path = strdup(newPath);
-
-    free(entry->name);
-    entry->name = strdup(newName);
+    printf("[Rename] Renamed: %s → %s\n", ctx->originalPath, newPath);
+    snprintf(ctx->originalPath, sizeof(ctx->originalPath), "%s", newPath);
+    snprintf(ctx->originalName, sizeof(ctx->originalName), "%s", newName);
 
     queueProjectRefresh(ANALYSIS_REASON_PROJECT_MUTATION);
 }
 
-bool isRenameValid(const char* newName, DirEntry* entry) {
-    if (!entry || !entry->parent || !newName || strlen(newName) == 0) return false;
+bool isRenameValid(const char* newName, void* context) {
+    ProjectRenameContext* ctx = (ProjectRenameContext*)context;
+    if (!ctx || !ctx->originalPath[0] || !newName || !newName[0]) return false;
+    if (strcmp(newName, ".") == 0 || strcmp(newName, "..") == 0) return false;
+    if (strchr(newName, '/')) return false;
 
-    DirEntry* parent = entry->parent;
+    const char* lastSlash = strrchr(ctx->originalPath, '/');
+    if (!lastSlash) return false;
+    size_t dirLen = (size_t)(lastSlash - ctx->originalPath);
 
-    for (int i = 0; i < parent->childCount; i++) {
-        DirEntry* sibling = parent->children[i];
-        if (!sibling || sibling == entry) continue;
-
-        if (sibling->name && strcmp(sibling->name, newName) == 0) {
-	    
-            return false; // Conflict
-        }
+    char candidate[1024];
+    if (snprintf(candidate, sizeof(candidate), "%.*s/%s", (int)dirLen, ctx->originalPath, newName) >= (int)sizeof(candidate)) {
+        return false;
     }
 
-    return true; // Unique
+    if (strcmp(candidate, ctx->originalPath) == 0) return true;
+    return access(candidate, F_OK) != 0;
 }

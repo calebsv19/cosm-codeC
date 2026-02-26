@@ -31,8 +31,8 @@ void handleEditorKeyboardInput(UIPane* pane, SDL_Event* event) {
     SDL_Keycode key = event->key.keysym.sym;
     SDL_Keymod mod = (SDL_Keymod)event->key.keysym.mod;
 
-    // === CTRL shortcuts ===
-    if (mod & KMOD_CTRL) {
+    // === Accel shortcuts (Ctrl on Win/Linux, Cmd on macOS) ===
+    if (mod & (KMOD_CTRL | KMOD_GUI)) {
         switch (key) {
             case SDLK_s: enqueueEditorCommand(pane, COMMAND_SAVE_FILE, mod, NULL); return;
             case SDLK_c: enqueueEditorCommand(pane, COMMAND_COPY, mod, NULL); return;
@@ -101,23 +101,31 @@ void handleEditorMouseInput(UIPane* pane, SDL_Event* event) {
     switch (event->type) {
         case SDL_MOUSEBUTTONDOWN:
             if (event->button.button == SDL_BUTTON_LEFT) {
+                if (isEditorDraggingScrollbar()) {
+                    endEditorScrollbarDrag();
+                }
                 int mx = event->button.x;
                 int my = event->button.y;
                 updateActiveEditorViewFromMouse(mx, my);
                 EditorView* view = core->activeEditorView;
                 if (!view) return;
-                if (handleEditorScrollbarEvent(pane, event)) return; // early out if scrollbar clicked
                 handleEditorMouseClick(pane, event, view);
             }
             break;
 
         case SDL_MOUSEMOTION:
             if (event->motion.state & SDL_BUTTON_LMASK) {
-                if (handleEditorScrollbarEvent(pane, event)) return; // handle drag
+                if (isEditorDraggingScrollbar()) {
+                    if (handleEditorScrollbarEvent(pane, event)) return;
+                    endEditorScrollbarDrag();
+                }
                 EditorView* view = core->activeEditorView;
                 if (!view) return;
                 handleEditorMouseDrag(pane, event, view);
             } else {
+                if (isEditorDraggingScrollbar()) {
+                    endEditorScrollbarDrag();
+                }
                 EditorView* hover = getHoveredEditorView();
                 if (hover && hover->type == VIEW_LEAF) {
                     setActiveEditorView(hover);
@@ -126,7 +134,10 @@ void handleEditorMouseInput(UIPane* pane, SDL_Event* event) {
             break;
 
         case SDL_MOUSEBUTTONUP:
-            if (handleEditorScrollbarEvent(pane, event)) return;
+            if (isEditorDraggingScrollbar()) {
+                if (handleEditorScrollbarEvent(pane, event)) return;
+                endEditorScrollbarDrag();
+            }
             EditorView* view = core->activeEditorView;
             if (!view) return;
 	    handleEditorMouseButtonUp(pane, event, view);

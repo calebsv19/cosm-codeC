@@ -503,6 +503,10 @@ void updateActiveEditorViewFromMouse(int mouseX, int mouseY) {
     if (!root) return;
     
     EditorView* hovered = hitTestLeaf(core->editorViewState, mouseX, mouseY);
+    if (!hovered) {
+        // Fallback for stale hitbox state between layout/render ticks.
+        hovered = findLeafUnderCursor(root, mouseX, mouseY);
+    }
     setHoveredEditorView(hovered);
 
     if (hovered && hovered->type == VIEW_LEAF) {

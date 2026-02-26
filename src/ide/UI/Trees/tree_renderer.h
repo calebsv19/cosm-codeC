@@ -21,6 +21,9 @@ void clearTreeSelectionState(void);
 void handleTreeMouseMove(int x, int y);
 void handleTreeClick(UIPane* pane, int mouseX, int mouseY);
 void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, struct PaneScrollState* scroll, int mouseX, int mouseY);
+void setTreeSelectAllVisualRoot(UITreeNode* root);
+void clearTreeSelectAllVisual(void);
+bool tree_select_all_visual_active_for(const UITreeNode* root);
 
 // Optionally customize visuals
 void setTreeColorOverride(TreeNodeColor color, SDL_Color sdlColor); // optional (internal styling)

@@ -15,6 +15,8 @@ static int g_dirty_files = 0;
 static int g_removed_files = 0;
 static int g_dependent_files = 0;
 static int g_target_files = 0;
+static int g_progress_completed_files = 0;
+static int g_progress_total_files = 0;
 static char g_last_error[256] = {0};
 static bool g_frontend_logs_enabled = false;
 static SDL_mutex* g_status_mutex = NULL;
@@ -41,6 +43,8 @@ void analysis_status_init(void) {
     g_removed_files = 0;
     g_dependent_files = 0;
     g_target_files = 0;
+    g_progress_completed_files = 0;
+    g_progress_total_files = 0;
     g_last_error[0] = '\0';
     const char* env = getenv("IDE_ANALYSIS_FRONTEND_LOGS");
     g_frontend_logs_enabled = (env && env[0] == '1');
@@ -119,6 +123,27 @@ void analysis_status_note_refresh(AnalysisRefreshMode mode,
     g_removed_files = (removed_files < 0) ? 0 : removed_files;
     g_dependent_files = (dependent_files < 0) ? 0 : dependent_files;
     g_target_files = (target_files < 0) ? 0 : target_files;
+    status_unlock();
+}
+
+void analysis_status_set_progress(int completed_files, int total_files) {
+    status_lock();
+    g_progress_completed_files = (completed_files < 0) ? 0 : completed_files;
+    g_progress_total_files = (total_files < 0) ? 0 : total_files;
+    if (g_progress_completed_files > g_progress_total_files) {
+        g_progress_completed_files = g_progress_total_files;
+    }
+    status_unlock();
+}
+
+void analysis_status_get_progress(int* out_completed_files, int* out_total_files) {
+    status_lock();
+    if (out_completed_files) {
+        *out_completed_files = g_progress_completed_files;
+    }
+    if (out_total_files) {
+        *out_total_files = g_progress_total_files;
+    }
     status_unlock();
 }
 

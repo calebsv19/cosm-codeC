@@ -76,6 +76,24 @@ void handleControlPanelKeyboardInput(UIPane* pane, SDL_Event* event) {
 
     SDL_Keycode key = event->key.keysym.sym;
     Uint16 mod = event->key.keysym.mod;
+    bool accel = (mod & (KMOD_CTRL | KMOD_GUI)) != 0;
+    IDECoreState* core = getCoreState();
+    int mouseX = core ? core->mouseX : -1;
+    int mouseY = core ? core->mouseY : -1;
+    bool inTreeContent = control_panel_point_in_symbol_tree_content(pane, mouseX, mouseY);
+
+    if (accel && !control_panel_is_search_focused() && inTreeContent) {
+        if (key == SDLK_a) {
+            control_panel_select_all_visible();
+            setTreeSelectAllVisualRoot(control_panel_get_symbol_tree());
+            return;
+        }
+        if (key == SDLK_c) {
+            control_panel_copy_visible_symbol_tree();
+            return;
+        }
+    }
+
     if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
         control_panel_clear_match_button_selection();
         return;
@@ -108,7 +126,7 @@ void handleControlPanelKeyboardInput(UIPane* pane, SDL_Event* event) {
         }
     }
 
-    if (mod & KMOD_CTRL) {
+    if (accel) {
         switch (key) {
             case SDLK_p: CMD(COMMAND_TOGGLE_LIVE_PARSE); return;
             case SDLK_e: CMD(COMMAND_TOGGLE_SHOW_ERRORS); return;
@@ -198,6 +216,9 @@ void handleControlPanelMouseInput(UIPane* pane, SDL_Event* event) {
 
         UITreeNode* tree = control_panel_get_symbol_tree();
         if (tree) {
+            if (tree_select_all_visual_active_for(tree)) {
+                clearTreeSelectAllVisual();
+            }
             handleTreeClickWithScroll(&listPane, tree, scroll, mx, my);
             UITreeNode* selected = getSelectedTreeNode();
             if (selected) {

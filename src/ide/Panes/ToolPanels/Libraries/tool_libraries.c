@@ -70,6 +70,17 @@ bool library_row_is_selected(int idx) {
     return st->selected[idx];
 }
 
+void select_all_library_rows(void) {
+    LibraryPanelState* st = &g_libraryPanelState;
+    if (!st->selected || st->selectedCapacity <= 0 || st->flatCount <= 0) return;
+    memset(st->selected, 0, (size_t)st->selectedCapacity * sizeof(bool));
+    int cap = st->selectedCapacity < st->flatCount ? st->selectedCapacity : st->flatCount;
+    for (int i = 0; i < cap; ++i) {
+        st->selected[i] = true;
+    }
+    st->selectedRow = cap > 0 ? cap - 1 : -1;
+}
+
 void rebuildLibraryFlatRows(void) {
     LibraryPanelState* st = &g_libraryPanelState;
     clear_flat_rows(st);

@@ -10,6 +10,7 @@
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/UI/ui_selection_style.h"
 #include <SDL2/SDL.h>
 #include <string.h>
 
@@ -58,13 +59,24 @@ void renderLibrariesPanel(UIPane* pane) {
     // Status indicator in header area (not clipped)
     AnalysisStatusSnapshot snap = {0};
     AnalysisSchedulerSnapshot sched = {0};
+    int progressCompleted = 0;
+    int progressTotal = 0;
     analysis_status_snapshot(&snap);
+    analysis_status_get_progress(&progressCompleted, &progressTotal);
     analysis_scheduler_snapshot(&sched);
     char statusBuf[128] = {0};
     if (snap.updating) {
-        snprintf(statusBuf, sizeof(statusBuf),
-                 sched.active_run_id ? "Updating (#%llu)..." : "Updating...",
-                 (unsigned long long)sched.active_run_id);
+        if (progressTotal > 0) {
+            snprintf(statusBuf, sizeof(statusBuf),
+                     sched.active_run_id ? "Updating %d/%d (#%llu)" : "Updating %d/%d",
+                     progressCompleted,
+                     progressTotal,
+                     (unsigned long long)sched.active_run_id);
+        } else {
+            snprintf(statusBuf, sizeof(statusBuf),
+                     sched.active_run_id ? "Updating (#%llu)..." : "Updating...",
+                     (unsigned long long)sched.active_run_id);
+        }
     } else if (snap.last_error[0]) {
         snprintf(statusBuf, sizeof(statusBuf), "Analysis error");
     } else if (snap.has_cache) {
@@ -151,7 +163,8 @@ void renderLibrariesPanel(UIPane* pane) {
 
         bool isSel = library_row_is_selected(i);
         if (isSel) {
-            SDL_SetRenderDrawColor(renderer, 80, 80, 110, 160);
+            SDL_Color sel = ui_selection_fill_color();
+            SDL_SetRenderDrawColor(renderer, sel.r, sel.g, sel.b, sel.a);
             SDL_RenderFillRect(renderer, &box);
         }
 

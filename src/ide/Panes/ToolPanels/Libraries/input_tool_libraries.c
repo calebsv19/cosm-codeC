@@ -9,9 +9,15 @@ void handleLibrariesKeyboardInput(UIPane* pane, SDL_Event* event) {
     if (!event || event->type != SDL_KEYDOWN) return;
     SDL_Keycode key = event->key.keysym.sym;
     SDL_Keymod mod = SDL_GetModState();
+    bool selectAllCombo = (key == SDLK_a) && ((mod & KMOD_CTRL) || (mod & KMOD_GUI));
     bool copyCombo = (key == SDLK_c) && ((mod & KMOD_CTRL) || (mod & KMOD_GUI));
+    if (selectAllCombo) {
+        select_all_library_rows();
+        return;
+    }
     if (copyCombo) {
         copy_selected_rows();
+        return;
     }
 }
 

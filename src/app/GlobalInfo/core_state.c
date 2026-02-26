@@ -6,6 +6,8 @@
 #include <stdlib.h>  // for malloc, free
 #include <stdio.h>
 #include <strings.h>
+#include <limits.h>
+#include <unistd.h>
 
 static IDECoreState coreState;
 static bool s_invalidation_log_initialized = false;
@@ -100,8 +102,22 @@ void setWorkspacePath(const char* path) {
         coreState.workspacePath[0] = '\0';
         return;
     }
-    strncpy(coreState.workspacePath, path, sizeof(coreState.workspacePath) - 1);
-    coreState.workspacePath[sizeof(coreState.workspacePath) - 1] = '\0';
+
+    char normalized[PATH_MAX];
+    const char* source = path;
+    if (realpath(path, normalized) != NULL) {
+        source = normalized;
+    }
+
+    size_t len = strlen(source);
+    while (len > 1 && (source[len - 1] == '/' || source[len - 1] == '\\')) {
+        len--;
+    }
+    if (len >= sizeof(coreState.workspacePath)) {
+        len = sizeof(coreState.workspacePath) - 1;
+    }
+    memcpy(coreState.workspacePath, source, len);
+    coreState.workspacePath[len] = '\0';
 }
 
 const char* getWorkspacePath(void) {

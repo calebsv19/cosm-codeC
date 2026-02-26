@@ -47,13 +47,12 @@ static void routeMouseToTargetPane(SDL_Event* event, UIPane** panes, int paneCou
 
 
 static void routeMouseDragToPane(SDL_Event* event, UIPane** panes, int paneCount, int mx, int my) {
-    for (int i = 0; i < paneCount; i++) {
-        UIPane* pane = panes[i];
-        if (isPointInsidePane(pane, mx, my)) {
-            if (pane->inputHandler && pane->inputHandler->onMouse)
-                pane->inputHandler->onMouse(pane, event);
-            break;
-        }
+    (void)panes;
+    (void)paneCount;
+    (void)mx;
+    (void)my;
+    if (activeMousePane && activeMousePane->inputHandler && activeMousePane->inputHandler->onMouse) {
+        activeMousePane->inputHandler->onMouse(activeMousePane, event);
     }
 }
 
@@ -104,8 +103,6 @@ void handleMouseInput(SDL_Event* event, UIPane** panes, int paneCount) {
     }
 
     if (handleEditorSplitDividerInteraction(event, mx, my)) return;
-    if (handleEditorScrollbarThumbClick(event, mx, my)) return;
-    if (handleEditorScrollbarDrag(event)) return;
 
     switch (event->type) {
         case SDL_MOUSEBUTTONDOWN:

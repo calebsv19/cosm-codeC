@@ -3,6 +3,24 @@
 #include "ide/Panes/Editor/buffer_safety.h" 
 #include "ide/Panes/Editor/editor_clipboard.h"
 #include <string.h>
+#include <stdlib.h>
+
+static bool ensure_line_capacity(EditorBuffer* buffer, int additional_lines) {
+    if (!buffer || additional_lines <= 0) return true;
+    if (buffer->lineCount + additional_lines <= buffer->capacity) return true;
+
+    int newCapacity = (buffer->capacity > 0) ? buffer->capacity : INITIAL_CAPACITY;
+    while (newCapacity < buffer->lineCount + additional_lines) {
+        if (newCapacity > (1 << 28)) return false;
+        newCapacity *= 2;
+    }
+
+    char** grown = (char**)realloc(buffer->lines, sizeof(char*) * (size_t)newCapacity);
+    if (!grown) return false;
+    buffer->lines = grown;
+    buffer->capacity = newCapacity;
+    return true;
+}
 
 void handleCommandInsertNewline(OpenFile* file, EditorBuffer* buffer, EditorState* state) {
     commitWordEdit(file);
@@ -72,6 +90,7 @@ void handleCommandDeleteForward(OpenFile* file, EditorBuffer* buffer, EditorStat
 
 void handleCommandInsertCharacter(OpenFile* file, EditorBuffer* buffer,
                                          EditorState* state, char ch) {
+    if (!file || !buffer || !state) return;
     int row = state->cursorRow;
     int col = state->cursorCol;
     if (row < 0 || row >= buffer->lineCount) return;
@@ -79,13 +98,19 @@ void handleCommandInsertCharacter(OpenFile* file, EditorBuffer* buffer,
     char* oldLine = buffer->lines[row];
     if (!oldLine) return;
     
-    int oldLen = strlen(oldLine);
-    char* newLine = malloc(oldLen + 2); // +1 for new char, +1 for null
+    int oldLen = (int)strlen(oldLine);
+    if (col < 0) col = 0;
+    if (col > oldLen) col = oldLen;
+    state->cursorCol = col;
+
+    char* newLine = (char*)malloc((size_t)oldLen + 2u); // +1 for new char, +1 for null
     if (!newLine) return;
-        
-    strncpy(newLine, oldLine, col);
+
+    if (col > 0) {
+        memcpy(newLine, oldLine, (size_t)col);
+    }
     newLine[col] = ch;
-    strcpy(newLine + col + 1, oldLine + col);
+    memcpy(newLine + col + 1, oldLine + col, (size_t)(oldLen - col) + 1u);
     
     free(buffer->lines[row]);  
     buffer->lines[row] = newLine;
@@ -217,41 +242,47 @@ void handleReturnKey(EditorBuffer* buffer, EditorState* state) {
     char* current = buffer->lines[row];
     int currentLen = strlen(current);  
     
-    char* before = malloc(col + 1);
-    char* after = malloc(currentLen - col + 1);
-    if (!before || !after) return;
+    if (col < 0) col = 0;
+    if (col > currentLen) col = currentLen;
+
+    char* before = (char*)malloc((size_t)col + 1u);
+    char* after = (char*)malloc((size_t)(currentLen - col) + 1u);
+    if (!before || !after) {
+        free(before);
+        free(after);
+        return;
+    }
     
     strncpy(before, current, col);
     before[col] = '\0';
     strcpy(after, current + col);
-    
-    free(buffer->lines[row]);
-    buffer->lines[row] = before;
     
     IDECoreState* core = getCoreState();
     EditorView* view = core->activeEditorView;
     
     if (!view || view->type != VIEW_LEAF || view->activeTab < 0 || view->activeTab >= view->fileCount) 
 {
+        free(before);
         free(after);
         return;
     }
      
     OpenFile* file = view->openFiles[view->activeTab];
-    
-    if (buffer->lineCount < buffer->capacity) {
-        for (int i = buffer->lineCount; i > row + 1; i--) {
-            buffer->lines[i] = buffer->lines[i - 1];
-        }
-        buffer->lines[row + 1] = after;
-        buffer->lineCount++;
-        state->cursorRow++; 
-        state->cursorCol = 0;
-        markFileAsModified(file);
-    } else {
-        buffer->lines[row] = realloc(buffer->lines[row], currentLen + 1);
-        strcat(buffer->lines[row], after);
+    if (!ensure_line_capacity(buffer, 1)) {
+        free(before);
         free(after);
+        return;
     }
-}
 
+    free(buffer->lines[row]);
+    buffer->lines[row] = before;
+
+    for (int i = buffer->lineCount; i > row + 1; i--) {
+        buffer->lines[i] = buffer->lines[i - 1];
+    }
+    buffer->lines[row + 1] = after;
+    buffer->lineCount++;
+    state->cursorRow++;
+    state->cursorCol = 0;
+    markFileAsModified(file);
+}

@@ -86,8 +86,7 @@ maxVisibleLines) {
     int newLen = newLine ? strlen(newLine) : 0;
     if (state->cursorCol > newLen) state->cursorCol = newLen;
 
-    state->viewTopRow = state->cursorRow - maxVisibleLines / 2;
-    if (state->viewTopRow < 0) state->viewTopRow = 0;
+    editorStateSetTopRow(state, state->cursorRow - maxVisibleLines / 2);
     
     return true;
 }
@@ -95,15 +94,14 @@ maxVisibleLines) {
 static bool handleCommandJumpToTop(EditorState* state) {
     state->cursorRow = 0;
     state->cursorCol = 0;
-    state->viewTopRow = 0;
+    editorStateSetTopRow(state, 0);
     return true;
 }
  
 static bool handleCommandJumpToBottom(EditorBuffer* buffer, EditorState* state, int maxVisibleLines) {
     state->cursorRow = buffer->lineCount - 1;
     state->cursorCol = strlen(buffer->lines[state->cursorRow]);
-    state->viewTopRow = state->cursorRow - maxVisibleLines + 1;
-    if (state->viewTopRow < 0) state->viewTopRow = 0;
+    editorStateSetTopRow(state, state->cursorRow - maxVisibleLines + 1);
     return true;
 }
  
@@ -188,7 +186,7 @@ bool editor_jump_to(EditorView* view, const char* filePath, int line, int column
 
     file->state.cursorRow = targetRow;
     file->state.cursorCol = targetCol;
-    file->state.viewTopRow = (targetRow > 2) ? targetRow - 2 : 0;
+    editorStateSetTopRow(&file->state, (targetRow > 2) ? targetRow - 2 : 0);
     file->state.selecting = false;
     file->state.draggingWithMouse = false;
     setActiveEditorView(view);

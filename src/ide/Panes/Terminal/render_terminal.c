@@ -2,6 +2,7 @@
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"  // renderUIPane, drawText
 #include "engine/Render/render_font.h"
+#include "ide/UI/ui_selection_style.h"
 #include "app/GlobalInfo/system_control.h"
 #include "app/GlobalInfo/core_state.h"
 
@@ -275,7 +276,8 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
                 int startX = viewport.x + startCol * cellW;
                 int width = (endCol - startCol) * cellW;
                 SDL_Rect highlight = { startX, drawY, width, cellH };
-                SDL_SetRenderDrawColor(renderer, 80, 120, 200, 100);
+                SDL_Color sel = ui_selection_fill_color();
+                SDL_SetRenderDrawColor(renderer, sel.r, sel.g, sel.b, sel.a);
                 SDL_RenderFillRect(renderer, &highlight);
             }
         }

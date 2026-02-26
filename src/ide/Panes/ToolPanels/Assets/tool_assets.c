@@ -417,6 +417,52 @@ void assets_select_range(int a, int b) {
     }
 }
 
+void assets_select_all_visible(void) {
+    AssetFlatRef refs[1024];
+    int count = assets_flatten(refs, 1024);
+    memset(selected, 0, sizeof(selected));
+    int maxSel = (int)(sizeof(selected) / sizeof(selected[0]));
+    for (int i = 0; i < count && i < maxSel; ++i) {
+        if (refs[i].isMoreLine) continue;
+        selected[i] = true;
+    }
+}
+
+bool assets_copy_selection_to_clipboard(void) {
+    AssetFlatRef refs[1024];
+    int count = assets_flatten(refs, 1024);
+    size_t cap = 2048;
+    size_t len = 0;
+    char* buf = malloc(cap);
+    if (!buf) return false;
+    buf[0] = '\0';
+    bool any = false;
+    for (int i = 0; i < count; ++i) {
+        if (!assets_is_selected(i) || refs[i].isMoreLine) continue;
+        const AssetEntry* e = refs[i].entry;
+        const char* label = refs[i].isHeader
+            ? (const char*[]){"Images","Audio","Data","Docs","Other"}[refs[i].category]
+            : (e && e->relPath) ? e->relPath : (e && e->name ? e->name : "(unknown)");
+        size_t add = strlen(label) + 1;
+        if (len + add + 1 > cap) {
+            cap = (len + add + 1) * 2;
+            char* tmp = realloc(buf, cap);
+            if (!tmp) { free(buf); return false; }
+            buf = tmp;
+        }
+        memcpy(buf + len, label, add - 1);
+        len += add - 1;
+        buf[len++] = '\n';
+        buf[len] = '\0';
+        any = true;
+    }
+    if (any) {
+        clipboard_copy_text(buf);
+    }
+    free(buf);
+    return any;
+}
+
 void handleAssetManagerEvent(UIPane* pane, SDL_Event* event) {
     (void)pane; (void)event;
     // Future: selection and preview handling lives here.

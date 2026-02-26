@@ -46,6 +46,8 @@ void analysis_status_note_refresh(AnalysisRefreshMode mode,
                                   int removed_files,
                                   int dependent_files,
                                   int target_files);
+void analysis_status_set_progress(int completed_files, int total_files);
+void analysis_status_get_progress(int* out_completed_files, int* out_total_files);
 void analysis_status_snapshot(AnalysisStatusSnapshot* out);
 
 // Frontend log verbosity control used by analysis scans.

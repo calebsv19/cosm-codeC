@@ -5,6 +5,7 @@
 #include "engine/Render/render_font.h"
 #include "app/GlobalInfo/core_state.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/UI/ui_selection_style.h"
 #include "fisics_frontend.h"
 
 #include <stdlib.h>
@@ -12,6 +13,7 @@
 
 static UITreeNode* hoveredNode = NULL;
 static UITreeNode* selectedNode = NULL;
+static UITreeNode* selectAllVisualRoot = NULL;
 static const int TREE_INDENT_WIDTH = 10;
 
 // Optional color overrides
@@ -74,6 +76,18 @@ void clearTreeSelectionState(void) {
     selectedNode = NULL;
 }
 
+void setTreeSelectAllVisualRoot(UITreeNode* root) {
+    selectAllVisualRoot = root;
+}
+
+void clearTreeSelectAllVisual(void) {
+    selectAllVisualRoot = NULL;
+}
+
+bool tree_select_all_visual_active_for(const UITreeNode* root) {
+    return root && root == selectAllVisualRoot;
+}
+
 void handleTreeMouseMove(int x, int y) {
     getCoreState()->mouseX = x;
     getCoreState()->mouseY = y;
@@ -87,6 +101,7 @@ static void renderTreeRecursive(UITreeNode* node,
                                 int mouseY,
                                 bool allowHover,
                                 bool controlPanelTone,
+                                bool selectAllVisual,
                                 int lineHeight) {
     if (!node || *y > maxY) return;
     int indent = node->depth * TREE_INDENT_WIDTH;
@@ -127,10 +142,16 @@ static void renderTreeRecursive(UITreeNode* node,
         SDL_RenderDrawRect(renderer, &textBox);
     }
 
-    //  Draw selection outline if not hovered
-    if (node == selectedNode && !isHovered) {
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 180); // white box
-        SDL_RenderDrawRect(renderer, &textBox);
+    bool selectedVisual = (node == selectedNode) || selectAllVisual;
+    if (selectedVisual) {
+        SDL_Color fill = ui_selection_fill_color();
+        SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
+        SDL_RenderFillRect(renderer, &textBox);
+        if (!isHovered) {
+            SDL_Color outline = ui_selection_outline_color();
+            SDL_SetRenderDrawColor(renderer, outline.r, outline.g, outline.b, outline.a);
+            SDL_RenderDrawRect(renderer, &textBox);
+        }
     }
 
     //  Set color by node->color enum
@@ -154,6 +175,7 @@ static void renderTreeRecursive(UITreeNode* node,
                                 mouseY,
                                 allowHover,
                                 controlPanelTone,
+                                selectAllVisual,
                                 lineHeight);
         }
     }
@@ -172,6 +194,7 @@ void renderTreePanel(UIPane* pane, UITreeNode* root) {
     int my = getCoreState()->mouseY;
     bool allowHover = (mx >= pane->x && mx <= pane->x + pane->w &&
                        my >= pane->y && my <= pane->y + pane->h);
+    bool selectAllVisual = tree_select_all_visual_active_for(root);
 
     hoveredNode = NULL;
     renderTreeRecursive(root,
@@ -182,6 +205,7 @@ void renderTreePanel(UIPane* pane, UITreeNode* root) {
                         my,
                         allowHover,
                         controlPanelTone,
+                        selectAllVisual,
                         lineHeight);
 }
 
@@ -262,6 +286,7 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
     int my = getCoreState()->mouseY;
     bool mouseInsidePane = (mx >= pane->x && mx <= pane->x + pane->w &&
                             my >= contentTop && my <= maxY);
+    bool selectAllVisual = tree_select_all_visual_active_for(root);
     while (sp > 0) {
         UITreeNode* n = stack[--sp];
         if (!n) continue;
@@ -301,9 +326,16 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
                 SDL_RenderDrawRect(renderer, &textBox);
             }
 
-            if (n == selectedNode && !isHovered) {
-                SDL_SetRenderDrawColor(renderer, 255, 255, 255, 180);
-                SDL_RenderDrawRect(renderer, &textBox);
+            bool selectedVisual = (n == selectedNode) || selectAllVisual;
+            if (selectedVisual) {
+                SDL_Color fill = ui_selection_fill_color();
+                SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
+                SDL_RenderFillRect(renderer, &textBox);
+                if (!isHovered) {
+                    SDL_Color outline = ui_selection_outline_color();
+                    SDL_SetRenderDrawColor(renderer, outline.r, outline.g, outline.b, outline.a);
+                    SDL_RenderDrawRect(renderer, &textBox);
+                }
             }
 
             TreeNodeColor color = n->color;
@@ -368,6 +400,7 @@ void handleTreeClick(UIPane* pane, int clickX, int clickY) {
     if (!hoveredNode || !pane) return;
 
     selectedNode = hoveredNode;
+    clearTreeSelectAllVisual();
 
     // Only folders/sections can expand/collapse
     if (hoveredNode->type == TREE_NODE_FOLDER || hoveredNode->type == TREE_NODE_SECTION) {
@@ -434,6 +467,9 @@ void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, PaneScrollState* 
     }
 
     selectedNode = hit;
+    if (tree_select_all_visual_active_for(root)) {
+        clearTreeSelectAllVisual();
+    }
 
     if (hit->type == TREE_NODE_FOLDER || hit->type == TREE_NODE_SECTION) {
         int indent = hit->depth * TREE_INDENT_WIDTH;

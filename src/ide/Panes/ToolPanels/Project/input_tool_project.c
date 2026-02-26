@@ -11,6 +11,9 @@
 #include "core/InputManager/UserInput/rename_flow.h"
 
 #include <stdlib.h>
+#include <string.h>
+
+static ProjectRenameContext s_projectRenameContext;
 
 static bool pointInRect(int x, int y, SDL_Rect r) {
     return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
@@ -22,6 +25,7 @@ void handleProjectFilesKeyboardInput(UIPane* pane, SDL_Event* event) {
 
     SDL_Keycode key = event->key.keysym.sym;
     Uint16 mod = event->key.keysym.mod;
+    bool accel = (mod & KMOD_CTRL) || (mod & KMOD_GUI);
 
     // === Rename mode input ===
     if (renamingEntry) {
@@ -47,7 +51,16 @@ void handleProjectFilesKeyboardInput(UIPane* pane, SDL_Event* event) {
     }
 
     // === CTRL Shortcuts ===
-    if (mod & KMOD_CTRL) {
+    if (accel && key == SDLK_a) {
+        project_select_all_visible_entries();
+        return;
+    }
+    if (accel && key == SDLK_c) {
+        project_copy_visible_entries_to_clipboard();
+        return;
+    }
+
+    if (accel) {
         switch (key) {
             case SDLK_n: CMD(COMMAND_NEW_FILE); return;
             case SDLK_r: CMD(COMMAND_RENAME_FILE); return;
@@ -103,20 +116,34 @@ void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
 
     // ⏱ Right-click triggers rename
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_RIGHT) {
+        project_clear_select_all_visual();
         if (hoveredEntry) {
             if (hoveredEntry->type == ENTRY_FOLDER) {
                 selectDirectoryEntry(hoveredEntry);
             } else {
                 selectFileEntry(hoveredEntry);
             }
-            printf("starting rename\n");
+            s_projectRenameContext.originalPath[0] = '\0';
+            s_projectRenameContext.originalName[0] = '\0';
+            if (hoveredEntry->path) {
+                snprintf(s_projectRenameContext.originalPath,
+                         sizeof(s_projectRenameContext.originalPath),
+                         "%s",
+                         hoveredEntry->path);
+            }
+            if (hoveredEntry->name) {
+                snprintf(s_projectRenameContext.originalName,
+                         sizeof(s_projectRenameContext.originalName),
+                         "%s",
+                         hoveredEntry->name);
+            }
             beginRenameWithPrompt(
                 "Rename Entry:",
                 "Name already exists",
                 hoveredEntry->name,
                 handleProjectFileRenameCallback,
-                (RenameValidateFn)isRenameValid,
-                hoveredEntry,
+                isRenameValid,
+                &s_projectRenameContext,
                 false
             );
 
@@ -126,6 +153,7 @@ void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
 
     // Left click handling (existing)
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
+        project_clear_select_all_visual();
         if (pointInRect(mx, my, projectBtnAddFile)) {
             CMD(COMMAND_NEW_FILE);
             return;

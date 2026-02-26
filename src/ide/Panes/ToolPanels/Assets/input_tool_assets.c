@@ -36,48 +36,19 @@ static void open_text_asset(const AssetEntry* e) {
     openFileInView(view, fullPath);
 }
 
-static void copy_selection(void) {
-    AssetFlatRef refs[1024];
-    int count = assets_flatten(refs, 1024);
-    size_t cap = 2048;
-    size_t len = 0;
-    char* buf = malloc(cap);
-    if (!buf) return;
-    buf[0] = '\0';
-    bool any = false;
-    for (int i = 0; i < count; ++i) {
-        if (!assets_is_selected(i) || refs[i].isMoreLine) continue;
-        const AssetEntry* e = refs[i].entry;
-        const char* label = refs[i].isHeader
-            ? (const char*[]){"Images","Audio","Data","Docs","Other"}[refs[i].category]
-            : (e && e->relPath) ? e->relPath : (e && e->name ? e->name : "(unknown)");
-        size_t add = strlen(label) + 1;
-        if (len + add + 1 > cap) {
-            cap = (len + add + 1) * 2;
-            char* tmp = realloc(buf, cap);
-            if (!tmp) { free(buf); return; }
-            buf = tmp;
-        }
-        memcpy(buf + len, label, add - 1);
-        len += add - 1;
-        buf[len++] = '\n';
-        buf[len] = '\0';
-        any = true;
-    }
-    if (any) {
-        clipboard_copy_text(buf);
-    }
-    free(buf);
-}
-
 void handleAssetsKeyboardInput(UIPane* pane, SDL_Event* event) {
     (void)pane;
     if (!event || event->type != SDL_KEYDOWN) return;
     Uint16 mod = event->key.keysym.mod;
     SDL_Keycode key = event->key.keysym.sym;
     bool ctrl = (mod & KMOD_CTRL) || (mod & KMOD_GUI);
+    if (ctrl && key == SDLK_a) {
+        assets_select_all_visible();
+        return;
+    }
     if (ctrl && key == SDLK_c) {
-        copy_selection();
+        assets_copy_selection_to_clipboard();
+        return;
     }
 }
 

@@ -6,6 +6,7 @@
 #include "ide/Panes/ToolPanels/BuildOutput/tool_build_output.h"
 #include "core/BuildSystem/build_diagnostics.h"
 #include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
+#include "ide/UI/ui_selection_style.h"
 #include "engine/Render/render_pipeline.h" // getRenderContext
 #include <SDL2/SDL.h>
 #include <string.h>
@@ -13,15 +14,22 @@
 // Forward decl from tool_build_output.c
 bool build_output_is_selected(int idx);
 
-static void renderDiagnosticsList(const BuildDiagnostic* diags, size_t count, int x, int y, int maxY, int lineHeight) {
+static void renderDiagnosticsList(const BuildDiagnostic* diags,
+                                  size_t count,
+                                  int x,
+                                  int y,
+                                  int maxY,
+                                  int lineHeight,
+                                  int highlightW) {
     char line[1400];
     for (size_t i = 0; i < count && y + lineHeight <= maxY; ++i) {
         const BuildDiagnostic* d = &diags[i];
         const char* sev = d->isError ? "[E]" : "[W]";
         // Highlight selection
         if (build_output_is_selected((int)i)) {
-            SDL_Rect highlight = { x - 6, y - 2, 1000, lineHeight * 2 };
-            SDL_SetRenderDrawColor(getRenderContext()->renderer, 60, 80, 120, 120);
+            SDL_Rect highlight = { x - 6, y - 2, highlightW, lineHeight * 2 };
+            SDL_Color sel = ui_selection_fill_color();
+            SDL_SetRenderDrawColor(getRenderContext()->renderer, sel.r, sel.g, sel.b, sel.a);
             SDL_RenderFillRect(getRenderContext()->renderer, &highlight);
         }
         // Line 1: label + location
@@ -56,5 +64,7 @@ void renderBuildOutputPanel(UIPane* pane) {
         return;
     }
 
-    renderDiagnosticsList(diags, count, x, y, maxY, lineHeight);
+    int highlightW = pane->w - 16;
+    if (highlightW < 0) highlightW = 0;
+    renderDiagnosticsList(diags, count, x, y, maxY, lineHeight, highlightW);
 }

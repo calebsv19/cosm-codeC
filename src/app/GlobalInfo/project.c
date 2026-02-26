@@ -10,10 +10,16 @@
 #include <dirent.h> // POSIX directory reading
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
 
 DirEntry* projectRoot = NULL;
 char projectPath[1024] = {0};
 char projectRootPath[1024] = {0};
+
+static bool project_loader_debug_enabled(void) {
+    const char* env = getenv("IDE_PROJECT_LOADER_DEBUG");
+    return (env && env[0] == '1');
+}
 
 
 void initProjectPaths(void) {
@@ -33,8 +39,8 @@ void initProjectPaths(void) {
         chosenPath = defaultProjectPath;
     }
 
-    snprintf(projectPath, sizeof(projectPath), "%s", chosenPath);
-    setWorkspacePath(projectPath);
+    setWorkspacePath(chosenPath);
+    snprintf(projectPath, sizeof(projectPath), "%s", getWorkspacePath());
     setWorkspaceWatchPath(projectPath);
 
 }
@@ -121,6 +127,23 @@ static void sort_dir_entries(DirEntry* entry) {
 #endif
 }
 
+static char* build_child_path(const char* parentPath, const char* childName) {
+    if (!parentPath || !childName) return NULL;
+    size_t parentLen = strlen(parentPath);
+    size_t childLen = strlen(childName);
+    size_t needsSlash = (parentLen > 0 && parentPath[parentLen - 1] == '/') ? 0u : 1u;
+    size_t total = parentLen + needsSlash + childLen + 1u;
+    char* out = (char*)malloc(total);
+    if (!out) return NULL;
+
+    memcpy(out, parentPath, parentLen);
+    size_t pos = parentLen;
+    if (needsSlash) out[pos++] = '/';
+    memcpy(out + pos, childName, childLen);
+    out[pos + childLen] = '\0';
+    return out;
+}
+
 
 
 
@@ -145,7 +168,10 @@ void freeDirectory(DirEntry* root) {
 static DirEntry* loadProjectDirectoryInternal(const char* path, DirEntry* parent) {
     DIR* dir = opendir(path);
     if (!dir) {
-        printf("Failed to open directory: %s\n", path);
+        fprintf(stderr, "[ProjectLoad] Failed to open directory: %s (errno=%d: %s)\n",
+                path ? path : "(null)",
+                errno,
+                strerror(errno));
         return NULL;
     }
 
@@ -167,12 +193,21 @@ static DirEntry* loadProjectDirectoryInternal(const char* path, DirEntry* parent
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
             continue;
 
-        // Build full path
-        char fullPath[1024];
-        snprintf(fullPath, sizeof(fullPath), "%s/%s", path, entry->d_name);
+        char* fullPath = build_child_path(path, entry->d_name);
+        if (!fullPath) {
+            continue;
+        }
 
         struct stat st;
         if (stat(fullPath, &st) == -1) {
+            if (project_loader_debug_enabled()) {
+                fprintf(stderr,
+                        "[ProjectLoad] stat failed: %s (errno=%d: %s)\n",
+                        fullPath,
+                        errno,
+                        strerror(errno));
+            }
+            free(fullPath);
             continue;
         }
 
@@ -188,10 +223,18 @@ static DirEntry* loadProjectDirectoryInternal(const char* path, DirEntry* parent
                 addChildEntry(root, childFile);
             }
         }
+        free(fullPath);
     }
 
     closedir(dir);
     sort_dir_entries(root);
+    if (project_loader_debug_enabled()) {
+        fprintf(stderr,
+                "[ProjectLoad] path=%s type=%s children=%d\n",
+                path ? path : "(null)",
+                parent ? "child" : "root",
+                root->childCount);
+    }
     return root;
 }
 
