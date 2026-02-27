@@ -1,13 +1,17 @@
 #include "ide/Panes/ToolPanels/Assets/render_tool_assets.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_pipeline.h"
+#include "engine/Render/render_text_helpers.h"
 #include "ide/Panes/ToolPanels/Assets/tool_assets.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/UI/scroll_manager.h"
 #include "ide/UI/ui_selection_style.h"
+#include "engine/Render/render_font.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
 #include <stdio.h>
 
 static PaneScrollState gScrollState;
@@ -18,6 +22,22 @@ static SDL_Rect gOpenAllRect = {0};
 static SDL_Rect gCloseAllRect = {0};
 static const PaneScrollConfig gScrollCfg = { .line_height_px = 18.0f, .deceleration_px = 0.0f, .allow_negative = false };
 
+static TTF_Font* asset_row_font(void) {
+    TTF_Font* font = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
+    return font ? font : getActiveFont();
+}
+
+static SDL_Color asset_row_color(bool isHeader) {
+    IDEThemePalette palette = {0};
+    SDL_Color primary = {230, 230, 230, 255};
+    SDL_Color muted = {170, 170, 170, 255};
+    if (ide_shared_theme_resolve_palette(&palette)) {
+        primary = palette.text_primary;
+        muted = palette.text_muted;
+    }
+    return isHeader ? primary : muted;
+}
+
 void renderAssetManagerPanel(UIPane* pane) {
     if (!gScrollInit) {
         scroll_state_init(&gScrollState, &gScrollCfg);
@@ -27,10 +47,8 @@ void renderAssetManagerPanel(UIPane* pane) {
     const int headerHeight = 18;
     const int lineHeight = 16;
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
-    const int contentInset = tool_panel_content_inset_default();
     const int paddingX = d.pad_left;
     const int controlsY = pane->y + d.controls_top;
-    const int paddingY = d.controls_top + d.button_h + d.row_gap;
     const int trackWidth = 6;
     const int trackPadding = 4;
 
@@ -40,17 +58,18 @@ void renderAssetManagerPanel(UIPane* pane) {
     renderButton(pane, gOpenAllRect, "Open All");
     renderButton(pane, gCloseAllRect, "Close All");
 
-    int contentTop = pane->y + paddingY;
-    int viewportH = pane->h - (contentTop - pane->y);
-    if (viewportH < 0) viewportH = 0;
+    int contentTop = tool_panel_single_row_content_top(pane);
+    ToolPanelSplitLayout split = {0};
+    tool_panel_compute_split_layout(pane, contentTop, &split);
+    int viewportH = split.body_rect.h;
     scroll_state_set_viewport(&gScrollState, (float)viewportH);
 
-    tool_panel_render_split_background(getRenderContext()->renderer, pane, contentTop, 14);
+    tool_panel_render_split_background(getRenderContext()->renderer, pane, contentTop, d.body_darken);
 
     AssetFlatRef refs[1024];
     int count = assets_flatten(refs, 1024);
 
-    float contentHeight = (float)contentInset;
+    float contentHeight = 0.0f;
     for (int i = 0; i < count; ++i) {
         contentHeight += (refs[i].isHeader ? (float)headerHeight : (float)lineHeight);
     }
@@ -59,49 +78,87 @@ void renderAssetManagerPanel(UIPane* pane) {
     float offset = scroll_state_get_offset(&gScrollState);
 
     SDL_Rect clipRect = {
-        pane->x,
-        contentTop,
-        pane->w - (trackWidth + trackPadding + 2),
+        split.body_rect.x,
+        split.body_rect.y,
+        split.body_rect.w - (trackWidth + trackPadding),
         viewportH
     };
     if (clipRect.w < 0) clipRect.w = 0;
     pushClipRect(&clipRect);
 
-    int x = pane->x + paddingX;
-    int y = (contentTop + contentInset) - (int)offset;
-    int maxY = contentTop + viewportH;
+    int x = split.body_rect.x + (paddingX - 1);
+    int y = split.body_rect.y - (int)offset;
+    int maxY = split.body_rect.y + viewportH;
+    TTF_Font* rowFont = asset_row_font();
+    int fontHeight = rowFont ? TTF_FontHeight(rowFont) : lineHeight;
+    if (fontHeight < 1) fontHeight = lineHeight;
 
     if (count == 0) {
-        drawText(x, y, "(No assets found)");
+        drawTextUTF8WithFontColorClipped(x,
+                                         y,
+                                         "(No assets found)",
+                                         rowFont,
+                                         asset_row_color(true),
+                                         false,
+                                         &clipRect);
     } else {
         for (int i = 0; i < count; ++i) {
             int h = refs[i].isHeader ? headerHeight : lineHeight;
             if (y + h > contentTop && y < maxY) {
-                if (assets_is_selected(i)) {
-                    SDL_Rect rect = { x - 6, y - 2, clipRect.w - paddingX + 4, h };
-                    SDL_Color sel = ui_selection_fill_color();
-                    SDL_SetRenderDrawColor(getRenderContext()->renderer, sel.r, sel.g, sel.b, sel.a);
-                    SDL_RenderFillRect(getRenderContext()->renderer, &rect);
-                }
-
+                int drawX = x;
+                const char* text = NULL;
+                char buf[128];
+                char moreBuf[64];
                 if (refs[i].isHeader) {
                     const AssetCategoryList* list = &assets_get_catalog()->categories[refs[i].category];
-                    char buf[128];
                     snprintf(buf, sizeof(buf), "%s (%d)%s",
                              (const char*[]){"Images","Audio","Data","Docs","Other"}[refs[i].category],
                              list->count,
                              list->collapsed ? " [collapsed]" : "");
-                    drawText(x, y, buf);
+                    text = buf;
                 } else if (refs[i].isMoreLine) {
                     const AssetCategoryList* list = &assets_get_catalog()->categories[refs[i].category];
                     int remaining = list->count - ASSET_RENDER_LIMIT_PER_BUCKET;
-                    char moreBuf[64];
                     snprintf(moreBuf, sizeof(moreBuf), "... and %d more", remaining > 0 ? remaining : 0);
-                    drawText(x + 12, y, moreBuf);
+                    text = moreBuf;
+                    drawX = x + 12;
                 } else if (refs[i].entry) {
-                    const char* label = refs[i].entry->relPath ? refs[i].entry->relPath : refs[i].entry->name;
-                    drawText(x + 12, y, label);
+                    text = refs[i].entry->relPath ? refs[i].entry->relPath : refs[i].entry->name;
+                    drawX = x + 12;
                 }
+
+                if (!text) {
+                    y += h;
+                    continue;
+                }
+
+                int textWidth = getTextWidthWithFont(text, rowFont);
+                int textY = y + ((h - fontHeight) / 2);
+                SDL_Rect textBox = {
+                    drawX - 6,
+                    textY - 1,
+                    textWidth + 12,
+                    fontHeight + 2
+                };
+                SDL_Rect visibleBox = {0};
+                if (!SDL_IntersectRect(&textBox, &clipRect, &visibleBox)) {
+                    y += h;
+                    continue;
+                }
+
+                if (assets_is_selected(i)) {
+                    SDL_Color sel = ui_selection_fill_color();
+                    SDL_SetRenderDrawColor(getRenderContext()->renderer, sel.r, sel.g, sel.b, sel.a);
+                    SDL_RenderFillRect(getRenderContext()->renderer, &visibleBox);
+                }
+
+                drawTextUTF8WithFontColorClipped(drawX,
+                                                 textY,
+                                                 text,
+                                                 rowFont,
+                                                 asset_row_color(refs[i].isHeader),
+                                                 false,
+                                                 &clipRect);
             }
             y += h;
         }
@@ -112,8 +169,8 @@ void renderAssetManagerPanel(UIPane* pane) {
     bool showScrollbar = scroll_state_can_scroll(&gScrollState) && viewportH > 0;
     if (showScrollbar) {
         gScrollTrack = (SDL_Rect){
-            pane->x + pane->w - trackWidth - trackPadding,
-            contentTop,
+            split.body_rect.x + split.body_rect.w - trackWidth,
+            split.body_rect.y,
             trackWidth,
             viewportH
         };

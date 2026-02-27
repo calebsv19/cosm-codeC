@@ -1024,7 +1024,8 @@ bool terminal_spawn_shell(const char* start_dir, int rows, int cols) {
 
     s->backend = terminal_backend_spawn(start_dir, rows, cols,
                                         ide_ipc_socket_path(),
-                                        getWorkspacePath());
+                                        getWorkspacePath(),
+                                        ide_ipc_auth_token());
     if (!s->backend) {
         printToTerminal("[Terminal] Failed to start shell.\n");
         return false;

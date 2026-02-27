@@ -4,8 +4,10 @@
 #include "core/CommandBus/command_bus.h"
 #include "core/CommandBus/command_metadata.h"
 #include "app/GlobalInfo/core_state.h"
+#include "app/GlobalInfo/workspace_prefs.h"
 #include "ide/UI/layout.h"
 #include "ide/UI/ui_state.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
 
@@ -35,6 +37,13 @@ static bool text_entry_is_active(const IDECoreState* core) {
     return role == PANE_ROLE_EDITOR || role == PANE_ROLE_TERMINAL;
 }
 
+static bool global_shortcut_text_capture_active(void) {
+    if (isRenaming()) return true;
+    if (control_panel_is_search_focused()) return true;
+    if (git_panel_is_message_focused()) return true;
+    return false;
+}
+
 void handleKeyboardInput(SDL_Event* event,
                          UIPane** panes, int* paneCount, bool* running) {
     if (!event || event->type != SDL_KEYDOWN) return;
@@ -43,6 +52,37 @@ void handleKeyboardInput(SDL_Event* event,
     UIState* uiState = getUIState();
     SDL_Keycode key = event->key.keysym.sym;
     Uint16 mod = event->key.keysym.mod;
+    bool ctrl_or_cmd = (mod & (KMOD_CTRL | KMOD_GUI)) != 0;
+    bool shift = (mod & KMOD_SHIFT) != 0;
+
+    if (ctrl_or_cmd && shift && !global_shortcut_text_capture_active()) {
+        if (key == SDLK_t) {
+            if (ide_shared_theme_cycle_next()) {
+                char preset_name[128] = {0};
+                if (ide_shared_theme_current_preset(preset_name, sizeof(preset_name))) {
+                    saveThemePresetPreference(preset_name);
+                }
+                ide_refresh_live_theme();
+                requestFullRedraw(RENDER_INVALIDATION_THEME |
+                                  RENDER_INVALIDATION_BACKGROUND |
+                                  RENDER_INVALIDATION_CONTENT);
+            }
+            return;
+        }
+        if (key == SDLK_y) {
+            if (ide_shared_theme_cycle_prev()) {
+                char preset_name[128] = {0};
+                if (ide_shared_theme_current_preset(preset_name, sizeof(preset_name))) {
+                    saveThemePresetPreference(preset_name);
+                }
+                ide_refresh_live_theme();
+                requestFullRedraw(RENDER_INVALIDATION_THEME |
+                                  RENDER_INVALIDATION_BACKGROUND |
+                                  RENDER_INVALIDATION_CONTENT);
+            }
+            return;
+        }
+    }
 
     // === GLOBAL COMMANDS (Always valid regardless of focused pane) ===
 

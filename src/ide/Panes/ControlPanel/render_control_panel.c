@@ -55,10 +55,12 @@ static int render_filter_group(SDL_Renderer* renderer,
                                int gapX) {
     if (!renderer || !title || !specs || specCount <= 0) return y;
 
+    IDEThemePalette palette = {0};
     SDL_Color fill = {80, 80, 80, 255};
     SDL_Color fillActive = {120, 120, 120, 255};
     SDL_Color border = {180, 180, 180, 255};
     SDL_Color text = {230, 230, 230, 255};
+    ide_shared_theme_resolve_palette(&palette);
     ide_shared_theme_button_colors(&fill, &fillActive, &border, &text);
 
     const int buttonH = 16;
@@ -96,7 +98,11 @@ static int render_filter_group(SDL_Renderer* renderer,
                 rect.w + 2,
                 rect.h + 2
             };
-            SDL_SetRenderDrawColor(renderer, 232, 214, 162, 255);
+            SDL_SetRenderDrawColor(renderer,
+                                   palette.accent_warning.r,
+                                   palette.accent_warning.g,
+                                   palette.accent_warning.b,
+                                   palette.accent_warning.a);
             SDL_RenderDrawRect(renderer, &highlight);
         }
 
@@ -120,8 +126,10 @@ static int render_filter_group(SDL_Renderer* renderer,
 
 void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState* core) {
     RenderContext* ctx = getRenderContext();
+    IDEThemePalette palette = {0};
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
+    ide_shared_theme_resolve_palette(&palette);
 
     renderUIPane(pane, hovered);
 
@@ -163,7 +171,11 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
             int tw = getTextWidth(statusBuf);
             int tx = pane->x + pane->w - tw - 16;
             int ty = pane->y + 8;
-            drawTextWithTier(tx, ty, statusBuf, CORE_FONT_TEXT_SIZE_CAPTION);
+            if (snap.last_error[0]) {
+                drawTextWithTierError(tx, ty, statusBuf, CORE_FONT_TEXT_SIZE_CAPTION);
+            } else {
+                drawTextWithTierMuted(tx, ty, statusBuf, CORE_FONT_TEXT_SIZE_CAPTION);
+            }
         }
     }
     if (!snap.updating && !snap.last_error[0]) {
@@ -180,7 +192,7 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
             snprintf(runBuf, sizeof(runBuf), "Full rebuild");
         }
         if (runBuf[0]) {
-            drawTextWithTier(x, y + 13, runBuf, CORE_FONT_TEXT_SIZE_CAPTION);
+            drawTextWithTierMuted(x, y + 13, runBuf, CORE_FONT_TEXT_SIZE_CAPTION);
         }
     }
     y += 34;
@@ -200,19 +212,31 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     control_panel_set_search_box_rect(searchBox);
     control_panel_set_search_pause_button_rect(pauseBtn);
     control_panel_set_search_clear_button_rect(clearBtn);
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 20);  // faint fill
+    SDL_SetRenderDrawColor(renderer,
+                           palette.input_fill.r,
+                           palette.input_fill.g,
+                           palette.input_fill.b,
+                           80);
     SDL_RenderFillRect(renderer, &searchBox);
     if (control_panel_is_search_focused()) {
-        SDL_SetRenderDrawColor(renderer, 230, 230, 230, 255);
+        SDL_SetRenderDrawColor(renderer,
+                               palette.input_focus_border.r,
+                               palette.input_focus_border.g,
+                               palette.input_focus_border.b,
+                               255);
     } else {
-        SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255);
+        SDL_SetRenderDrawColor(renderer,
+                               palette.input_border.r,
+                               palette.input_border.g,
+                               palette.input_border.b,
+                               255);
     }
     SDL_RenderDrawRect(renderer, &searchBox);
     const char* query = control_panel_get_search_query();
     if (query && query[0]) {
         drawTextWithTier(x + 6, y + 3, query, CORE_FONT_TEXT_SIZE_CAPTION);
     } else if (!control_panel_is_search_focused()) {
-        drawTextWithTier(x + 6, y + 3, "type to filter...", CORE_FONT_TEXT_SIZE_CAPTION);
+        drawTextWithTierMuted(x + 6, y + 3, "type to filter...", CORE_FONT_TEXT_SIZE_CAPTION);
     }
 
     if (control_panel_is_search_focused()) {
@@ -230,21 +254,37 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
         beforeCursor[prefixLen] = '\0';
 
         int caretX = x + 6 + getTextWidth(beforeCursor);
-        SDL_SetRenderDrawColor(renderer, 220, 220, 220, 255);
+        SDL_SetRenderDrawColor(renderer,
+                               palette.input_focus_border.r,
+                               palette.input_focus_border.g,
+                               palette.input_focus_border.b,
+                               255);
         SDL_RenderDrawLine(renderer, caretX, y + 3, caretX, y + 18);
     }
 
     bool searchEnabled = control_panel_is_search_enabled();
-    SDL_Color pauseFill = searchEnabled ? (SDL_Color){255, 255, 255, 20} : (SDL_Color){95, 95, 95, 160};
+    SDL_Color pauseFill = searchEnabled ? palette.input_fill : darken_color(palette.button_fill, 20);
     SDL_SetRenderDrawColor(renderer, pauseFill.r, pauseFill.g, pauseFill.b, pauseFill.a);
     SDL_RenderFillRect(renderer, &pauseBtn);
-    SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255);
+    SDL_SetRenderDrawColor(renderer,
+                           palette.input_border.r,
+                           palette.input_border.g,
+                           palette.input_border.b,
+                           255);
     SDL_RenderDrawRect(renderer, &pauseBtn);
     drawTextWithTier(pauseBtn.x + 6, pauseBtn.y + 3, "||", CORE_FONT_TEXT_SIZE_CAPTION);
 
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 20);
+    SDL_SetRenderDrawColor(renderer,
+                           palette.input_fill.r,
+                           palette.input_fill.g,
+                           palette.input_fill.b,
+                           80);
     SDL_RenderFillRect(renderer, &clearBtn);
-    SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255);
+    SDL_SetRenderDrawColor(renderer,
+                           palette.input_border.r,
+                           palette.input_border.g,
+                           palette.input_border.b,
+                           255);
     SDL_RenderDrawRect(renderer, &clearBtn);
     drawTextWithTier(clearBtn.x + 6, clearBtn.y + 3, "x", CORE_FONT_TEXT_SIZE_CAPTION);
     y += 30;
@@ -427,8 +467,7 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     int listHeight = (pane->y + pane->h) - listTop;
     if (listHeight < 0) listHeight = 0;
 
-    SDL_Color editorBg = ide_shared_theme_background_color();
-    SDL_Color symbolsBgColor = editorBg;
+    SDL_Color symbolsBgColor = palette.pane_body_fill;
     if (same_rgb(symbolsBgColor, pane->bgColor)) {
         // Guarantee visual separation even when theme adapter returns same tone.
         symbolsBgColor = darken_color(pane->bgColor, 14);

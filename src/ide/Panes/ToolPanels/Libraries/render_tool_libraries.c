@@ -3,6 +3,7 @@
 #include "engine/Render/render_pipeline.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"
+#include "engine/Render/render_font.h"
 
 #include "core/Analysis/analysis_status.h"
 #include "core/Analysis/analysis_scheduler.h"
@@ -11,7 +12,9 @@
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/UI/scroll_manager.h"
 #include "ide/UI/ui_selection_style.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
 #include <string.h>
 
 static const char* bucket_label(LibraryBucketKind kind) {
@@ -22,6 +25,24 @@ static const char* bucket_label(LibraryBucketKind kind) {
         case LIB_BUCKET_UNRESOLVED: return "Unresolved headers";
         default:                    return "Headers";
     }
+}
+
+static TTF_Font* library_row_font(void) {
+    TTF_Font* font = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
+    return font ? font : getActiveFont();
+}
+
+static SDL_Color library_row_color(const LibraryFlatRow* row) {
+    IDEThemePalette palette = {0};
+    SDL_Color primary = {230, 230, 230, 255};
+    SDL_Color muted = {170, 170, 170, 255};
+    if (ide_shared_theme_resolve_palette(&palette)) {
+        primary = palette.text_primary;
+        muted = palette.text_muted;
+    }
+    if (!row) return primary;
+    if (row->type == LIB_NODE_USAGE) return muted;
+    return primary;
 }
 
 void renderLibrariesPanel(UIPane* pane) {
@@ -36,11 +57,14 @@ void renderLibrariesPanel(UIPane* pane) {
     SDL_Renderer* renderer = ctx->renderer;
 
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
-    const int headerHeight = LIBRARIES_HEADER_HEIGHT;
-    int contentX = pane->x + d.pad_left;
-    int contentY = pane->y + headerHeight;
-    int contentH = pane->h - headerHeight;
-    if (contentH < 0) contentH = 0;
+    const int trackWidth = 8;
+    const int trackGap = 4;
+    int contentTop = tool_panel_single_row_content_top(pane);
+    ToolPanelSplitLayout split = {0};
+    tool_panel_compute_split_layout(pane, contentTop, &split);
+    int contentX = split.body_rect.x + (d.pad_left - 1);
+    int contentY = split.body_rect.y;
+    int contentH = split.body_rect.h;
     int viewBottom = contentY + contentH;
 
     ToolPanelControlRow row = tool_panel_control_row_at(pane, pane->y + d.controls_top);
@@ -89,17 +113,26 @@ void renderLibrariesPanel(UIPane* pane) {
         drawText(tx, ty, statusBuf);
     }
 
-    tool_panel_render_split_background(renderer, pane, contentY, 14);
+    tool_panel_render_split_background(renderer, pane, contentTop, d.body_darken);
 
-    SDL_Rect clip = { pane->x, contentY, pane->w, contentH };
+    st->scrollTrack = (SDL_Rect){
+        split.body_rect.x + split.body_rect.w - trackWidth,
+        contentY,
+        trackWidth,
+        contentH
+    };
+    st->scrollThumb = st->scrollTrack;
+    SDL_Rect clip = {
+        split.body_rect.x,
+        contentY,
+        split.body_rect.w - (trackWidth + trackGap),
+        contentH
+    };
+    if (clip.w < 0) clip.w = 0;
     pushClipRect(&clip);
 
-    st->scrollTrack = (SDL_Rect){ pane->x + pane->w - 12, contentY, 8, contentH };
-    st->scrollThumb = st->scrollTrack;
-
     // Allow full scroll so the last line can sit at the top (add viewport height).
-    float totalHeight = (float)LIBRARIES_LIST_TOP_GAP +
-                        (float)(st->flatCount * LIBRARY_ROW_HEIGHT) +
+    float totalHeight = (float)(st->flatCount * LIBRARY_ROW_HEIGHT) +
                         (float)contentH;
     scroll_state_set_viewport(&st->scroll, (float)contentH);
     scroll_state_set_content_height(&st->scroll, totalHeight);
@@ -111,8 +144,10 @@ void renderLibrariesPanel(UIPane* pane) {
 
     st->hoveredRow = -1;
     float offset = scroll_state_get_offset(&st->scroll);
-    // Offset rows by scroll, then subtract header so row 0 starts just inside clip.
-    int yStart = contentY + LIBRARIES_LIST_TOP_GAP - (int)offset;
+    int yStart = contentY - (int)offset;
+    TTF_Font* rowFont = library_row_font();
+    int textHeight = rowFont ? TTF_FontHeight(rowFont) : LIBRARY_ROW_HEIGHT;
+    if (textHeight < 1) textHeight = LIBRARY_ROW_HEIGHT;
 
     int mouseX = 0, mouseY = 0;
     SDL_GetMouseState(&mouseX, &mouseY);
@@ -124,11 +159,6 @@ void renderLibrariesPanel(UIPane* pane) {
         int rowBottom = rowTop + rowHeight;
         if (rowBottom <= contentY) continue;   // entirely above clip
         if (rowTop >= viewBottom) break;       // past viewport
-
-        // Skip rows that are only partially inside the clip; require full visibility to draw.
-        if (rowTop < contentY || rowBottom > viewBottom) {
-            continue;
-        }
 
         int drawY = rowTop;
         int indent = row->depth * 20;
@@ -158,27 +188,44 @@ void renderLibrariesPanel(UIPane* pane) {
             snprintf(line, sizeof(line), "    %s", row->labelPrimary ? row->labelPrimary : "(usage)");
         }
 
-        int textWidth = getTextWidth(line);
-        SDL_Rect box = { drawX - 6, drawY - 1, textWidth + 12, LIBRARY_ROW_HEIGHT };
+        int textWidth = getTextWidthWithFont(line, rowFont);
+        int textY = drawY + ((LIBRARY_ROW_HEIGHT - textHeight) / 2);
+        SDL_Rect box = {
+            drawX - 6,
+            textY - 1,
+            textWidth + 12,
+            textHeight + 2
+        };
+        SDL_Rect visibleBox = {0};
+        bool rowVisible = SDL_IntersectRect(&box, &clip, &visibleBox);
+        if (!rowVisible) {
+            continue;
+        }
 
         bool isSel = library_row_is_selected(i);
         if (isSel) {
             SDL_Color sel = ui_selection_fill_color();
             SDL_SetRenderDrawColor(renderer, sel.r, sel.g, sel.b, sel.a);
-            SDL_RenderFillRect(renderer, &box);
+            SDL_RenderFillRect(renderer, &visibleBox);
         }
 
-        if (mouseY >= drawY && mouseY < drawY + LIBRARY_ROW_HEIGHT &&
-            mouseX >= pane->x && mouseX < pane->x + pane->w) {
+        if (mouseY >= visibleBox.y && mouseY < visibleBox.y + visibleBox.h &&
+            mouseX >= visibleBox.x && mouseX < visibleBox.x + visibleBox.w) {
             st->hoveredRow = i;
             SDL_SetRenderDrawColor(renderer, 100, 100, 140, 120);
-            SDL_RenderDrawRect(renderer, &box);
+            SDL_RenderDrawRect(renderer, &visibleBox);
         } else if (st->selectedRow == i) {
             SDL_SetRenderDrawColor(renderer, 200, 200, 240, 180);
-            SDL_RenderDrawRect(renderer, &box);
+            SDL_RenderDrawRect(renderer, &visibleBox);
         }
 
-        drawText(drawX, drawY, line);
+        drawTextUTF8WithFontColorClipped(drawX,
+                                         textY,
+                                         line,
+                                         rowFont,
+                                         library_row_color(row),
+                                         false,
+                                         &clip);
     }
 
     // Scrollbar render

@@ -21,7 +21,8 @@ typedef struct TerminalBackend {
 
 TerminalBackend* terminal_backend_spawn(const char* start_dir, int rows, int cols,
                                         const char* ide_socket_path,
-                                        const char* project_root_path);
+                                        const char* project_root_path,
+                                        const char* ide_auth_token);
 void terminal_backend_destroy(TerminalBackend* term);
 
 // Returns total bytes read; -1 on fatal error. Non-blocking; safe to call when

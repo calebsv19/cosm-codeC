@@ -8,6 +8,7 @@
 #include "engine/Render/render_pipeline.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/Editor/editor_projection.h"
+#include "ide/Panes/Editor/undo_stack.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
 #include "ide/Panes/Editor/editor_state.h"
 #include "ide/Panes/Editor/editor_view_state.h"
@@ -16,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
 
 
 
@@ -106,6 +108,9 @@ static void editor_release_open_file(OpenFile* file) {
     }
 
     unwatchFile(file);
+    clearUndoHistory(file);
+    free(file->undoStack);
+    file->undoStack = NULL;
     editor_projection_free(&file->projection);
     if (file->buffer) {
         freeEditorBuffer(file->buffer);
@@ -129,15 +134,50 @@ void editor_projection_reset(SearchProjection* projection) {
 
 void editor_projection_free(SearchProjection* projection) {
     if (!projection) return;
-    if (projection->lines) {
-        for (int i = 0; i < projection->lineCount; ++i) {
-            free(projection->lines[i]);
+    const int maxReasonableRows = 200000;
+    int lineCount = projection->lineCount;
+    if (lineCount < 0 || lineCount > maxReasonableRows) {
+        fprintf(stderr, "[Projection] Ignoring suspicious lineCount=%d during free\n", projection->lineCount);
+        lineCount = 0;
+    }
+
+    uintptr_t linesPtr = (uintptr_t)projection->lines;
+    if (projection->lines && linesPtr >= 4096u) {
+        for (int i = 0; i < lineCount; ++i) {
+            uintptr_t rowPtr = (uintptr_t)projection->lines[i];
+            if (rowPtr >= 4096u) {
+                free(projection->lines[i]);
+            }
         }
         free(projection->lines);
+    } else if (projection->lines) {
+        fprintf(stderr, "[Projection] Ignoring suspicious lines pointer=%p during free\n",
+                (void*)projection->lines);
     }
-    free(projection->projectedToRealLine);
-    free(projection->projectedToRealCol);
-    free(projection->realMatchLines);
+
+    uintptr_t realLinePtr = (uintptr_t)projection->projectedToRealLine;
+    if (projection->projectedToRealLine && realLinePtr >= 4096u) {
+        free(projection->projectedToRealLine);
+    } else if (projection->projectedToRealLine) {
+        fprintf(stderr, "[Projection] Ignoring suspicious realLine pointer=%p during free\n",
+                (void*)projection->projectedToRealLine);
+    }
+
+    uintptr_t realColPtr = (uintptr_t)projection->projectedToRealCol;
+    if (projection->projectedToRealCol && realColPtr >= 4096u) {
+        free(projection->projectedToRealCol);
+    } else if (projection->projectedToRealCol) {
+        fprintf(stderr, "[Projection] Ignoring suspicious realCol pointer=%p during free\n",
+                (void*)projection->projectedToRealCol);
+    }
+
+    uintptr_t matchesPtr = (uintptr_t)projection->realMatchLines;
+    if (projection->realMatchLines && matchesPtr >= 4096u) {
+        free(projection->realMatchLines);
+    } else if (projection->realMatchLines) {
+        fprintf(stderr, "[Projection] Ignoring suspicious realMatch pointer=%p during free\n",
+                (void*)projection->realMatchLines);
+    }
     editor_projection_reset(projection);
 }
 
@@ -610,21 +650,9 @@ void closeTab(EditorView* view, int index) {
 
 
     if (view == core->activeEditorView) {
-        if (view->activeTab >= 0 && view->activeTab < view->fileCount) {
-            OpenFile* current = view->openFiles[view->activeTab];
-            if (current && current->buffer) {
-                editorBuffer = current->buffer;
-                editorState = &current->state;
-            } else {
-                editorBuffer = NULL;
-                editorState = NULL;
-            }
-        } else {
-            // No valid tabs left in this view
-            editorBuffer = NULL;
-            editorState = NULL;
-            core->activeEditorView = NULL;
-        }
+        // Keep the leaf active even when the last tab closes so empty editor
+        // views remain valid open targets for project-panel double-click/open.
+        setActiveEditorView(view);
     }
 
     rebuildLeafHitboxes(getCoreState()->persistentEditorView);

@@ -12,11 +12,13 @@
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/system_control.h"
 #include "app/GlobalInfo/event_loop.h"
+#include "app/GlobalInfo/workspace_prefs.h"
 #include "timer_hud/time_scope.h"
 
 
 // 	UI STATE
 #include "ide/UI/layout.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/Panes/Editor/editor_view.h"
 
 int STARTING_WIDTH = 1600, STARTING_HEIGHT = 860;
@@ -79,6 +81,15 @@ int main(int argc, char* argv[]){
 	if (!initializeSystem()) {
             return 1;
         }
+
+    {
+        const char* persistedTheme = loadThemePresetPreference();
+        if (persistedTheme && persistedTheme[0]) {
+            if (ide_shared_theme_set_preset(persistedTheme)) {
+                ide_refresh_live_theme();
+            }
+        }
+    }
 
 
 	UIPane* panes[MAX_PANES];

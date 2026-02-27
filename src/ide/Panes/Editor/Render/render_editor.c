@@ -22,6 +22,89 @@
 #include <string.h>
 #include <stdlib.h>
 
+static Uint8 clamp_u8(int value) {
+    if (value < 0) return 0;
+    if (value > 255) return 255;
+    return (Uint8)value;
+}
+
+static SDL_Color brighten_color(SDL_Color c, int amount) {
+    return (SDL_Color){
+        clamp_u8((int)c.r + amount),
+        clamp_u8((int)c.g + amount),
+        clamp_u8((int)c.b + amount),
+        c.a
+    };
+}
+
+static SDL_Color darken_color(SDL_Color c, int amount) {
+    return (SDL_Color){
+        clamp_u8((int)c.r - amount),
+        clamp_u8((int)c.g - amount),
+        clamp_u8((int)c.b - amount),
+        c.a
+    };
+}
+
+static SDL_Color alpha_color(SDL_Color c, Uint8 alpha) {
+    c.a = alpha;
+    return c;
+}
+
+static int color_luma(SDL_Color c) {
+    return ((int)c.r * 299 + (int)c.g * 587 + (int)c.b * 114) / 1000;
+}
+
+static bool is_light_color(SDL_Color c) {
+    return color_luma(c) >= 170;
+}
+
+static SDL_Color editor_gutter_fill(const IDEThemePalette* palette);
+
+static SDL_Color editor_content_text_color(const IDEThemePalette* palette) {
+    if (!palette) return (SDL_Color){235, 235, 235, 255};
+    if (is_light_color(palette->app_background)) {
+        return darken_color(palette->text_muted, 18);
+    }
+    return palette->text_primary;
+}
+
+static SDL_Color editor_tab_active_fill(const IDEThemePalette* palette) {
+    if (!palette) return (SDL_Color){48, 48, 56, 255};
+    return palette->app_background;
+}
+
+static SDL_Color editor_tab_inactive_fill(const IDEThemePalette* palette) {
+    SDL_Color header = {44, 46, 50, 255};
+    if (palette) {
+        header = editor_gutter_fill(palette);
+        header.a = 255;
+    }
+    if (is_light_color(header)) {
+        return darken_color(header, 10);
+    }
+    return brighten_color(header, 10);
+}
+
+static SDL_Color editor_header_fill(const IDEThemePalette* palette) {
+    SDL_Color fill = editor_gutter_fill(palette);
+    fill.a = 255;
+    return fill;
+}
+
+static SDL_Color editor_content_fill(const IDEThemePalette* palette) {
+    if (!palette) return (SDL_Color){28, 30, 34, 255};
+    return palette->app_background;
+}
+
+static SDL_Color editor_gutter_fill(const IDEThemePalette* palette) {
+    if (!palette) return (SDL_Color){34, 36, 40, 220};
+    if (is_light_color(palette->app_background)) {
+        return alpha_color(darken_color(palette->app_background, 14), 220);
+    }
+    return alpha_color(darken_color(palette->pane_body_fill, 6), 220);
+}
+
 static bool use_projection_render_source(const OpenFile* file) {
     return file &&
            editor_file_projection_active(file) &&
@@ -81,6 +164,7 @@ static void render_projection_inline_markers(EditorView* view, OpenFile* file) {
     RenderContext* ctx = getRenderContext();
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
+    IDEThemePalette palette = {0};
 
     const int lineHeight = EDITOR_LINE_HEIGHT;
     int boxX = view->x + EDITOR_PADDING;
@@ -95,7 +179,12 @@ static void render_projection_inline_markers(EditorView* view, OpenFile* file) {
 
     int markerX = boxX + boxW - 7;
     int startY = boxY + HEADER_HEIGHT + file->state.verticalPadding;
-    SDL_SetRenderDrawColor(renderer, 255, 210, 120, 180);
+    ide_shared_theme_resolve_palette(&palette);
+    SDL_SetRenderDrawColor(renderer,
+                           palette.accent_warning.r,
+                           palette.accent_warning.g,
+                           palette.accent_warning.b,
+                           180);
     for (int i = 0; i < file->projection.realMatchCount; ++i) {
         int line = file->projection.realMatchLines[i];
         if (line < 0 || line >= totalRealLines) continue;
@@ -115,7 +204,7 @@ static SDL_Rect compute_tab_header_viewport(const EditorView* view) {
         boxX + 1,
         boxY + 1,
         boxW - closeReserve - 2,
-        HEADER_HEIGHT - 2
+        HEADER_HEIGHT - 1
     };
     if (viewport.w < 0) viewport.w = 0;
     if (viewport.h < 0) viewport.h = 0;
@@ -232,8 +321,25 @@ void renderLeafEditorView(EditorView* view) {
     RenderContext* ctx = getRenderContext();
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
+    IDEThemePalette palette = {0};
+    SDL_Color bodyText = {0};
+    SDL_Color mutedText = {0};
+    SDL_Color headerFill = {0};
+    SDL_Color contentFill = {0};
+    SDL_Color activeTabFill = {0};
+    SDL_Color inactiveTabFill = {0};
 
     EditorViewState* vs = getCoreState()->editorViewState;
+    ide_shared_theme_resolve_palette(&palette);
+    bodyText = editor_content_text_color(&palette);
+    mutedText = palette.text_muted;
+    if (is_light_color(palette.app_background)) {
+        mutedText = darken_color(mutedText, 12);
+    }
+    headerFill = editor_header_fill(&palette);
+    contentFill = editor_content_fill(&palette);
+    activeTabFill = editor_tab_active_fill(&palette);
+    inactiveTabFill = editor_tab_inactive_fill(&palette);
 
     int boxX = view->x + EDITOR_PADDING;
     int boxY = view->y + EDITOR_PADDING;
@@ -273,7 +379,11 @@ void renderLeafEditorView(EditorView* view) {
     }
 
     // Draw editor outline
-    SDL_SetRenderDrawColor(renderer, 90, 90, 90, 255);
+    SDL_SetRenderDrawColor(renderer,
+                           palette.pane_border.r,
+                           palette.pane_border.g,
+                           palette.pane_border.b,
+                           255);
     SDL_Rect outline = { boxX, boxY, boxW, boxH };
     SDL_RenderDrawRect(renderer, &outline);
 
@@ -282,10 +392,23 @@ void renderLeafEditorView(EditorView* view) {
     if (leafClip.h < 0) leafClip.h = 0;
     pushClipRect(&leafClip);
 
+    SDL_Rect headerBgRect = { boxX + 1, boxY + 1, boxW - 2, HEADER_HEIGHT - 1 };
+    if (headerBgRect.w > 0 && headerBgRect.h > 0) {
+        SDL_SetRenderDrawColor(renderer, headerFill.r, headerFill.g, headerFill.b, headerFill.a);
+        SDL_RenderFillRect(renderer, &headerBgRect);
+    }
+
+    SDL_Rect contentBgRect = { boxX + 1, boxY + HEADER_HEIGHT, boxW - 2, boxH - HEADER_HEIGHT - 1 };
+    if (contentBgRect.w > 0 && contentBgRect.h > 0) {
+        SDL_SetRenderDrawColor(renderer, contentFill.r, contentFill.g, contentFill.b, contentFill.a);
+        SDL_RenderFillRect(renderer, &contentBgRect);
+    }
+
     if (isDropTarget) {
         SDL_Rect dropRect = { boxX + 1, boxY + HEADER_HEIGHT + 1, boxW - 2, boxH - HEADER_HEIGHT - 2 };
         if (dropRect.w > 0 && dropRect.h > 0) {
-            SDL_SetRenderDrawColor(renderer, 190, 220, 255, 15);
+            SDL_Color dropFill = alpha_color(palette.selection_fill, 32);
+            SDL_SetRenderDrawColor(renderer, dropFill.r, dropFill.g, dropFill.b, dropFill.a);
             SDL_RenderFillRect(renderer, &dropRect);
         }
     }
@@ -314,15 +437,18 @@ void renderLeafEditorView(EditorView* view) {
 
             const char* rawLabel = getFileName(file->filePath);
             int tabW = compute_tab_visual_width(view, i, rawLabel, tabFont);
-            SDL_Rect tabRect = { tabX, boxY, tabW, HEADER_HEIGHT };
-            int tabYInset = (HEADER_HEIGHT - EDITOR_TAB_HEIGHT) / 2;
-            if (tabYInset < 0) tabYInset = 0;
-            SDL_Rect tabVisualRect = {
-                tabRect.x,
-                tabRect.y + tabYInset,
-                tabRect.w,
-                EDITOR_TAB_HEIGHT
-            };
+            SDL_Rect tabRect = { tabX, headerBgRect.y, tabW, headerBgRect.h };
+            SDL_Rect tabVisualRect = tabRect;
+            if (i != view->activeTab) {
+                int tabYInset = (headerBgRect.h - EDITOR_TAB_HEIGHT) / 2;
+                if (tabYInset < 1) tabYInset = 1;
+                tabVisualRect.y += tabYInset;
+                tabVisualRect.h = EDITOR_TAB_HEIGHT;
+                if (tabVisualRect.y + tabVisualRect.h > headerBgRect.y + headerBgRect.h) {
+                    tabVisualRect.h = (headerBgRect.y + headerBgRect.h) - tabVisualRect.y;
+                }
+                if (tabVisualRect.h < 8) tabVisualRect.h = 8;
+            }
 
             SDL_Rect visible = {0};
             if (!SDL_IntersectRect(&tabVisualRect, &tabViewport, &visible)) {
@@ -342,9 +468,13 @@ void renderLeafEditorView(EditorView* view) {
             }
 
             if (i == view->activeTab) {
-                SDL_SetRenderDrawColor(renderer, 100, 100, 200, 255);
+                SDL_SetRenderDrawColor(renderer, activeTabFill.r, activeTabFill.g, activeTabFill.b, 255);
             } else {
-                SDL_SetRenderDrawColor(renderer, HEADER_BG_R, HEADER_BG_G, HEADER_BG_B, 255);
+                SDL_SetRenderDrawColor(renderer,
+                                       inactiveTabFill.r,
+                                       inactiveTabFill.g,
+                                       inactiveTabFill.b,
+                                       inactiveTabFill.a);
             }
             SDL_RenderFillRect(renderer, &visible);
 
@@ -353,11 +483,14 @@ void renderLeafEditorView(EditorView* view) {
             char display[256];
             build_tab_label(rawLabel, textBudget, tabFont, display, sizeof(display));
             int drawTextX = tabX + EDITOR_TAB_TEXT_PAD;
+            int tabTextH = tabFont ? TTF_FontHeight(tabFont) : 12;
+            int drawTextY = tabVisualRect.y + (tabVisualRect.h - tabTextH) / 2;
+            if (drawTextY < tabVisualRect.y) drawTextY = tabVisualRect.y;
             int visibleTextW = (visible.x + visible.w) - drawTextX;
             if (visibleTextW > 0) {
-                SDL_Color textColor = {255, 255, 255, 255};
+                SDL_Color textColor = (i == view->activeTab) ? bodyText : mutedText;
                 SDL_Rect textClip = visible;
-                drawTextUTF8WithFontColorClipped(drawTextX, boxY + 2, display,
+                drawTextUTF8WithFontColorClipped(drawTextX, drawTextY, display,
                                                  tabFont, textColor, false,
                                                  &textClip);
             }
@@ -395,18 +528,25 @@ void renderLeafEditorView(EditorView* view) {
     }
 
     // Subtle close button visual (smaller than hitbox)
-    SDL_SetRenderDrawColor(renderer, 66, 56, 56, 255);
+    {
+        SDL_Color closeFill = darken_color(palette.accent_error, 96);
+        SDL_SetRenderDrawColor(renderer, closeFill.r, closeFill.g, closeFill.b, 255);
+    }
     SDL_RenderFillRect(renderer, &xButtonVisualRect);
 
     // Border
-    SDL_SetRenderDrawColor(renderer, 90, 80, 80, 255);
+    SDL_SetRenderDrawColor(renderer,
+                           palette.accent_error.r,
+                           palette.accent_error.g,
+                           palette.accent_error.b,
+                           255);
     SDL_RenderDrawRect(renderer, &xButtonVisualRect);
 
     // Draw "X" text
     int xTextW = getTextWidthWithFont("X", tabFont);
     int xTextX = xButtonVisualRect.x + (xButtonVisualRect.w - xTextW) / 2;
     int xTextY = xButtonVisualRect.y - 1;
-    drawTextWithTier(xTextX, xTextY, "X", CORE_FONT_TEXT_SIZE_CAPTION);
+    drawTextWithTierColor(xTextX, xTextY, "X", CORE_FONT_TEXT_SIZE_CAPTION, bodyText);
 
     // Render buffer contents
     if (view->activeTab >= 0 && view->activeTab < view->fileCount) {
@@ -417,9 +557,14 @@ void renderLeafEditorView(EditorView* view) {
             if (use_projection_render_source(active)) {
                 int badgeX = boxX + EDITOR_LINE_NUMBER_GUTTER_W + 8;
                 SDL_Rect badge = { badgeX, boxY + HEADER_HEIGHT + 3, 112, 14 };
-                SDL_SetRenderDrawColor(renderer, 58, 64, 84, 200);
+                SDL_Color badgeFill = alpha_color(brighten_color(palette.pane_body_fill, 16), 200);
+                SDL_SetRenderDrawColor(renderer, badgeFill.r, badgeFill.g, badgeFill.b, badgeFill.a);
                 SDL_RenderFillRect(renderer, &badge);
-                drawTextWithTier(badge.x + 5, badge.y + 1, "projection view", CORE_FONT_TEXT_SIZE_CAPTION);
+                drawTextWithTierColor(badge.x + 5,
+                                      badge.y + 1,
+                                      "projection view",
+                                      CORE_FONT_TEXT_SIZE_CAPTION,
+                                      bodyText);
             }
 
             renderEditorBuffer(
@@ -447,29 +592,36 @@ void renderEditorScrollbar(EditorView* view, OpenFile* file) {
     RenderContext* ctx = getRenderContext();
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
+    IDEThemePalette palette = {0};
+    SDL_Color trackFill = {0};
+    SDL_Color thumbFill = {0};
     
     EditorState* state = &file->state;
     int totalLines = editor_render_line_count(file);
-    int lineHeight = EDITOR_LINE_HEIGHT;
-    
     int boxX = view->x + EDITOR_PADDING;
     int boxY = view->y + EDITOR_PADDING;
     int boxW = view->w - 2 * EDITOR_PADDING;
     int boxH = view->h - 2 * EDITOR_PADDING;
     
     int contentHeight = boxH - HEADER_HEIGHT;
-    int visibleLines = contentHeight / lineHeight;
+    ide_shared_theme_resolve_palette(&palette);
+    if (is_light_color(palette.app_background)) {
+        trackFill = alpha_color(darken_color(palette.app_background, 12), 150);
+    } else {
+        trackFill = alpha_color(darken_color(palette.pane_body_fill, 8), 150);
+    }
+    thumbFill = alpha_color(brighten_color(palette.pane_border, 10), 220);
     
-    if (totalLines <= visibleLines) return;
-    
-    int maxScroll = totalLines - visibleLines;
-    if (maxScroll < 0) maxScroll = 0;
-    float maxOffsetPx = (float)maxScroll * (float)lineHeight;
+    if (contentHeight <= 0) return;
+
+    float maxOffsetPx = editor_max_scroll_offset_px(state, totalLines, contentHeight);
+    if (maxOffsetPx <= 0.0f) return;
     float offsetPx = state->scrollOffsetPx;
     if (offsetPx < 0.0f) offsetPx = 0.0f;
     if (offsetPx > maxOffsetPx) offsetPx = maxOffsetPx;
     float scrollYRatio = (maxOffsetPx > 0.0f) ? (offsetPx / maxOffsetPx) : 0.0f;
-    float visibleRatio = (float)visibleLines / (float)totalLines;
+    float visibleRatio =
+        (float)contentHeight / (float)editor_total_content_height_px(state, totalLines);
     
     // Clamp scrollYRatio
     if (scrollYRatio < 0.0f) scrollYRatio = 0.0f;
@@ -503,12 +655,16 @@ void renderEditorScrollbar(EditorView* view, OpenFile* file) {
     }
      
     // Render track background
-    SDL_SetRenderDrawColor(renderer, 45, 45, 45, 150);
+    SDL_SetRenderDrawColor(renderer, trackFill.r, trackFill.g, trackFill.b, trackFill.a);
     SDL_RenderFillRect(renderer, &scrollbarTrack);
 
     if (editor_has_match_markers(file) && file->buffer->lineCount > 0) {
         int totalRealLines = file->buffer->lineCount;
-        SDL_SetRenderDrawColor(renderer, 255, 210, 120, 170);
+        SDL_SetRenderDrawColor(renderer,
+                               palette.accent_warning.r,
+                               palette.accent_warning.g,
+                               palette.accent_warning.b,
+                               170);
         for (int i = 0; i < file->projection.realMatchCount; ++i) {
             int line = file->projection.realMatchLines[i];
             if (line < 0 || line >= totalRealLines) continue;
@@ -520,7 +676,7 @@ void renderEditorScrollbar(EditorView* view, OpenFile* file) {
     }
     
     // Render thumb
-    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 220);
+    SDL_SetRenderDrawColor(renderer, thumbFill.r, thumbFill.g, thumbFill.b, thumbFill.a);
     SDL_RenderFillRect(renderer, &scrollbarThumb);
 }
 
@@ -536,38 +692,49 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
     RenderContext* ctx = getRenderContext();
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
+    IDEThemePalette palette = {0};
+    SDL_Color gutterFill = {0};
+    SDL_Color bodyText = {0};
 
     const int lineHeight = EDITOR_LINE_HEIGHT;
     TTF_Font* textFont = get_editor_text_font();
     const int gutterW = EDITOR_LINE_NUMBER_GUTTER_W;
-    const int textX = x + gutterW + 6;
-    const int startY = y + state->verticalPadding;
-    const int contentHeight = h - (startY - y);
-    const int maxVisibleLines = (contentHeight > 0) ? contentHeight / lineHeight : 0;
+    const int textX = x + gutterW + EDITOR_TEXT_LEFT_INSET;
+    const int textMaxWidth = w - gutterW - 14;
     const int totalLines = editor_render_line_count(file);
+    ide_shared_theme_resolve_palette(&palette);
+    gutterFill = editor_gutter_fill(&palette);
+    bodyText = editor_content_text_color(&palette);
     SDL_Rect contentClip = { x, y, w, h };
     if (contentClip.w < 0) contentClip.w = 0;
     if (contentClip.h < 0) contentClip.h = 0;
     pushClipRect(&contentClip);
 
     SDL_Rect gutterRect = { x, y, gutterW, h };
-    SDL_SetRenderDrawColor(renderer, 38, 40, 46, 220);
+    SDL_SetRenderDrawColor(renderer, gutterFill.r, gutterFill.g, gutterFill.b, gutterFill.a);
     SDL_RenderFillRect(renderer, &gutterRect);
-    SDL_SetRenderDrawColor(renderer, 66, 68, 76, 255);
-    SDL_RenderDrawLine(renderer, x + gutterW - 1, y, x + gutterW - 1, y + h);
 
-    int maxScrollRows = totalLines - maxVisibleLines;
-    if (maxScrollRows < 0) maxScrollRows = 0;
-    float maxScrollPx = (float)maxScrollRows * (float)lineHeight;
+    SDL_Rect gutterTextClip = { x + 1, y, gutterW - 2, h };
+    if (gutterTextClip.w < 0) gutterTextClip.w = 0;
+    if (gutterTextClip.h < 0) gutterTextClip.h = 0;
+
+    SDL_Rect textViewportClip = { textX, y, textMaxWidth, h };
+    if (textViewportClip.w < 0) textViewportClip.w = 0;
+    if (textViewportClip.h < 0) textViewportClip.h = 0;
+
+    float maxScrollPx = editor_max_scroll_offset_px(state, totalLines, h);
 
     bool cursorChangedForScroll = (state->cursorRow != state->lastScrollAnchorCursorRow) ||
                                   (state->cursorCol != state->lastScrollAnchorCursorCol);
     if (!projectionMode && cursorChangedForScroll) {
-        int topRow = (int)(state->scrollOffsetPx / (float)lineHeight);
-        if (state->cursorRow < topRow) {
-            state->scrollTargetPx = (float)state->cursorRow * (float)lineHeight;
-        } else if (state->cursorRow >= topRow + maxVisibleLines) {
-            state->scrollTargetPx = (float)(state->cursorRow - maxVisibleLines + 1) * (float)lineHeight;
+        int viewportTopPx = (int)state->scrollTargetPx;
+        int viewportBottomPx = viewportTopPx + h;
+        int cursorTopPx = editor_vertical_padding_px(state) + state->cursorRow * lineHeight;
+        int cursorBottomPx = cursorTopPx + lineHeight;
+        if (cursorTopPx < viewportTopPx) {
+            state->scrollTargetPx = (float)cursorTopPx;
+        } else if (cursorBottomPx > viewportBottomPx) {
+            state->scrollTargetPx = (float)(cursorBottomPx - h);
         }
     }
 
@@ -578,25 +745,21 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
 
     state->scrollOffsetPx = state->scrollTargetPx;
 
-    int topRow = (int)(state->scrollOffsetPx / (float)lineHeight);
-    if (topRow < 0) topRow = 0;
-    if (topRow > maxScrollRows) topRow = maxScrollRows;
-    int intraOffset = (int)(state->scrollOffsetPx - (float)topRow * (float)lineHeight);
-    if (intraOffset < 0) intraOffset = 0;
-    if (intraOffset >= lineHeight) intraOffset = lineHeight - 1;
-    state->viewTopRow = topRow;
+    int firstVisibleRow = editor_first_visible_row(state);
+    if (firstVisibleRow >= totalLines && totalLines > 0) {
+        firstVisibleRow = totalLines - 1;
+    }
+    int intraOffset = editor_first_visible_row_offset_px(state, firstVisibleRow);
+    state->viewTopRow = firstVisibleRow;
     state->lastScrollAnchorCursorRow = state->cursorRow;
     state->lastScrollAnchorCursorCol = state->cursorCol;
 
     // Draw visible lines
-    for (int i = 0; i < maxVisibleLines + 2; i++) {
-        int bufferLineIndex = topRow + i;
-        if (bufferLineIndex >= totalLines) break;
-
+    for (int bufferLineIndex = firstVisibleRow; bufferLineIndex < totalLines; ++bufferLineIndex) {
         const char* line = editor_render_line_at(file, bufferLineIndex);
-
-        int yLine = startY - intraOffset + i * lineHeight;
-        int maxWidth = w - gutterW - 14;
+        int yLine = y - intraOffset + (bufferLineIndex - firstVisibleRow) * lineHeight;
+        if (yLine >= y + h) break;
+        int maxWidth = textMaxWidth;
         if (maxWidth < 0) maxWidth = 0;
         int visibleXMin = textX;
         int visibleXMax = textX + maxWidth;
@@ -609,10 +772,12 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
             int numX = x + gutterW - 6 - numW;
             if (numX < x + 2) numX = x + 2;
             SDL_Color numColor = projectionMode
-                                 ? (SDL_Color){165, 170, 180, 255}
-                                 : (SDL_Color){130, 135, 145, 255};
-            SDL_Rect numClip = { x + 1, yLine, gutterW - 2, lineHeight };
-            drawTextUTF8WithFontColorClipped(numX, yLine, numBuf, textFont, numColor, false, &numClip);
+                                 ? brighten_color(palette.text_muted, 18)
+                                 : palette.text_muted;
+            if (is_light_color(palette.app_background)) {
+                numColor = darken_color(numColor, 16);
+            }
+            drawTextUTF8WithFontColorClipped(numX, yLine, numBuf, textFont, numColor, false, &gutterTextClip);
         }
 
         if (!projectionMode) {
@@ -627,16 +792,15 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
                     highlight.w = 2;
                 }
                 if (highlight.w > 0) {
-                    SDL_Color sel = ui_selection_fill_color();
+                    SDL_Color sel = palette.selection_fill;
                     SDL_SetRenderDrawColor(renderer, sel.r, sel.g, sel.b, sel.a);
                     SDL_RenderFillRect(renderer, &highlight);
                 }
             }
         }
 
-        SDL_Color textColor = {255, 255, 255, 255};
-        SDL_Rect lineClip = { textX, yLine, maxWidth, lineHeight };
-        drawTextUTF8WithFontColorClipped(textX, yLine, line, textFont, textColor, false, &lineClip);
+        SDL_Color textColor = bodyText;
+        drawTextUTF8WithFontColorClipped(textX, yLine, line, textFont, textColor, false, &textViewportClip);
 
         if (!projectionMode) {
             int lineLen = line ? (int)strlen(line) : 0;
@@ -671,7 +835,7 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
                             ? textX
                             : textX + getTextWidthNWithFont(line, state->cursorCol, textFont);
 
-                SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+                SDL_SetRenderDrawColor(renderer, bodyText.r, bodyText.g, bodyText.b, bodyText.a);
                 SDL_RenderDrawLine(renderer, cursorX, yLine, cursorX, yLine + lineHeight);
             }
         }

@@ -8,6 +8,7 @@
 #include "ide/Panes/Terminal/terminal.h"
 #include "ide/Panes/PaneInfo/pane.h"
 #include "ide/Panes/Editor/editor_view.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "core/FileIO/file_ops.h"
 #include "core/Analysis/analysis_scheduler.h"
 #include "core/Clipboard/clipboard.h"
@@ -548,7 +549,8 @@ void handleProjectFilesClick(UIPane* pane, int clickX) {
     lastClickTime = now;
 
     int indent = hoveredEntryDepth * PROJECT_TREE_INDENT_WIDTH;
-    int drawX = pane->x + 12 + indent;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    int drawX = pane->x + d.pad_left + indent;
     int prefixWidth = getTextWidth("[-] ");
     bool clickedPrefix = (clickX >= drawX && clickX <= drawX + prefixWidth);
 

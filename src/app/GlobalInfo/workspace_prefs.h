@@ -17,6 +17,8 @@ const char* loadWorkspacePreference(void);
 void saveWorkspacePreference(const char* path);
 const char* loadRunTargetPreference(void);
 void saveRunTargetPreference(const char* path);
+const char* loadThemePresetPreference(void);
+void saveThemePresetPreference(const char* preset_name);
 
 const WorkspaceBuildConfig* getWorkspaceBuildConfig(void);
 void saveWorkspaceBuildConfig(const WorkspaceBuildConfig* config);

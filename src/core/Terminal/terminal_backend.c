@@ -115,7 +115,8 @@ static void append_bytes(TerminalBackend* term, const char* data, size_t len) {
 
 TerminalBackend* terminal_backend_spawn(const char* start_dir, int rows, int cols,
                                         const char* ide_socket_path,
-                                        const char* project_root_path) {
+                                        const char* project_root_path,
+                                        const char* ide_auth_token) {
     struct winsize ws = {
         .ws_row = (unsigned short)(rows > 0 ? rows : 24),
         .ws_col = (unsigned short)(cols > 0 ? cols : 80),
@@ -153,6 +154,9 @@ TerminalBackend* terminal_backend_spawn(const char* start_dir, int rows, int col
         }
         if (project_root_path && *project_root_path) {
             setenv("MYIDE_PROJECT_ROOT", project_root_path, 1);
+        }
+        if (ide_auth_token && *ide_auth_token) {
+            setenv("MYIDE_AUTH_TOKEN", ide_auth_token, 1);
         }
         execl("/bin/zsh", "zsh", "-l", (char*)NULL);
         execl("/bin/bash", "bash", "-l", (char*)NULL);

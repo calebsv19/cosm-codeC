@@ -7,6 +7,17 @@
 #include <string.h>
 #include <sys/stat.h>
 
+static bool g_theme_runtime_initialized = false;
+static CoreThemePresetId g_theme_runtime_preset = CORE_THEME_PRESET_IDE_GRAY;
+static const CoreThemePresetId k_theme_cycle_order[] = {
+    CORE_THEME_PRESET_DAW_DEFAULT,
+    CORE_THEME_PRESET_MAP_FORGE_DEFAULT,
+    CORE_THEME_PRESET_DARK_DEFAULT,
+    CORE_THEME_PRESET_LIGHT_DEFAULT,
+    CORE_THEME_PRESET_IDE_GRAY,
+    CORE_THEME_PRESET_GREYSCALE
+};
+
 static bool parse_bool_env(const char *value, bool *out_value) {
     char lowered[16];
     size_t i = 0;
@@ -84,26 +95,41 @@ static int stat_path_exists(const char *path, void *user) {
     return path && stat(path, &st) == 0;
 }
 
-bool ide_shared_theme_apply(UITheme *theme) {
+static void theme_runtime_init_if_needed(void) {
     const char *preset_name;
-    CoreThemePreset preset = {0};
+    CoreThemePresetId resolved_id;
+    if (g_theme_runtime_initialized) {
+        return;
+    }
+    preset_name = getenv("IDE_THEME_PRESET");
+    if (preset_name && preset_name[0] &&
+        core_theme_preset_id_from_name(preset_name, &resolved_id).code == CORE_OK) {
+        g_theme_runtime_preset = resolved_id;
+    } else {
+        g_theme_runtime_preset = CORE_THEME_PRESET_IDE_GRAY;
+    }
+    g_theme_runtime_initialized = true;
+}
+
+static bool resolve_theme_preset(CoreThemePreset *out_preset) {
     CoreResult r;
+    theme_runtime_init_if_needed();
+    r = core_theme_get_preset(g_theme_runtime_preset, out_preset);
+    if (r.code == CORE_OK) {
+        return true;
+    }
+    r = core_theme_get_preset(CORE_THEME_PRESET_IDE_GRAY, out_preset);
+    return r.code == CORE_OK;
+}
+
+bool ide_shared_theme_apply(UITheme *theme) {
+    CoreThemePreset preset = {0};
 
     if (!theme || !is_shared_toggle_enabled("IDE_USE_SHARED_THEME")) {
         return false;
     }
-
-    preset_name = getenv("IDE_THEME_PRESET");
-    if (!preset_name || !preset_name[0]) {
-        preset_name = "ide_gray";
-    }
-
-    r = core_theme_get_preset_by_name(preset_name, &preset);
-    if (r.code != CORE_OK) {
-        r = core_theme_get_preset(CORE_THEME_PRESET_IDE_GRAY, &preset);
-        if (r.code != CORE_OK) {
-            return false;
-        }
+    if (!resolve_theme_preset(&preset)) {
+        return false;
     }
 
     {
@@ -131,7 +157,7 @@ bool ide_shared_theme_apply(UITheme *theme) {
     return true;
 }
 
-SDL_Color ide_shared_theme_background_color(void) {
+bool ide_shared_theme_resolve_palette(IDEThemePalette *out_palette) {
     UITheme themed = {
         .bgMenuBar = {40, 40, 40, 255},
         .bgEditor = {30, 30, 30, 255},
@@ -143,8 +169,94 @@ SDL_Color ide_shared_theme_background_color(void) {
         .border = {255, 255, 255, 255},
         .text = {255, 255, 255, 255},
     };
-    if (ide_shared_theme_apply(&themed)) {
-        return themed.bgEditor;
+
+    if (!out_palette) {
+        return false;
+    }
+
+    ide_shared_theme_apply(&themed);
+
+    out_palette->app_background = themed.bgEditor;
+    out_palette->pane_header_fill = themed.bgMenuBar;
+    out_palette->pane_body_fill = darken(themed.bgControlPanel, 14);
+    out_palette->pane_border = themed.border;
+    out_palette->button_fill = brighten(themed.bgMenuBar, 10);
+    out_palette->button_fill_active = brighten(out_palette->button_fill, 18);
+    out_palette->button_border = themed.border;
+    out_palette->input_fill = brighten(themed.bgControlPanel, 12);
+    out_palette->input_border = brighten(themed.bgControlPanel, 36);
+    out_palette->input_focus_border = brighten(themed.border, 24);
+    out_palette->modal_fill = themed.bgPopup;
+    out_palette->modal_border = themed.border;
+    out_palette->text_primary = themed.text;
+    out_palette->text_muted = darken(themed.text, 55);
+    out_palette->selection_fill = (SDL_Color){themed.border.r, themed.border.g, themed.border.b, 40};
+    out_palette->accent_primary = themed.border;
+    out_palette->accent_warning = (SDL_Color){232, 214, 162, 255};
+    out_palette->accent_error = (SDL_Color){255, 96, 96, 255};
+    return true;
+}
+
+bool ide_shared_theme_set_preset(const char *preset_name) {
+    CoreThemePresetId id;
+    if (!preset_name || !preset_name[0]) {
+        return false;
+    }
+    if (core_theme_preset_id_from_name(preset_name, &id).code != CORE_OK) {
+        return false;
+    }
+    g_theme_runtime_preset = id;
+    g_theme_runtime_initialized = true;
+    return true;
+}
+
+bool ide_shared_theme_current_preset(char *out_name, size_t out_name_size) {
+    const char *name;
+    if (!out_name || out_name_size == 0) {
+        return false;
+    }
+    theme_runtime_init_if_needed();
+    name = core_theme_preset_name(g_theme_runtime_preset);
+    if (!name || !name[0]) {
+        return false;
+    }
+    strncpy(out_name, name, out_name_size - 1);
+    out_name[out_name_size - 1] = '\0';
+    return true;
+}
+
+bool ide_shared_theme_cycle_next(void) {
+    size_t i;
+    size_t n = sizeof(k_theme_cycle_order) / sizeof(k_theme_cycle_order[0]);
+    theme_runtime_init_if_needed();
+    for (i = 0; i < n; ++i) {
+        if (k_theme_cycle_order[i] == g_theme_runtime_preset) {
+            g_theme_runtime_preset = k_theme_cycle_order[(i + 1u) % n];
+            return true;
+        }
+    }
+    g_theme_runtime_preset = k_theme_cycle_order[0];
+    return true;
+}
+
+bool ide_shared_theme_cycle_prev(void) {
+    size_t i;
+    size_t n = sizeof(k_theme_cycle_order) / sizeof(k_theme_cycle_order[0]);
+    theme_runtime_init_if_needed();
+    for (i = 0; i < n; ++i) {
+        if (k_theme_cycle_order[i] == g_theme_runtime_preset) {
+            g_theme_runtime_preset = k_theme_cycle_order[(i + n - 1u) % n];
+            return true;
+        }
+    }
+    g_theme_runtime_preset = k_theme_cycle_order[0];
+    return true;
+}
+
+SDL_Color ide_shared_theme_background_color(void) {
+    IDEThemePalette palette = {0};
+    if (ide_shared_theme_resolve_palette(&palette)) {
+        return palette.app_background;
     }
     return (SDL_Color){30, 30, 30, 255};
 }
@@ -153,30 +265,19 @@ void ide_shared_theme_button_colors(SDL_Color *out_fill,
                                     SDL_Color *out_fill_active,
                                     SDL_Color *out_border,
                                     SDL_Color *out_text) {
-    UITheme themed = {
-        .bgMenuBar = {40, 40, 40, 255},
-        .bgEditor = {30, 30, 30, 255},
-        .bgIconBar = {40, 40, 40, 255},
-        .bgToolBar = {30, 30, 30, 255},
-        .bgControlPanel = {30, 30, 30, 255},
-        .bgTerminal = {25, 25, 25, 255},
-        .bgPopup = {50, 50, 50, 255},
-        .border = {255, 255, 255, 255},
-        .text = {255, 255, 255, 255},
-    };
-    if (ide_shared_theme_apply(&themed)) {
-        SDL_Color base = brighten(themed.bgMenuBar, 10);
+    IDEThemePalette palette = {0};
+    if (ide_shared_theme_resolve_palette(&palette)) {
         if (out_fill) {
-            *out_fill = base;
+            *out_fill = palette.button_fill;
         }
         if (out_fill_active) {
-            *out_fill_active = brighten(base, 18);
+            *out_fill_active = palette.button_fill_active;
         }
         if (out_border) {
-            *out_border = themed.border;
+            *out_border = palette.button_border;
         }
         if (out_text) {
-            *out_text = themed.text;
+            *out_text = palette.text_primary;
         }
         return;
     }

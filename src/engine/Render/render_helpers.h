@@ -22,8 +22,16 @@ typedef struct SelectableTextOptions {
 
 // Draw text with default styling
 void drawText(int x, int y, const char* text);
+void drawTextColor(int x, int y, const char* text, SDL_Color color);
+void drawTextMuted(int x, int y, const char* text);
+void drawTextWarning(int x, int y, const char* text);
+void drawTextError(int x, int y, const char* text);
 void drawTextWithFont(int x, int y, const char* text, TTF_Font* font);
 void drawTextWithTier(int x, int y, const char* text, CoreFontTextSizeTier tier);
+void drawTextWithTierColor(int x, int y, const char* text, CoreFontTextSizeTier tier, SDL_Color color);
+void drawTextWithTierMuted(int x, int y, const char* text, CoreFontTextSizeTier tier);
+void drawTextWithTierWarning(int x, int y, const char* text, CoreFontTextSizeTier tier);
+void drawTextWithTierError(int x, int y, const char* text, CoreFontTextSizeTier tier);
 void drawTextUTF8WithFontColor(int x, int y, const char* text, TTF_Font* font,
                                SDL_Color color, bool bold);
 void drawTextUTF8WithFontColorClipped(int x, int y, const char* text, TTF_Font* font,
@@ -31,6 +39,10 @@ void drawTextUTF8WithFontColorClipped(int x, int y, const char* text, TTF_Font* 
 
 // Draw clipped text within a max width
 void drawClippedText(int x, int y, const char* text, int maxWidth);
+void drawClippedTextColor(int x, int y, const char* text, int maxWidth, SDL_Color color);
+void drawClippedTextMuted(int x, int y, const char* text, int maxWidth);
+void drawClippedTextWarning(int x, int y, const char* text, int maxWidth);
+void drawClippedTextError(int x, int y, const char* text, int maxWidth);
 
 void drawSelectableText(const SelectableTextOptions* options);
 

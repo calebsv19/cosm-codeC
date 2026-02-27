@@ -147,6 +147,25 @@ static int write_file(const char* path, const char* text) {
     return 0;
 }
 
+static int send_json_with_token(const char* socket_path,
+                                const char* request_id,
+                                const char* cmd,
+                                const char* auth_token,
+                                const char* args_json,
+                                bool pump,
+                                char* out,
+                                size_t out_cap) {
+    char req[65536];
+    snprintf(req,
+             sizeof(req),
+             "{\"id\":\"%s\",\"proto\":1,\"cmd\":\"%s\",\"auth_token\":\"%s\",\"args\":%s}",
+             request_id ? request_id : "req",
+             cmd ? cmd : "ping",
+             auth_token ? auth_token : "",
+             args_json ? args_json : "{}");
+    return send_then_recv(socket_path, req, pump, out, out_cap);
+}
+
 int main(void) {
     const char* workspace = "/tmp/idebridge_phase6_workspace";
     mkdir(workspace, 0755);
@@ -175,7 +194,12 @@ int main(void) {
     ide_ipc_set_edit_handler(edit_stub, NULL);
 
     const char* socket_path = ide_ipc_socket_path();
+    const char* auth_token = ide_ipc_auth_token();
     if (!socket_path || !*socket_path) {
+        ide_ipc_stop();
+        return 1;
+    }
+    if (!auth_token || !*auth_token) {
         ide_ipc_stop();
         return 1;
     }
@@ -217,21 +241,35 @@ int main(void) {
         return 1;
     }
 
-    if (send_then_recv(socket_path, "{\"id\":\"b1\",\"proto\":1,\"cmd\":\"build\",\"args\":{}}", false, response, sizeof(response)) != 0 ||
+    if (send_json_with_token(socket_path, "b1", "build", auth_token, "{}", false, response, sizeof(response)) != 0 ||
         expect_ok_with_result(response, "exit_code") != 0) {
         fprintf(stderr, "build failed: %s\n", response);
         ide_ipc_stop();
         return 1;
     }
 
-    if (send_then_recv(socket_path, "{\"id\":\"o1\",\"proto\":1,\"cmd\":\"open\",\"args\":{\"path\":\"src/main.c\",\"line\":1,\"col\":1}}", true, response, sizeof(response)) != 0 ||
+    if (send_json_with_token(socket_path,
+                             "o1",
+                             "open",
+                             auth_token,
+                             "{\"path\":\"src/main.c\",\"line\":1,\"col\":1}",
+                             true,
+                             response,
+                             sizeof(response)) != 0 ||
         expect_ok_with_result(response, "applied") != 0) {
         fprintf(stderr, "open failed: %s\n", response);
         ide_ipc_stop();
         return 1;
     }
 
-    if (send_then_recv(socket_path, "{\"id\":\"e1\",\"proto\":1,\"cmd\":\"edit\",\"args\":{\"op\":\"apply\",\"diff\":\"--- a/src/main.c\\n+++ b/src/main.c\\n@@ -1,2 +1,2 @@\\n-#include <stdio.h>\\n+#include <stdlib.h>\\n int main(){return 0;}\\n\",\"check_hash\":false,\"hashes\":{}}}", true, response, sizeof(response)) != 0 ||
+    if (send_json_with_token(socket_path,
+                             "e1",
+                             "edit",
+                             auth_token,
+                             "{\"op\":\"apply\",\"diff\":\"--- a/src/main.c\\n+++ b/src/main.c\\n@@ -1,2 +1,2 @@\\n-#include <stdio.h>\\n+#include <stdlib.h>\\n int main(){return 0;}\\n\",\"check_hash\":false,\"hashes\":{}}",
+                             true,
+                             response,
+                             sizeof(response)) != 0 ||
         expect_ok_with_result(response, "touched_files") != 0) {
         fprintf(stderr, "edit failed: %s\n", response);
         ide_ipc_stop();

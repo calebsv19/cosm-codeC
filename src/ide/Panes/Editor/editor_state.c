@@ -23,7 +23,7 @@ EditorState* createEditorState(void) {
 }
 
 void setEditorVerticalPaddingIfUnset(EditorState* state, int padding) {
-    if (state && state->verticalPadding == 0) {
+    if (state && state->verticalPadding <= 0) {
         state->verticalPadding = padding;
     }
 }
@@ -46,7 +46,7 @@ void resetEditorState(EditorState* state) {
     state->viewTopRow = 0;
     state->scrollOffsetPx = 0.0f;
     state->scrollTargetPx = 0.0f;
-    state->verticalPadding = 80;
+    state->verticalPadding = EDITOR_CONTENT_TOP_PADDING;
 
     state->lastMouseX = 0;
     state->lastMouseY = 0;

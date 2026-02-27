@@ -18,6 +18,12 @@ int tool_panel_content_inset_default(void) {
     return 6;
 }
 
+int tool_panel_single_row_content_top(const UIPane* pane) {
+    if (!pane) return 0;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    return pane->y + d.controls_top + d.button_h + d.row_gap;
+}
+
 int tool_panel_info_line_y(const UIPane* pane, int line_index) {
     if (!pane) return 0;
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();

@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static void fail(const char *msg) {
     fprintf(stderr, "shared_theme_font_adapter_test: %s\n", msg);
@@ -31,10 +32,12 @@ int main(void) {
     SDL_Color clear = {0};
     size_t i = 0;
     const char* theme_presets[] = {
-        "ide_gray",
-        "daw_default",
-        "dark_default",
-        "light_default"
+        "studio_blue",
+        "harbor_blue",
+        "midnight_contrast",
+        "soft_light",
+        "standard_grey",
+        "greyscale"
     };
 
     unsetenv("IDE_USE_SHARED_THEME_FONT");
@@ -56,12 +59,12 @@ int main(void) {
            "font should remain fallback when shared mode is disabled");
     setenv("IDE_USE_SHARED_FONT", "1", 1);
 
-    setenv("IDE_THEME_PRESET", "ide_gray", 1);
+    setenv("IDE_THEME_PRESET", "standard_grey", 1);
     setenv("IDE_FONT_PRESET", "ide", 1);
 
     expect(ide_shared_theme_apply(&theme), "theme should resolve in shared mode");
     expect(theme.bgEditor.r == 20 && theme.bgEditor.g == 20 && theme.bgEditor.b == 20,
-           "editor bg should map to ide_gray surface_0");
+           "editor bg should map to standard_grey surface_0");
 
     clear = ide_shared_theme_background_color();
     expect(clear.r == 20 && clear.g == 20 && clear.b == 20, "clear color should come from shared theme");
@@ -81,6 +84,25 @@ int main(void) {
                                         &point_size),
            "ui_regular caption size should resolve");
     expect(point_size < 12, "caption size should be smaller than base");
+
+    expect(ide_shared_theme_set_preset("midnight_contrast"),
+           "runtime preset set should accept known preset");
+    expect(ide_shared_theme_current_preset(path, sizeof(path)),
+           "runtime preset query should succeed");
+    expect(strcmp(path, "midnight_contrast") == 0,
+           "runtime preset query should return the set preset");
+    expect(ide_shared_theme_cycle_next(), "runtime next-cycle should succeed");
+    expect(ide_shared_theme_current_preset(path, sizeof(path)),
+           "runtime preset query should succeed after cycling next");
+    expect(strcmp(path, "soft_light") == 0,
+           "runtime next-cycle should move to soft_light");
+    expect(ide_shared_theme_cycle_prev(), "runtime prev-cycle should succeed");
+    expect(ide_shared_theme_current_preset(path, sizeof(path)),
+           "runtime preset query should succeed after cycling prev");
+    expect(strcmp(path, "midnight_contrast") == 0,
+           "runtime prev-cycle should move back to midnight_contrast");
+    expect(!ide_shared_theme_set_preset("missing_preset"),
+           "runtime preset set should reject unknown preset");
 
     for (i = 0; i < sizeof(theme_presets) / sizeof(theme_presets[0]); ++i) {
         setenv("IDE_THEME_PRESET", theme_presets[i], 1);

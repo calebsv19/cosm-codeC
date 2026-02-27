@@ -64,14 +64,25 @@ void tool_panel_compute_split_layout(const UIPane* pane, int content_top, ToolPa
 }
 
 SDL_Color tool_panel_body_color(const UIPane* pane, int darken_amount) {
+    IDEThemePalette palette = {0};
     if (!pane) return (SDL_Color){24, 24, 24, 255};
 
-    SDL_Color editorBg = ide_shared_theme_background_color();
-    SDL_Color listBg = editorBg;
-    if (same_rgb(listBg, pane->bgColor)) {
-        listBg = darken_color(pane->bgColor, darken_amount);
+    if (ide_shared_theme_resolve_palette(&palette)) {
+        SDL_Color listBg = palette.pane_body_fill;
+        if (same_rgb(listBg, pane->bgColor)) {
+            listBg = darken_color(pane->bgColor, darken_amount);
+        }
+        return listBg;
     }
-    return listBg;
+
+    {
+        SDL_Color editorBg = ide_shared_theme_background_color();
+        SDL_Color listBg = editorBg;
+        if (same_rgb(listBg, pane->bgColor)) {
+            listBg = darken_color(pane->bgColor, darken_amount);
+        }
+        return listBg;
+    }
 }
 
 void tool_panel_render_split_background(SDL_Renderer* renderer,

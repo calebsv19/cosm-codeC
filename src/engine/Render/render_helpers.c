@@ -306,12 +306,76 @@ static void text_cache_draw_entry_clipped(SDL_Renderer* renderer,
 #endif
 }
 
+static SDL_Color resolve_default_text_color(void) {
+    IDEThemePalette palette = {0};
+    if (ide_shared_theme_resolve_palette(&palette)) {
+        return palette.text_primary;
+    }
+    return (SDL_Color){255, 255, 255, 255};
+}
+
+static SDL_Color resolve_muted_text_color(void) {
+    IDEThemePalette palette = {0};
+    if (ide_shared_theme_resolve_palette(&palette)) {
+        return palette.text_muted;
+    }
+    return (SDL_Color){180, 180, 180, 255};
+}
+
+static SDL_Color resolve_warning_text_color(void) {
+    IDEThemePalette palette = {0};
+    if (ide_shared_theme_resolve_palette(&palette)) {
+        return palette.accent_warning;
+    }
+    return (SDL_Color){232, 214, 162, 255};
+}
+
+static SDL_Color resolve_error_text_color(void) {
+    IDEThemePalette palette = {0};
+    if (ide_shared_theme_resolve_palette(&palette)) {
+        return palette.accent_error;
+    }
+    return (SDL_Color){255, 96, 96, 255};
+}
+
 void drawText(int x, int y, const char* text) {
-    drawTextWithFont(x, y, text, getActiveFont());
+    drawTextColor(x, y, text, resolve_default_text_color());
+}
+
+void drawTextColor(int x, int y, const char* text, SDL_Color color) {
+    drawTextUTF8WithFontColor(x, y, text, getActiveFont(), color, false);
+}
+
+void drawTextMuted(int x, int y, const char* text) {
+    drawTextColor(x, y, text, resolve_muted_text_color());
+}
+
+void drawTextWarning(int x, int y, const char* text) {
+    drawTextColor(x, y, text, resolve_warning_text_color());
+}
+
+void drawTextError(int x, int y, const char* text) {
+    drawTextColor(x, y, text, resolve_error_text_color());
 }
 
 void drawTextWithTier(int x, int y, const char* text, CoreFontTextSizeTier tier) {
-    drawTextWithFont(x, y, text, getUIFontByTier(tier));
+    drawTextWithTierColor(x, y, text, tier, resolve_default_text_color());
+}
+
+void drawTextWithTierColor(int x, int y, const char* text, CoreFontTextSizeTier tier, SDL_Color color) {
+    drawTextUTF8WithFontColor(x, y, text, getUIFontByTier(tier), color, false);
+}
+
+void drawTextWithTierMuted(int x, int y, const char* text, CoreFontTextSizeTier tier) {
+    drawTextWithTierColor(x, y, text, tier, resolve_muted_text_color());
+}
+
+void drawTextWithTierWarning(int x, int y, const char* text, CoreFontTextSizeTier tier) {
+    drawTextWithTierColor(x, y, text, tier, resolve_warning_text_color());
+}
+
+void drawTextWithTierError(int x, int y, const char* text, CoreFontTextSizeTier tier) {
+    drawTextWithTierColor(x, y, text, tier, resolve_error_text_color());
 }
 
 void drawTextWithFont(int x, int y, const char* text, TTF_Font* font) {
@@ -323,7 +387,7 @@ void drawTextWithFont(int x, int y, const char* text, TTF_Font* font) {
 
     SDL_Renderer* renderer = ctx->renderer;
 
-    SDL_Color color = {255, 255, 255, 255};
+    SDL_Color color = resolve_default_text_color();
     TextCacheEntry* cached = NULL;
     if (text_cache_get(renderer, font, text, color, false, &cached)) {
         text_cache_draw_entry(renderer, cached, x, y, false);
@@ -421,6 +485,10 @@ void drawTextUTF8WithFontColorClipped(int x, int y, const char* text, TTF_Font* 
 }
 
 void drawClippedText(int x, int y, const char* text, int maxWidth) {
+    drawClippedTextColor(x, y, text, maxWidth, resolve_default_text_color());
+}
+
+void drawClippedTextColor(int x, int y, const char* text, int maxWidth, SDL_Color color) {
     if (!text || text[0] == '\0' || maxWidth <= 0) return;
 
     TTF_Font* font = getActiveFont();
@@ -435,7 +503,19 @@ void drawClippedText(int x, int y, const char* text, int maxWidth) {
     strncpy(temp, text, copyLen);
     temp[copyLen] = '\0';
 
-    drawTextWithFont(x, y, temp, font);
+    drawTextUTF8WithFontColor(x, y, temp, font, color, false);
+}
+
+void drawClippedTextMuted(int x, int y, const char* text, int maxWidth) {
+    drawClippedTextColor(x, y, text, maxWidth, resolve_muted_text_color());
+}
+
+void drawClippedTextWarning(int x, int y, const char* text, int maxWidth) {
+    drawClippedTextColor(x, y, text, maxWidth, resolve_warning_text_color());
+}
+
+void drawClippedTextError(int x, int y, const char* text, int maxWidth) {
+    drawClippedTextColor(x, y, text, maxWidth, resolve_error_text_color());
 }
 
 
@@ -500,7 +580,7 @@ void drawSelectableText(const SelectableTextOptions* options) {
         if (clampedLen < sourceLen) {
             ownedText = (char*)malloc(clampedLen + 1);
             if (!ownedText) {
-                drawClippedText(options->x, options->y, displayText, maxWidth);
+                drawClippedTextColor(options->x, options->y, displayText, maxWidth, resolve_default_text_color());
                 return;
             }
             memcpy(ownedText, displayText, clampedLen);
@@ -510,9 +590,9 @@ void drawSelectableText(const SelectableTextOptions* options) {
     }
 
     if (needsClamp && ownedText == NULL && visibleLen < sourceLen) {
-        drawClippedText(options->x, options->y, displayText, maxWidth);
+        drawClippedTextColor(options->x, options->y, displayText, maxWidth, resolve_default_text_color());
     } else {
-        drawText(options->x, options->y, displayText);
+        drawTextColor(options->x, options->y, displayText, resolve_default_text_color());
     }
 
     int textWidth = (visibleLen > 0) ? getTextWidthN(displayText, (int)visibleLen) : 0;

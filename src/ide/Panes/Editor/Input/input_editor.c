@@ -57,9 +57,17 @@ void handleEditorKeyboardInput(UIPane* pane, SDL_Event* event) {
             enqueueEditorCommand(pane, COMMAND_INSERT_NEWLINE, mod, NULL);
             return;
         case SDLK_BACKSPACE:
+            if (mod & KMOD_SHIFT) {
+                enqueueEditorCommand(pane, COMMAND_CLOSE_TAB, mod, NULL);
+                return;
+            }
             enqueueEditorCommand(pane, COMMAND_DELETE, mod, NULL);
             return;
         case SDLK_DELETE:
+            if (mod & KMOD_SHIFT) {
+                enqueueEditorCommand(pane, COMMAND_CLOSE_TAB, mod, NULL);
+                return;
+            }
             enqueueEditorCommand(pane, COMMAND_DELETE_FORWARD, mod, NULL);
             return;
         case SDLK_TAB:

@@ -3,8 +3,10 @@
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "engine/Render/render_helpers.h"
+#include "engine/Render/render_font.h"
 #include "engine/Render/render_text_helpers.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/UI/ui_selection_style.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
@@ -29,13 +31,41 @@ PaneScrollState* project_get_scroll_state(UIPane* pane);
 static PaneScrollState s_projectScrollState;
 static bool s_projectScrollInitialized = false;
 static const int PROJECT_TREE_INDENT_WIDTH = 10;
+static const int PROJECT_TREE_BOX_PAD_X = 3;
+static const int PROJECT_TREE_BOX_PAD_Y = 1;
 static const PaneScrollConfig s_projectScrollConfig = {
-    .line_height_px = 22.0f,
+    .line_height_px = 14.0f,
     .deceleration_px = 0.0f,
     .allow_negative = false,
 };
 static SDL_Rect s_projectScrollTrack = {0};
 static SDL_Rect s_projectScrollThumb = {0};
+
+static SDL_Color project_entry_text_color(const DirEntry* entry) {
+    IDEThemePalette palette = {0};
+    SDL_Color folderColor = {236, 240, 246, 255};
+    SDL_Color fileColor = {174, 184, 198, 255};
+
+    if (ide_shared_theme_resolve_palette(&palette)) {
+        folderColor = palette.text_primary;
+        fileColor = (SDL_Color){
+            (Uint8)(((int)palette.text_primary.r * 2 + (int)palette.text_muted.r * 3) / 5),
+            (Uint8)(((int)palette.text_primary.g * 2 + (int)palette.text_muted.g * 3) / 5),
+            (Uint8)(((int)palette.text_primary.b * 2 + (int)palette.text_muted.b * 3) / 5),
+            255
+        };
+    }
+
+    if (entry && entry->type == ENTRY_FOLDER) {
+        return folderColor;
+    }
+    return fileColor;
+}
+
+static TTF_Font* project_entry_font(void) {
+    TTF_Font* font = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
+    return font ? font : getActiveFont();
+}
 
 static const char* project_entry_display_name(const DirEntry* entry) {
     if (!entry || !entry->path) return "";
@@ -82,6 +112,7 @@ typedef struct ProjectRenderContext {
     float currentY;
     float viewportTop;
     float viewportBottom;
+    SDL_Rect clipRect;
     int baseX;
     int lineHeight;
     int indentWidth;
@@ -98,8 +129,6 @@ static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int
     int indent = depth * ctx->indentWidth;
     int drawX = ctx->baseX + indent;
 
-    bool insideViewport = (drawY >= ctx->viewportTop) &&
-                          (drawY <= ctx->viewportBottom - ctx->lineHeight);
     const bool selectAllVisual = project_select_all_visual_active();
 
     const char* prefix = "";
@@ -114,13 +143,19 @@ static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int
         snprintf(line, sizeof(line), "%s%s", prefix, displayName ? displayName : "");
     }
 
-    int textWidth = getTextWidth(line);
+    TTF_Font* rowFont = project_entry_font();
+    int textWidth = getTextWidthWithFont(line, rowFont);
+    int textHeight = rowFont ? TTF_FontHeight(rowFont) : ctx->lineHeight;
+    if (textHeight < 1) textHeight = ctx->lineHeight;
+    int textY = (int)drawY + ((ctx->lineHeight - textHeight) / 2);
     SDL_Rect box = {
-        .x = drawX - 6,
-        .y = (int)(drawY - 1.0f),
-        .w = textWidth + 12,
-        .h = ctx->lineHeight
+        .x = drawX - PROJECT_TREE_BOX_PAD_X,
+        .y = textY - PROJECT_TREE_BOX_PAD_Y,
+        .w = textWidth + (PROJECT_TREE_BOX_PAD_X * 2),
+        .h = textHeight + (PROJECT_TREE_BOX_PAD_Y * 2)
     };
+    SDL_Rect visibleBox = {0};
+    bool insideViewport = SDL_IntersectRect(&box, &ctx->clipRect, &visibleBox);
 
     bool isDirectoryDropTarget = ctx->drag && ctx->drag->validDirectoryTarget &&
                                  ctx->drag->targetDirectory == entry;
@@ -170,15 +205,17 @@ static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int
             SDL_RenderDrawRect(ctx->renderer, &box);
         }
 
-        drawText(drawX, (int)drawY, line);
+        drawTextUTF8WithFontColorClipped(drawX, textY, line, rowFont,
+                                         project_entry_text_color(entry), false,
+                                         &ctx->clipRect);
 
-        if (mouseY >= box.y && mouseY < box.y + box.h &&
-            mouseX >= box.x && mouseX < box.x + box.w) {
+        if (mouseY >= visibleBox.y && mouseY < visibleBox.y + visibleBox.h &&
+            mouseX >= visibleBox.x && mouseX < visibleBox.x + visibleBox.w) {
             hoveredEntry = entry;
             hoveredEntryDepth = depth;
             SDL_SetRenderDrawColor(ctx->renderer, 180, 180, 180, 100);
             SDL_RenderDrawRect(ctx->renderer, &box);
-            hoveredEntryRect = box;
+            hoveredEntryRect = visibleBox;
         }
     }
 
@@ -306,6 +343,7 @@ void renderProjectFilesPanel(UIPane* pane) {
             .currentY = (float)treeStartY,
             .viewportTop = (float)viewport.y,
             .viewportBottom = (float)(viewport.y + viewport.h),
+            .clipRect = clipRect,
             .baseX = x,
             .lineHeight = (int)s_projectScrollConfig.line_height_px,
             .indentWidth = PROJECT_TREE_INDENT_WIDTH,

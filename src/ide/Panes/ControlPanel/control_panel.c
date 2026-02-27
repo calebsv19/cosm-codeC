@@ -83,6 +83,7 @@ static bool cachedShowMacros = false;
 static size_t cachedProjectFileCount = 0;
 static const DirEntry* cachedProjectRoot = NULL;
 static bool symbolSelectionAllVisible = false;
+enum { CONTROL_PANEL_TREE_VIEWPORT_TOP_INSET = 30 };
 
 static bool is_ignored_name(const char* name) {
     if (!name) return false;
@@ -795,7 +796,7 @@ void control_panel_set_symbol_list_top(int y) {
 int control_panel_get_symbol_tree_origin_y(const UIPane* pane) {
     if (!pane) return 0;
     int listTop = control_panel_get_symbol_list_top(pane);
-    int origin = listTop - 18; // tree renderer adds its own +30 content offset
+    int origin = listTop - CONTROL_PANEL_TREE_VIEWPORT_TOP_INSET;
     if (origin < pane->y) origin = pane->y;
     return origin;
 }

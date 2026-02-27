@@ -27,6 +27,7 @@ enum {
 
 typedef struct {
     const char* socket_override;
+    const char* token_override;
     int timeout_ms;
     const char* spill_file;
 } CliGlobalOptions;
@@ -36,6 +37,13 @@ static const char* resolve_socket_path(const CliGlobalOptions* opts) {
         return opts->socket_override;
     }
     return getenv("MYIDE_SOCKET");
+}
+
+static const char* resolve_auth_token(const CliGlobalOptions* opts) {
+    if (opts && opts->token_override && opts->token_override[0]) {
+        return opts->token_override;
+    }
+    return getenv("MYIDE_AUTH_TOKEN");
 }
 
 static bool write_text_file(const char* path, const char* text) {
@@ -60,16 +68,18 @@ static void print_usage(FILE* out) {
             "  idebridge [global_options] open <path:line:col> [--json]\n"
             "  idebridge [global_options] includes [--json] [--graph]\n"
             "  idebridge [global_options] search <pattern> [--json] [--regex] [--max N] [--files path1,path2,...]\n"
-            "  idebridge [global_options] build [--json] [--profile debug|release]\n"
+            "  idebridge [global_options] build [--json] [--profile debug|perf]\n"
             "  idebridge [global_options] edit --apply <diff_file> [--no_hash_check] [--json]\n\n"
             "Global options:\n"
             "  --socket <path>      override IDE socket path (instead of MYIDE_SOCKET)\n"
+            "  --token <token>      override IPC auth token (instead of MYIDE_AUTH_TOKEN)\n"
             "  --timeout_ms <N>     IPC timeout in milliseconds (default: 4000)\n"
             "  --spill_file <path>  write raw JSON response to file\n\n"
             "Exit codes:\n"
             "  0 ok, 2 usage, 3 connect, 4 timeout, 5 protocol, 6 server_error\n\n"
             "Environment:\n"
             "  MYIDE_SOCKET        Unix socket path to IDE session\n"
+            "  MYIDE_AUTH_TOKEN    IPC auth token for mutating commands\n"
             "  MYIDE_PROJECT_ROOT  project path (set by IDE PTY)\n");
 }
 
@@ -227,6 +237,10 @@ static int send_request(const char* cmd,
     json_object_object_add(req, "id", json_object_new_string(req_id));
     json_object_object_add(req, "proto", json_object_new_int(IDEBRIDGE_PROTO));
     json_object_object_add(req, "cmd", json_object_new_string(cmd));
+    const char* auth_token = resolve_auth_token(opts);
+    if (auth_token && auth_token[0]) {
+        json_object_object_add(req, "auth_token", json_object_new_string(auth_token));
+    }
     if (!args) args = json_object_new_object();
     json_object_object_add(req, "args", args);
 
@@ -896,6 +910,7 @@ int main(int argc, char** argv) {
     bool no_hash_check = false;
     CliGlobalOptions opts = {
         .socket_override = NULL,
+        .token_override = NULL,
         .timeout_ms = 4000,
         .spill_file = NULL,
     };
@@ -951,6 +966,12 @@ int main(int argc, char** argv) {
                 return IDEBRIDGE_EXIT_USAGE;
             }
             opts.socket_override = argv[++i];
+        } else if (strcmp(argv[i], "--token") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "idebridge: --token requires a value\n");
+                return IDEBRIDGE_EXIT_USAGE;
+            }
+            opts.token_override = argv[++i];
         } else if (strcmp(argv[i], "--timeout_ms") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "idebridge: --timeout_ms requires an integer\n");

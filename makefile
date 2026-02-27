@@ -325,7 +325,7 @@ run-ide-theme-log: $(OUT)
 
 .PHONY: run-ide-theme-hud
 run-ide-theme-hud: $(OUT)
-	@MallocNanoZone=0 IDE_USE_SHARED_THEME_FONT=1 IDE_USE_SHARED_THEME=1 IDE_USE_SHARED_FONT=1 IDE_THEME_PRESET=ide_gray IDE_FONT_PRESET=ide IDE_TIMER_HUD=1 IDE_TIMER_HUD_OVERLAY=1 ./$(OUT)
+	@MallocNanoZone=0 IDE_USE_SHARED_THEME_FONT=1 IDE_USE_SHARED_THEME=1 IDE_USE_SHARED_FONT=1 IDE_THEME_PRESET=ide_gray IDE_FONT_PRESET=ide IDE_TIMER_HUD=1 IDE_TIMER_HUD_OVERLAY=1 IDE_TIMER_HUD_VISUAL_MODE=hybrid ./$(OUT)
 
 .PHONY: run-ide-theme-nohud
 run-ide-theme-nohud: run-ide-theme-log
@@ -407,7 +407,7 @@ test-idebridge-phase5: $(IDEBRIDGE_OUT)
 test-idebridge-phase6: $(IDEBRIDGE_OUT)
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling idebridge phase-6 runtime check..."
-	@$(CC) $(CFLAGS) tests/idebridge_phase6_check.c src/core/Ipc/ide_ipc_server.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE6_TEST_OUT) $(LIB_DIRS) -ljson-c || (echo "idebridge phase-6 compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/idebridge_phase6_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE6_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-6 compile failed."; exit 1)
 	@echo "Running idebridge phase-6 runtime check..."
 	@$(IDEBRIDGE_PHASE6_TEST_OUT) || (echo "idebridge phase-6 runtime check failed."; exit 1)
 	@echo "idebridge phase-6 runtime check passed."

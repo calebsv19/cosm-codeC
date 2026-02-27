@@ -5,6 +5,7 @@
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/analysis_status.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/Clipboard/clipboard.h"
 #include <stdio.h>
@@ -321,10 +322,9 @@ void copy_selected_rows(void) {
 }
 
 static int row_index_from_position(UIPane* pane, int mouseY) {
-    const int headerHeight = LIBRARIES_HEADER_HEIGHT;
-    int contentY = pane->y + headerHeight;
+    int contentY = tool_panel_single_row_content_top(pane);
     float offset = scroll_state_get_offset(&g_libraryPanelState.scroll);
-    int localY = mouseY - (contentY + LIBRARIES_LIST_TOP_GAP) + (int)offset;
+    int localY = mouseY - contentY + (int)offset;
     if (localY < 0) return -1;
     int idx = localY / LIBRARY_ROW_HEIGHT;
     return (idx >= 0 && idx < g_libraryPanelState.flatCount) ? idx : -1;

@@ -26,6 +26,7 @@ typedef struct {
 
 ToolPanelLayoutDefaults tool_panel_layout_defaults(void);
 int tool_panel_content_inset_default(void);
+int tool_panel_single_row_content_top(const UIPane* pane);
 int tool_panel_info_line_y(const UIPane* pane, int line_index);
 ToolPanelControlRow tool_panel_control_row_at(const UIPane* pane, int y);
 ToolPanelControlRow tool_panel_control_row_with(const UIPane* pane,

@@ -1,13 +1,13 @@
-# Diagnostics Stub
+# Diagnostics
 
-This directory reserves space for future IDE diagnostics (linting, static
-analysis, feedback from compilers). The current implementation is intentionally
-minimal but provides a seam for panes to query status once the engine is
-fleshed out.
+This directory contains the shared diagnostics state used by the IDE for
+analysis and build feedback persistence.
 
 | File | Responsibility |
 | --- | --- |
-| `diagnostics_engine.h/c` | Placeholder API that will eventually collect diagnostics, cache them, and expose tick hooks. For now it provides stub functions so callers can compile even though no diagnostics are produced. |
+| `diagnostics_engine.h/c` | Stores in-memory diagnostics, exposes add/query helpers, and persists analysis diagnostics to `workspace/ide_files/analysis_diagnostics.json`. |
 
-Add new diagnostics pipelines here; keep the API UI-agnostic so panes only
-need to render whatever data you expose.
+Keep this layer UI-agnostic so panes can render diagnostics without depending
+on where they came from. Build-output-specific diagnostics live alongside the
+build system and are merged at presentation time by callers such as IPC and
+tool panels.

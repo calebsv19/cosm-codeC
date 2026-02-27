@@ -4,6 +4,7 @@
 #include "core/BuildSystem/build_diagnostics.h"
 #include "core/CommandBus/save_queue.h"
 #include "core/Diagnostics/diagnostics_engine.h"
+#include "core/Ipc/ide_ipc_path_guard.h"
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/Editor/undo_stack.h"
@@ -550,11 +551,16 @@ bool ide_ipc_apply_unified_diff(const char* project_root,
             return false;
         }
 
-        char abs_path[1024];
-        if (fp->new_path[0] == '/') {
-            snprintf(abs_path, sizeof(abs_path), "%s", fp->new_path);
-        } else {
-            snprintf(abs_path, sizeof(abs_path), "%s/%s", project_root, fp->new_path);
+        char abs_path[1024] = {0};
+        if (!ide_ipc_resolve_workspace_existing_path(project_root,
+                                                     fp->new_path,
+                                                     abs_path,
+                                                     sizeof(abs_path),
+                                                     error_out,
+                                                     error_out_cap)) {
+            free_patch(&patch);
+            json_object_put(touched);
+            return false;
         }
 
         size_t old_len = 0;

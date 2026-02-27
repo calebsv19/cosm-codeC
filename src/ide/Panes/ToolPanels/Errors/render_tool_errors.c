@@ -271,8 +271,8 @@ void renderErrorsPanel(UIPane* pane) {
 
     for (int i = 0; i < flatCount; ++i) {
         int entryHeight = refs[i].isHeader ? headerHeight : diagHeight;
-        if (y + entryHeight < firstRowY) { y += entryHeight; continue; }
-        if (y > maxY) break;
+        if (y + entryHeight <= contentTop) { y += entryHeight; continue; }
+        if (y >= maxY) break;
 
         bool sel = is_error_selected(i);
         if (sel) {

@@ -100,6 +100,16 @@ void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
             }
             break;
 
+        case COMMAND_CLOSE_TAB:
+            if (view && view->type == VIEW_LEAF) {
+                if (view->activeTab >= 0 && view->activeTab < view->fileCount) {
+                    closeTab(view, view->activeTab);
+                } else if (view->fileCount == 0 && core && core->persistentEditorView) {
+                    closeEmptyEditorLeaf(core->persistentEditorView, view);
+                }
+            }
+            break;
+
         // === Clipboard Ops ===
         case COMMAND_CUT:
             if (projectionReadOnly) break;

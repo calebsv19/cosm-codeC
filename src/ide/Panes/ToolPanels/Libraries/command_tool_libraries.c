@@ -49,6 +49,8 @@ void handleLibrariesCommand(UIPane* pane, InputCommandMetadata meta) {
         case COMMAND_CLEAR_ANALYSIS_CACHE:
             printf("[LibraryPanelCommand] Clearing analysis cache...\n");
             clear_analysis_cache(projectPath);
+            analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
+            analysis_scheduler_request(ANALYSIS_REASON_MANUAL_REFRESH, true);
             break;
 
         default:

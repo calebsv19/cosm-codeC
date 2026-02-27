@@ -12,8 +12,10 @@
 typedef struct {
     uint32_t version;
     uint64_t build_args_hash;
+    uint64_t frontend_fingerprint;
     long makefile_mtime;
     char project_root[PATH_MAX];
+    char frontend_lib_path[PATH_MAX];
 } AnalysisCacheMeta;
 
 // Metadata helpers

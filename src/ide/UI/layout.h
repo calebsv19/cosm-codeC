@@ -8,6 +8,6 @@
 struct RenderContext;
 
 void layout_static_panes(UIPane* panes[], int* paneCount);
+void ide_refresh_live_theme(void);
 
 #endif
-

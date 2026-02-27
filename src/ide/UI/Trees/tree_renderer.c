@@ -6,6 +6,7 @@
 #include "app/GlobalInfo/core_state.h"
 #include "ide/UI/scroll_manager.h"
 #include "ide/UI/ui_selection_style.h"
+#include "ide/UI/shared_theme_font_adapter.h"
 #include "fisics_frontend.h"
 
 #include <stdlib.h>
@@ -34,6 +35,11 @@ static int tree_line_height_for_pane(const UIPane* pane) {
     return 22;
 }
 
+static TTF_Font* tree_row_font(void) {
+    TTF_Font* font = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
+    return font ? font : getActiveFont();
+}
+
 static int control_panel_symbol_tier(const UITreeNode* node) {
     if (!node) return 1;
 
@@ -52,15 +58,38 @@ static int control_panel_symbol_tier(const UITreeNode* node) {
     return 1;
 }
 
+static SDL_Color blend_color(SDL_Color a, SDL_Color b, int weightA, int weightB) {
+    int total = weightA + weightB;
+    if (total <= 0) return a;
+
+    return (SDL_Color){
+        (Uint8)(((int)a.r * weightA + (int)b.r * weightB) / total),
+        (Uint8)(((int)a.g * weightA + (int)b.g * weightB) / total),
+        (Uint8)(((int)a.b * weightA + (int)b.b * weightB) / total),
+        (Uint8)(((int)a.a * weightA + (int)b.a * weightB) / total)
+    };
+}
+
 static SDL_Color control_panel_symbol_tone_by_node(const UITreeNode* node) {
+    IDEThemePalette palette = {0};
+    SDL_Color primary = {242, 247, 252, 255};
+    SDL_Color muted = {132, 144, 162, 255};
+    SDL_Color mid = {186, 198, 214, 255};
+
+    if (ide_shared_theme_resolve_palette(&palette)) {
+        primary = palette.text_primary;
+        muted = palette.text_muted;
+        mid = blend_color(palette.text_primary, palette.text_muted, 3, 2);
+    }
+
     int tier = control_panel_symbol_tier(node);
     if (tier == 0) {
-        return (SDL_Color){242, 247, 252, 255}; // directories/top branches
+        return primary;
     }
     if (tier == 2) {
-        return (SDL_Color){132, 144, 162, 255}; // params
+        return muted;
     }
-    return (SDL_Color){186, 198, 214, 255};     // files + methods
+    return mid;
 }
 
 void setTreeColorOverride(TreeNodeColor color, SDL_Color sdlColor) {
@@ -268,7 +297,7 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
     pushClipRect(&clip);
 
     int x = pane->x + paddingX;
-    int y = contentTop - (int)offset;
+    float currentY = (float)contentTop - offset;
     int maxY = contentTop + viewportH;
 
     hoveredNode = NULL;
@@ -287,14 +316,17 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
     bool mouseInsidePane = (mx >= pane->x && mx <= pane->x + pane->w &&
                             my >= contentTop && my <= maxY);
     bool selectAllVisual = tree_select_all_visual_active_for(root);
+    TTF_Font* rowFont = tree_row_font();
+    int textHeight = rowFont ? TTF_FontHeight(rowFont) : lineHeight;
+    if (textHeight < 1) textHeight = lineHeight;
     while (sp > 0) {
         UITreeNode* n = stack[--sp];
         if (!n) continue;
-        int drawY = y;
-        y += lineHeight;
-        if (drawY + lineHeight < contentTop) {
+        int drawY = (int)currentY;
+        currentY += (float)lineHeight;
+        if (drawY + lineHeight <= contentTop) {
             // Skip draw, but continue traversal (need depth info)
-        } else if (drawY <= maxY) {
+        } else if (drawY < maxY) {
             int indent = n->depth * TREE_INDENT_WIDTH;
             int drawX = x + indent;
 
@@ -313,28 +345,39 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
             char line[512];
             snprintf(line, sizeof(line), "%s%s", prefix, n->label);
 
-            int textWidth = getTextWidth(line);
-            SDL_Rect textBox = { drawX - 6, drawY - 1, textWidth + 12, lineHeight };
+            int textWidth = getTextWidthWithFont(line, rowFont);
+            int textY = drawY + ((lineHeight - textHeight) / 2);
+            SDL_Rect textBox = {
+                drawX - 6,
+                textY - 1,
+                textWidth + 12,
+                textHeight + 2
+            };
+            SDL_Rect visibleBox = {0};
+            if (!SDL_IntersectRect(&textBox, &clip, &visibleBox)) {
+                visibleBox = (SDL_Rect){0};
+            }
 
             bool isHovered = mouseInsidePane &&
-                             (my >= drawY && my < drawY + lineHeight) &&
-                             (mx >= textBox.x && mx <= (textBox.x + textBox.w));
+                             visibleBox.w > 0 && visibleBox.h > 0 &&
+                             (mx >= visibleBox.x && mx < (visibleBox.x + visibleBox.w)) &&
+                             (my >= visibleBox.y && my < (visibleBox.y + visibleBox.h));
 
             if (isHovered) {
                 hoveredNode = n;
                 SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255);
-                SDL_RenderDrawRect(renderer, &textBox);
+                SDL_RenderDrawRect(renderer, &visibleBox);
             }
 
             bool selectedVisual = (n == selectedNode) || selectAllVisual;
-            if (selectedVisual) {
+            if (selectedVisual && visibleBox.w > 0 && visibleBox.h > 0) {
                 SDL_Color fill = ui_selection_fill_color();
                 SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
-                SDL_RenderFillRect(renderer, &textBox);
+                SDL_RenderFillRect(renderer, &visibleBox);
                 if (!isHovered) {
                     SDL_Color outline = ui_selection_outline_color();
                     SDL_SetRenderDrawColor(renderer, outline.r, outline.g, outline.b, outline.a);
-                    SDL_RenderDrawRect(renderer, &textBox);
+                    SDL_RenderDrawRect(renderer, &visibleBox);
                 }
             }
 
@@ -344,7 +387,7 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
                 col = control_panel_symbol_tone_by_node(n);
             }
             SDL_SetRenderDrawColor(renderer, col.r, col.g, col.b, 255);
-            drawTextUTF8WithFontColor(drawX, drawY, line, getActiveFont(), col, false);
+            drawTextUTF8WithFontColorClipped(drawX, textY, line, rowFont, col, false, &clip);
         }
 
         if ((n->type == TREE_NODE_FOLDER || n->type == TREE_NODE_SECTION) && n->isExpanded) {

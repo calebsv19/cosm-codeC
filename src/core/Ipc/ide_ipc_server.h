@@ -31,5 +31,6 @@ void ide_ipc_set_edit_handler(IdeIpcEditApplyHandler handler, void* userdata);
 
 const char* ide_ipc_socket_path(void);
 const char* ide_ipc_session_id(void);
+const char* ide_ipc_auth_token(void);
 
 #endif

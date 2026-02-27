@@ -11,8 +11,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #define MAX_UNDO_ENTRIES 128
+#define UNDO_STACK_MAGIC 0x554E444F53544143ULL
 
 typedef struct {
     char* snapshot;
@@ -22,6 +24,7 @@ typedef struct {
 } UndoEntry;
 
 typedef struct {
+    uint64_t magic;
     UndoEntry undo[MAX_UNDO_ENTRIES];
     UndoEntry redo[MAX_UNDO_ENTRIES];
     int undoTop;
@@ -46,17 +49,35 @@ typedef struct {
 
 
 
+static bool undo_stack_is_valid(const UndoStack* stack) {
+    if (!stack) return false;
+    if (stack->magic != UNDO_STACK_MAGIC) return false;
+    if (stack->undoTop < 0 || stack->undoTop > MAX_UNDO_ENTRIES) return false;
+    if (stack->redoTop < 0 || stack->redoTop > MAX_UNDO_ENTRIES) return false;
+    return true;
+}
+
 static UndoStack* getOrCreateUndoStack(OpenFile* file) {
     if (!file) return NULL;
 
-    if (!file->undoStack) {
+    UndoStack* existing = (UndoStack*)file->undoStack;
+    if (existing && !undo_stack_is_valid(existing)) {
+        fprintf(stderr, "[Undo] Detected invalid undo stack pointer/state for '%s'; resetting history\n",
+                file->filePath ? file->filePath : "(unknown)");
+        file->undoStack = NULL;
+        existing = NULL;
+    }
+
+    if (!existing) {
         UndoStack* newStack = malloc(sizeof(UndoStack));
         if (!newStack) return NULL;
         memset(newStack, 0, sizeof(UndoStack));
+        newStack->magic = UNDO_STACK_MAGIC;
         file->undoStack = newStack;
+        return newStack;
     }
 
-    return (UndoStack*)file->undoStack;
+    return existing;
 }
 
 
@@ -92,9 +113,8 @@ void pushUndoState(OpenFile* file){
 
 
 bool performUndo(OpenFile* file) {
-    if (!file || !file->buffer || !file->undoStack) return false;
-
-    UndoStack* stack = (UndoStack*)file->undoStack;
+    if (!file || !file->buffer) return false;
+    UndoStack* stack = getOrCreateUndoStack(file);
     if (stack->undoTop == 0) return false;
 
     // Move current state to redo stack
@@ -141,9 +161,8 @@ bool performUndo(OpenFile* file) {
 
 
 bool performRedo(OpenFile* file) {
-    if (!file || !file->buffer || !file->undoStack) return false;
-
-    UndoStack* stack = (UndoStack*)file->undoStack;
+    if (!file || !file->buffer) return false;
+    UndoStack* stack = getOrCreateUndoStack(file);
     if (stack->redoTop == 0) return false;
 
     // Move current state to undo stack
@@ -188,9 +207,9 @@ bool performRedo(OpenFile* file) {
 
 
 void clearUndoHistory(OpenFile* file) {
-    if (!file || !file->undoStack) return;
-
-    UndoStack* stack = (UndoStack*)file->undoStack;
+    if (!file) return;
+    UndoStack* stack = getOrCreateUndoStack(file);
+    if (!stack) return;
 
     for (int i = 0; i < stack->undoTop; i++) {
         free(stack->undo[i].snapshot);
@@ -239,7 +258,8 @@ void beginWordEdit(OpenFile* file, int row, int col) {
 
 
 void appendCharToWord(OpenFile* file, char ch) {
-    UndoStack* stack = (UndoStack*)file->undoStack;
+    if (!file) return;
+    UndoStack* stack = getOrCreateUndoStack(file);
     if (!stack || !stack->pendingTextEdit) return;
 
     if (stack->typedWordLen + 1 >= stack->typedWordCap) {
@@ -253,9 +273,9 @@ void appendCharToWord(OpenFile* file, char ch) {
 
 
 void commitWordEdit(OpenFile* file) {
-    if (!file || !file->undoStack) return;
-
-    UndoStack* stack = (UndoStack*)file->undoStack;
+    if (!file) return;
+    UndoStack* stack = getOrCreateUndoStack(file);
+    if (!stack) return;
     if (!stack->pendingTextEdit) return;
 
     // Only push if something was typed

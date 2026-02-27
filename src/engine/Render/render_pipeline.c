@@ -137,18 +137,31 @@ bool initRenderPipeline() {
             ts_settings.hud_enabled = true;
         }
         const char* overlayEnv = getenv("IDE_TIMER_HUD_OVERLAY");
+        int overlayEnabled = ts_settings.hud_enabled ? 1 : 0;
         if (overlayEnv && overlayEnv[0]) {
             if (strcmp(overlayEnv, "0") == 0 || strcasecmp(overlayEnv, "false") == 0 ||
                 strcasecmp(overlayEnv, "off") == 0 || strcasecmp(overlayEnv, "no") == 0) {
                 ts_settings.hud_enabled = false;
+                overlayEnabled = 0;
             } else if (strcmp(overlayEnv, "1") == 0 || strcasecmp(overlayEnv, "true") == 0 ||
                        strcasecmp(overlayEnv, "on") == 0 || strcasecmp(overlayEnv, "yes") == 0) {
                 ts_settings.hud_enabled = true;
+                overlayEnabled = 1;
             }
         }
+
+        // Optional override: IDE_TIMER_HUD_VISUAL_MODE=text_compact|history_graph|hybrid.
+        const char* visualModeEnv = getenv("IDE_TIMER_HUD_VISUAL_MODE");
+        if (visualModeEnv && visualModeEnv[0]) {
+            ts_set_hud_visual_mode(visualModeEnv);
+        } else if (overlayEnabled) {
+            // Overlay-focused runs default to hybrid (compact text + history line).
+            ts_set_hud_visual_mode("hybrid");
+        }
         fprintf(stderr,
-                "[TimerHUD] initialized (hud_enabled=%d log_enabled=%d log_file=%s)\n",
+                "[TimerHUD] initialized (hud_enabled=%d mode=%s log_enabled=%d log_file=%s)\n",
                 ts_settings.hud_enabled ? 1 : 0,
+                ts_settings.hud_visual_mode,
                 ts_settings.log_enabled ? 1 : 0,
                 ts_settings.log_filepath);
     }

@@ -4,8 +4,23 @@
 #include "engine/Render/render_text_helpers.h"
 #include "engine/Render/render_font.h"
 #include "app/GlobalInfo/core_state.h"
+#include "core/CommandBus/command_bus.h"
+#include "core/CommandBus/command_metadata.h"
 
 #define CURSOR_EDGE_BIAS 2
+
+static void enqueue_editor_mouse_command(UIPane* pane, InputCommand cmd, SDL_Keymod keyMod) {
+    InputCommandMetadata meta = {
+        .cmd = cmd,
+        .originRole = pane ? pane->role : PANE_ROLE_UNKNOWN,
+        .mouseX = -1,
+        .mouseY = -1,
+        .keyMod = keyMod,
+        .targetPane = pane,
+        .payload = NULL
+    };
+    enqueueCommand(meta);
+}
 
 static SDL_Rect compute_tab_header_viewport(const EditorView* view) {
     int boxX = view->x + EDITOR_PADDING;
@@ -63,11 +78,11 @@ static const char* editor_input_render_line_at(const OpenFile* file,
 }
 
 
-bool resetCursorPositionToMouse(UIPane* pane, int mouseX, int mouseY,
+bool resetCursorPositionToMouse(EditorView* view, int mouseX, int mouseY,
                                  EditorBuffer* buffer, EditorState* state) {
     const int lineHeight = EDITOR_LINE_HEIGHT;
-    const int textX = pane->x + EDITOR_LINE_NUMBER_GUTTER_W + 6;
-    const int textY = pane->y + HEADER_HEIGHT + 2 + state->verticalPadding;
+    const int textX = editor_text_start_x(view);
+    const int contentY = editor_view_content_y(view);
     TTF_Font* textFont = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
     if (!textFont) textFont = getActiveFont();
 
@@ -78,17 +93,16 @@ bool resetCursorPositionToMouse(UIPane* pane, int mouseX, int mouseY,
         return false;
     }
 
-    int contentTop = textY;
-    int contentBottom = pane->y + pane->h;
+    int contentTop = contentY;
+    int contentBottom = view ? (contentY + editor_view_content_h(view)) : contentY;
 
     if (mouseY < contentTop) mouseY = contentTop;
     if (mouseY > contentBottom - 1) mouseY = contentBottom - 1;
 
-    int intraOffset = (int)(state->scrollOffsetPx - (float)(state->viewTopRow * lineHeight));
-    if (intraOffset < 0) intraOffset = 0;
-    if (intraOffset >= lineHeight) intraOffset = lineHeight - 1;
-    int visibleLineIndex = (mouseY - textY + intraOffset) / lineHeight;
-    int newRow = state->viewTopRow + visibleLineIndex;
+    int firstVisibleRow = editor_first_visible_row(state);
+    int intraOffset = editor_first_visible_row_offset_px(state, firstVisibleRow);
+    int visibleLineIndex = (mouseY - contentY + intraOffset) / lineHeight;
+    int newRow = firstVisibleRow + visibleLineIndex;
     if (newRow < 0) newRow = 0;
     if (newRow >= buffer->lineCount) newRow = buffer->lineCount - 1;
 
@@ -144,14 +158,14 @@ static void adjustCursorColWithinLine(EditorBuffer* buffer, EditorState* state) 
 
 
 
-static void handleCommandMouseDragOutside(UIPane* pane, EditorBuffer* buffer,
+static void handleCommandMouseDragOutside(EditorView* view, EditorBuffer* buffer,
                                           EditorState* state, int mouseY,
                                           int paneTop, int paneBottom, bool backInside) {
     if (backInside) {
         state->draggingOutsidePane = false;
         state->draggingReturnedToPane = true;
 
-        bool moved = resetCursorPositionToMouse(pane, state->lastMouseX, state->lastMouseY, 
+        bool moved = resetCursorPositionToMouse(view, state->lastMouseX, state->lastMouseY,
 							buffer, state);
         if (moved && !state->selecting) {
             state->selecting = true;
@@ -170,9 +184,9 @@ static void handleCommandMouseDragOutside(UIPane* pane, EditorBuffer* buffer,
     }
 }
 
-static void handleCommandMouseDragInPane(UIPane* pane, EditorBuffer* buffer,
+static void handleCommandMouseDragInPane(EditorView* view, EditorBuffer* buffer,
                                          EditorState* state, int mouseX, int mouseY) {
-    resetCursorPositionToMouse(pane, mouseX, mouseY, buffer, state);
+    resetCursorPositionToMouse(view, mouseX, mouseY, buffer, state);
 }
 
 void handleEditorMouseDrag(UIPane* pane, SDL_Event* event, EditorView* view) {
@@ -206,9 +220,9 @@ void handleEditorMouseDrag(UIPane* pane, SDL_Event* event, EditorView* view) {
 
 
     if (state->draggingOutsidePane) {
-        handleCommandMouseDragOutside(pane, buffer, state, mouseY, paneTop, paneBottom, backInside);
+        handleCommandMouseDragOutside(view, buffer, state, mouseY, paneTop, paneBottom, backInside);
     } else {
-        handleCommandMouseDragInPane(pane, buffer, state, mouseX, mouseY);
+        handleCommandMouseDragInPane(view, buffer, state, mouseX, mouseY);
     }
 }
 
@@ -305,8 +319,8 @@ static void getClickedEditorPosition(int mouseX, int mouseY, EditorView* view,
                                      OpenFile* file, EditorBuffer* buffer, EditorState* state,
                                      int* outRow, int* outCol) {
     const int lineHeight = EDITOR_LINE_HEIGHT;
-    const int textX = view->x + EDITOR_LINE_NUMBER_GUTTER_W + 6;
-    const int textY = view->y + HEADER_HEIGHT + 2 + state->verticalPadding;
+    const int textX = editor_text_start_x(view);
+    const int contentY = editor_view_content_y(view);
     TTF_Font* textFont = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
     if (!textFont) textFont = getActiveFont();
 
@@ -318,10 +332,9 @@ static void getClickedEditorPosition(int mouseX, int mouseY, EditorView* view,
     }
 
     // Compute row under cursor
-    int intraOffset = (int)(state->scrollOffsetPx - (float)(state->viewTopRow * lineHeight));
-    if (intraOffset < 0) intraOffset = 0;
-    if (intraOffset >= lineHeight) intraOffset = lineHeight - 1;
-    int row = state->viewTopRow + (mouseY - textY + intraOffset) / lineHeight;
+    int firstVisibleRow = editor_first_visible_row(state);
+    int intraOffset = editor_first_visible_row_offset_px(state, firstVisibleRow);
+    int row = firstVisibleRow + (mouseY - contentY + intraOffset) / lineHeight;
     if (row < 0) row = 0;
     if (row >= totalLines) row = totalLines - 1;
 
@@ -468,11 +481,7 @@ void handleEditorMouseClick(UIPane* pane, SDL_Event* event, EditorView* clickedV
         SDL_Rect xRect = compute_tab_close_button_rect(clickedView);
         if (mouseX >= xRect.x && mouseX <= xRect.x + xRect.w &&
             mouseY >= xRect.y && mouseY <= xRect.y + xRect.h) {
-            if (clickedView->activeTab >= 0 && clickedView->activeTab < clickedView->fileCount) {
-                closeTab(clickedView, clickedView->activeTab);
-            } else if (clickedView->fileCount == 0) {
-                closeEmptyEditorLeaf(getCoreState()->persistentEditorView, clickedView);
-            }
+            enqueue_editor_mouse_command(pane, COMMAND_CLOSE_TAB, SDL_GetModState());
             return;
         }
     }
@@ -576,19 +585,14 @@ void handleEditorMouseButtonUp(UIPane* pane, SDL_Event* event, EditorView* view)
 static void handleCommandEditorScroll(EditorState* state, EditorBuffer* buffer, 
                                       OpenFile* file, EditorView* view, float wheelUnits) {
     const int lineHeight = EDITOR_LINE_HEIGHT;
-    const int contentY = view->y + HEADER_HEIGHT + 2;
-    const int contentH = view->h - (contentY - view->y);
-    const int maxVisibleLines = (contentH > 0) ? contentH / lineHeight : 0;
-    
+    const int contentH = editor_view_content_h(view);
+    if (contentH <= 0) return;
     int totalLines = editor_input_render_line_count(file, buffer);
-    int maxScroll = totalLines - maxVisibleLines;
-    if (maxScroll < 0) maxScroll = 0;
-
     float lineStep = (float)lineHeight;
-    float maxOffsetPx = (float)maxScroll * lineStep;
+    float maxOffsetPx = editor_max_scroll_offset_px(state, totalLines, contentH);
     float baseTargetPx = state->scrollTargetPx;
     if (baseTargetPx < 0.0f || baseTargetPx > maxOffsetPx) {
-        baseTargetPx = (float)state->viewTopRow * lineStep;
+        baseTargetPx = state->scrollOffsetPx;
     }
 
     float deltaPx = -(wheelUnits * lineStep);
@@ -647,28 +651,27 @@ bool handleEditorScrollWheel(UIPane* pane, SDL_Event* event) {
 
 static bool handleCommandEditorScrollDrag(EditorState* state, int totalLines, int mouseY,
                                           int scrollbarY, int scrollbarH, int thumbH,
-                                          int maxVisibleLines) {
+                                          int contentH) {
     if (mouseY == state->scrollbarStartY) {
         return true;  // No movement yet   
     }
      
-    int maxScroll = totalLines - maxVisibleLines;
     float maxThumbTravel = (float)(scrollbarH - thumbH);
+    float maxOffsetPx = editor_max_scroll_offset_px(state, totalLines, contentH);
+    if (maxThumbTravel <= 0.0f || maxOffsetPx <= 0.0f) {
+        return true;
+    }
     
     int thumbTop = mouseY - state->scrollbarDragOffsetY;
     thumbTop = clamp(thumbTop, scrollbarY, scrollbarY + scrollbarH - thumbH);
     float thumbProgress = (float)(thumbTop - scrollbarY) / maxThumbTravel;   
-    
-    int newTopRow = (int)(thumbProgress * maxScroll);
-    newTopRow = clamp(newTopRow, 0, maxScroll);
-    
-    if (newTopRow != state->viewTopRow) {
-        printf("[SCROLL] viewTopRow updated: %d → %d\n", state->viewTopRow, newTopRow);
-    }
-     
-    editorStateSetTopRow(state, newTopRow);
-    state->cursorRow = clamp(state->cursorRow, state->viewTopRow,
-                             state->viewTopRow + maxVisibleLines - 1);
+    if (thumbProgress < 0.0f) thumbProgress = 0.0f;
+    if (thumbProgress > 1.0f) thumbProgress = 1.0f;
+
+    float newOffsetPx = thumbProgress * maxOffsetPx;
+    state->scrollOffsetPx = newOffsetPx;
+    state->scrollTargetPx = newOffsetPx;
+    state->viewTopRow = editor_first_visible_row(state);
                              
     return true;             
 }
@@ -702,29 +705,26 @@ bool handleEditorScrollbarEvent(UIPane* pane, SDL_Event* event) {
     EditorBuffer* buffer = file->buffer;
     EditorState* state = &file->state;  
     
-    const int lineHeight = EDITOR_LINE_HEIGHT;
-    
     // 🔄 Use the actual view dimensions, not the full pane
-    const int contentY = view->y;
-    const int contentH = view->h;
+    const int contentY = editor_view_content_y(view);
+    const int contentH = editor_view_content_h(view);
     
     if (contentH <= 0) return false;
     
-    const int maxVisibleLines = contentH / lineHeight;
     const int totalLines = editor_input_render_line_count(file, buffer);
-    const int maxScroll = totalLines - maxVisibleLines;
-    if (maxScroll <= 0) return false;
+    if (editor_max_scroll_offset_px(state, totalLines, contentH) <= 0.0f) return false;
     
     const int scrollbarY = contentY;
     const int scrollbarH = contentH;
     
-    int thumbH = (int)((float)maxVisibleLines / (float)totalLines * scrollbarH);
+    int totalContentPx = editor_total_content_height_px(state, totalLines);
+    int thumbH = (int)(((float)contentH / (float)totalContentPx) * scrollbarH);
     if (thumbH < 20) thumbH = 20;
     
     // === Drag Scroll Behavior ===
     if (event->type == SDL_MOUSEMOTION && (event->motion.state & SDL_BUTTON_LMASK)) {
         return handleCommandEditorScrollDrag(state, totalLines, event->motion.y,
-                                             scrollbarY, scrollbarH, thumbH, maxVisibleLines);
+                                             scrollbarY, scrollbarH, thumbH, contentH);
     }
      
     // === End Drag Behavior ===

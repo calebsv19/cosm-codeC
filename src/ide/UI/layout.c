@@ -71,6 +71,12 @@ static void apply_theme_to_live_panes(UIState *ui) {
     apply_theme_to_pane(ui->popup, PANE_ROLE_POPUP);
 }
 
+void ide_refresh_live_theme(void) {
+    UIState* ui = getUIState();
+    ide_shared_theme_apply(&theme);
+    apply_theme_to_live_panes(ui);
+}
+
 
 
 // === Individual Pane Constructors ===
@@ -171,8 +177,7 @@ void layout_static_panes(UIPane* panes[], int* paneCount) {
     LayoutDimensions* layout = getLayoutDimensions();
     UIState* ui = getUIState();
 
-    ide_shared_theme_apply(&theme);
-    apply_theme_to_live_panes(ui);
+    ide_refresh_live_theme();
     *paneCount = 0;
 
     syncPopupPane(panes, paneCount);

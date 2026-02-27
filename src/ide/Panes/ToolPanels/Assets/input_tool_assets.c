@@ -56,9 +56,8 @@ void handleAssetsMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
     const int headerHeight = 18;
     const int lineHeight = 16;
-    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
-    const int contentTop = pane->y + d.controls_top + d.button_h + d.row_gap;
-    const int startY = contentTop + tool_panel_content_inset_default();
+    const int contentTop = tool_panel_single_row_content_top(pane);
+    const int startY = contentTop;
 
     PaneScrollState* scroll = assets_get_scroll_state(pane);
     SDL_Rect track = assets_get_scroll_track_rect();

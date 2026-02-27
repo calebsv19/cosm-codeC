@@ -116,6 +116,9 @@ bool handleCommandCutSelection(EditorBuffer* buffer, EditorState* state) {
 
     // Now remove the selected text (shared logic)
     bool result = removeSelectedText(buffer, state);
+    if (result) {
+        markFileAsModified(file);
+    }
     free(text);
     return result;
 }
@@ -137,9 +140,15 @@ bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state) {
 
     IDECoreState* core = getCoreState();
     EditorView* view = core->activeEditorView;
-    if (!view || view->activeTab < 0 || view->activeTab >= view->fileCount) return false;
+    if (!view || view->activeTab < 0 || view->activeTab >= view->fileCount) {
+        clipboard_free_text(clipboardText);
+        return false;
+    }
     OpenFile* file = view->openFiles[view->activeTab];
-    if (!file) return false;
+    if (!file) {
+        clipboard_free_text(clipboardText);
+        return false;
+    }
 
     pushUndoState(file);
 
@@ -164,7 +173,12 @@ bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state) {
 
     char* beforeCursor = malloc(insertPos + 1);
     char* afterCursor  = malloc(currentLen - insertPos + 1);
-    if (!beforeCursor || !afterCursor) return false;
+    if (!beforeCursor || !afterCursor) {
+        free(beforeCursor);
+        free(afterCursor);
+        clipboard_free_text(clipboardText);
+        return false;
+    }
 
     strncpy(beforeCursor, currentLine, insertPos);
     beforeCursor[insertPos] = '\0';
@@ -184,6 +198,13 @@ bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state) {
 
     if (line) {
         char* newLine = malloc(strlen(beforeCursor) + strlen(line) + 1);
+        if (!newLine) {
+            free(beforeCursor);
+            free(afterCursor);
+            free(selectionCopy);
+            clipboard_free_text(clipboardText);
+            return false;
+        }
         sprintf(newLine, "%s%s", beforeCursor, line);
         buffer->lines[row] = newLine;
     }
@@ -199,6 +220,13 @@ bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state) {
 
     char* lastLine = buffer->lines[row];
     char* merged = malloc(strlen(lastLine) + strlen(afterCursor) + 1);
+    if (!merged) {
+        free(beforeCursor);
+        free(afterCursor);
+        free(selectionCopy);
+        clipboard_free_text(clipboardText);
+        return false;
+    }
     sprintf(merged, "%s%s", lastLine, afterCursor);
     free(buffer->lines[row]);
     buffer->lines[row] = merged;
@@ -212,6 +240,7 @@ bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state) {
     if (source != selectionBuffer) {
         selection_buffer_store(source);
     }
+    markFileAsModified(file);
     clipboard_free_text(clipboardText);
 
     return true;

@@ -4,9 +4,10 @@
 #include <stdbool.h>
 
 typedef struct Plugin {
-    const char* name;
-    const char* version;
-    const char* description;
+    char* name;
+    char* version;
+    char* description;
+    char* capabilities;  // Comma-separated declared capabilities from manifest.
     bool loaded;
     void* handle;  // For dynamic library handle (e.g. dlopen or LoadLibrary)
 } Plugin;
@@ -18,4 +19,3 @@ int getLoadedPluginCount();
 const Plugin* getPluginAt(int index);
 
 #endif
-

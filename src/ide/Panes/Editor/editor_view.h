@@ -21,8 +21,8 @@
 #define EDITOR_SPLIT_MIN_CHILD_W 220
 #define EDITOR_SPLIT_MIN_CHILD_H 140
 #define EDITOR_MAX_LEAF_VIEWS 8
-#define EDITOR_LINE_HEIGHT 17
-#define EDITOR_CONTENT_TOP_PADDING 22
+#define EDITOR_TEXT_ROW_ADVANCE 15
+#define EDITOR_TEXT_FIRST_LINE_INSET 16
 #define EDITOR_TAB_GAP 4
 #define EDITOR_TAB_HEIGHT 18
 #define EDITOR_TAB_TEXT_PAD 6
@@ -32,7 +32,11 @@
 #define EDITOR_TAB_SCROLL_STEP 48
 #define EDITOR_TAB_CLOSE_BTN_SIZE 18
 #define EDITOR_TAB_CLOSE_BTN_MARGIN 4
-#define EDITOR_LINE_NUMBER_GUTTER_W 18
+#define EDITOR_LINE_NUMBER_GUTTER_W 28
+#define EDITOR_TEXT_LEFT_INSET 6
+
+#define EDITOR_LINE_HEIGHT EDITOR_TEXT_ROW_ADVANCE
+#define EDITOR_CONTENT_TOP_PADDING EDITOR_TEXT_FIRST_LINE_INSET
 
 
 
@@ -117,6 +121,89 @@ typedef struct EditorView {
     // Layout info (for render size)
     int x, y, w, h;
 } EditorView;
+
+static inline int editor_view_box_x(const EditorView* view) {
+    return view ? (view->x + EDITOR_PADDING) : 0;
+}
+
+static inline int editor_view_box_y(const EditorView* view) {
+    return view ? (view->y + EDITOR_PADDING) : 0;
+}
+
+static inline int editor_view_box_w(const EditorView* view) {
+    return view ? (view->w - 2 * EDITOR_PADDING) : 0;
+}
+
+static inline int editor_view_box_h(const EditorView* view) {
+    return view ? (view->h - 2 * EDITOR_PADDING) : 0;
+}
+
+static inline int editor_view_content_y(const EditorView* view) {
+    return editor_view_box_y(view) + HEADER_HEIGHT;
+}
+
+static inline int editor_view_content_h(const EditorView* view) {
+    int h = editor_view_box_h(view) - HEADER_HEIGHT;
+    return (h > 0) ? h : 0;
+}
+
+static inline int editor_text_start_x(const EditorView* view) {
+    return editor_view_box_x(view) + EDITOR_LINE_NUMBER_GUTTER_W + EDITOR_TEXT_LEFT_INSET;
+}
+
+static inline int editor_text_start_y(const EditorView* view, const EditorState* state) {
+    int topInset = (state && state->verticalPadding > 0)
+                       ? state->verticalPadding
+                       : EDITOR_CONTENT_TOP_PADDING;
+    return editor_view_content_y(view) + topInset;
+}
+
+static inline int editor_vertical_padding_px(const EditorState* state) {
+    return (state && state->verticalPadding > 0)
+               ? state->verticalPadding
+               : EDITOR_CONTENT_TOP_PADDING;
+}
+
+static inline int editor_scroll_floor_div(int numer, int denom) {
+    if (denom <= 0) return 0;
+    if (numer >= 0) return numer / denom;
+    return -(((-numer) + denom - 1) / denom);
+}
+
+static inline int editor_total_content_height_px(const EditorState* state, int totalLines) {
+    int contentPx = editor_vertical_padding_px(state);
+    if (totalLines > 0) {
+        contentPx += totalLines * EDITOR_LINE_HEIGHT;
+    }
+    return contentPx;
+}
+
+static inline float editor_max_scroll_offset_px(const EditorState* state,
+                                                int totalLines,
+                                                int viewportHeight) {
+    int maxOffset = editor_total_content_height_px(state, totalLines) - viewportHeight;
+    if (maxOffset < 0) maxOffset = 0;
+    return (float)maxOffset;
+}
+
+static inline int editor_first_visible_row(const EditorState* state) {
+    int numer = 0;
+    if (state) {
+        numer = (int)state->scrollOffsetPx - editor_vertical_padding_px(state);
+    }
+    int row = editor_scroll_floor_div(numer, EDITOR_LINE_HEIGHT);
+    return (row > 0) ? row : 0;
+}
+
+static inline int editor_first_visible_row_offset_px(const EditorState* state,
+                                                     int firstVisibleRow) {
+    int offset = 0;
+    if (state) {
+        offset = (int)state->scrollOffsetPx - editor_vertical_padding_px(state);
+    }
+    offset -= firstVisibleRow * EDITOR_LINE_HEIGHT;
+    return offset;
+}
 
 
 
