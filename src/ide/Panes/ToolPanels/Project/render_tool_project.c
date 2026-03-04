@@ -6,6 +6,9 @@
 #include "engine/Render/render_font.h"
 #include "engine/Render/render_text_helpers.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/UI/panel_control_widgets.h"
+#include "ide/UI/panel_metrics.h"
+#include "ide/UI/row_surface.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/UI/ui_selection_style.h"
 #include "app/GlobalInfo/core_state.h"
@@ -15,31 +18,14 @@
 #include <string.h>
 #include <stdio.h>
 
-extern int mouseX, mouseY;
-extern DirEntry* hoveredEntry;
-extern DirEntry* selectedEntry;
-extern DirEntry* selectedFile;
-extern DirEntry* selectedDirectory;
-extern int hoveredEntryDepth;
-extern SDL_Rect hoveredEntryRect;
-extern char runTargetPath[1024];
-extern DirEntry* renamingEntry;
-extern char renameBuffer[256];
-
 PaneScrollState* project_get_scroll_state(UIPane* pane);
-
-static PaneScrollState s_projectScrollState;
-static bool s_projectScrollInitialized = false;
-static const int PROJECT_TREE_INDENT_WIDTH = 10;
 static const int PROJECT_TREE_BOX_PAD_X = 3;
 static const int PROJECT_TREE_BOX_PAD_Y = 1;
 static const PaneScrollConfig s_projectScrollConfig = {
-    .line_height_px = 14.0f,
+    .line_height_px = (float)IDE_UI_DENSE_ROW_HEIGHT,
     .deceleration_px = 0.0f,
     .allow_negative = false,
 };
-static SDL_Rect s_projectScrollTrack = {0};
-static SDL_Rect s_projectScrollThumb = {0};
 
 static SDL_Color project_entry_text_color(const DirEntry* entry) {
     IDEThemePalette palette = {0};
@@ -119,103 +105,197 @@ typedef struct ProjectRenderContext {
     ProjectDragState* drag;
 } ProjectRenderContext;
 
+typedef struct ProjectTopControlSpec {
+    ProjectTopControlId id;
+    const char* symbol;
+    const char* label;
+} ProjectTopControlSpec;
+
+typedef struct ProjectRowVisualState {
+    int draw_x;
+    int text_y;
+    int depth;
+    bool inside_viewport;
+    bool hovered;
+    const char* prefix;
+    char line[1024];
+    SDL_Color text_color;
+    UIRowSurfaceLayout visible_surface;
+    UIRowSurfaceRenderSpec surface_spec;
+} ProjectRowVisualState;
+
+static const ProjectTopControlSpec s_projectTopControls[] = {
+    { PROJECT_TOP_CONTROL_ADD_FILE, "+", "Add File" },
+    { PROJECT_TOP_CONTROL_DELETE_FILE, "-", "Delete File" },
+    { PROJECT_TOP_CONTROL_ADD_FOLDER, "+", "Add Folder" },
+    { PROJECT_TOP_CONTROL_DELETE_FOLDER, "-", "Delete Folder" },
+};
+
+static UIRowSurfaceRenderSpec project_row_surface_spec(const DirEntry* entry,
+                                                       const ProjectRenderContext* ctx,
+                                                       bool hovered,
+                                                       bool selectAllVisual,
+                                                       bool isDirectoryDropTarget,
+                                                       bool isRunTarget,
+                                                       bool isRunAncestor) {
+    UIRowSurfaceRenderSpec spec = {0};
+    (void)ctx;
+
+    spec.draw_selection_fill = selectAllVisual;
+    spec.draw_selection_outline = selectAllVisual;
+    spec.draw_hover_outline = hovered;
+
+    if (entry == selectedDirectory) {
+        spec.use_primary_fill = true;
+        spec.primary_fill = (SDL_Color){80, 160, 90, 120};
+    }
+    if (entry == selectedFile) {
+        spec.use_primary_fill = true;
+        spec.primary_fill = (SDL_Color){70, 120, 200, 140};
+    }
+    if (isRunTarget) {
+        spec.use_secondary_fill = true;
+        spec.secondary_fill = (SDL_Color){200, 60, 60, 120};
+    }
+    if (isDirectoryDropTarget) {
+        spec.use_primary_outline = true;
+        spec.primary_outline = (SDL_Color){40, 170, 120, 210};
+    }
+    if (isRunAncestor) {
+        spec.use_secondary_outline = true;
+        spec.secondary_outline = (SDL_Color){200, 60, 60, 80};
+    }
+
+    return spec;
+}
+
+static const char* project_row_prefix(const DirEntry* entry) {
+    if (!entry || entry->type != ENTRY_FOLDER) return "";
+    return entry->isExpanded ? "[-] " : "[+] ";
+}
+
+static void project_row_build_line(char* out_line,
+                                   size_t out_cap,
+                                   const char* prefix,
+                                   const char* display_name,
+                                   const DirEntry* entry) {
+    if (!out_line || out_cap == 0) return;
+    if (!prefix) prefix = "";
+    if (!display_name) display_name = "";
+
+    if (entry == renamingEntry) {
+        int cursor = project_get_rename_cursor();
+        int renameLen = (int)strlen(renameBuffer);
+        if (cursor < 0) cursor = 0;
+        if (cursor > renameLen) cursor = renameLen;
+        snprintf(out_line,
+                 out_cap,
+                 "%s%.*s_%s",
+                 prefix,
+                 cursor,
+                 renameBuffer,
+                 renameBuffer + cursor);
+        return;
+    }
+
+    snprintf(out_line, out_cap, "%s%s", prefix, display_name);
+}
+
+static void project_row_run_target_flags(const DirEntry* entry,
+                                         const char* run_target_path,
+                                         bool* out_is_run_target,
+                                         bool* out_is_run_ancestor) {
+    bool isRunTarget = false;
+    bool isRunAncestor = false;
+
+    if (entry && entry->path && run_target_path && run_target_path[0] != '\0') {
+        isRunTarget = (strcmp(entry->path, run_target_path) == 0);
+        if (!isRunTarget && entry->type == ENTRY_FOLDER) {
+            size_t len = strlen(entry->path);
+            if (strncmp(run_target_path, entry->path, len) == 0) {
+                char next = run_target_path[len];
+                if (next == '/' || next == '\\') {
+                    isRunAncestor = true;
+                }
+            }
+        }
+    }
+
+    if (out_is_run_target) *out_is_run_target = isRunTarget;
+    if (out_is_run_ancestor) *out_is_run_ancestor = isRunAncestor;
+}
+
+static ProjectRowVisualState project_build_row_visual_state(ProjectRenderContext* ctx,
+                                                            const DirEntry* entry,
+                                                            const char* display_name,
+                                                            int depth,
+                                                            float draw_y) {
+    ProjectRowVisualState state = {0};
+    if (!ctx || !entry) return state;
+
+    const char* runTargetPath = project_run_target_path_buffer();
+    TTF_Font* rowFont = project_entry_font();
+    int textHeight = rowFont ? TTF_FontHeight(rowFont) : ctx->lineHeight;
+    if (textHeight < 1) textHeight = ctx->lineHeight;
+
+    state.depth = depth;
+    state.draw_x = ctx->baseX + (depth * ctx->indentWidth);
+    state.text_y = (int)draw_y + ((ctx->lineHeight - textHeight) / 2);
+    state.prefix = project_row_prefix(entry);
+    state.text_color = project_entry_text_color(entry);
+    project_row_build_line(state.line, sizeof(state.line), state.prefix, display_name, entry);
+
+    int textWidth = getTextWidthWithFont(state.line, rowFont);
+    SDL_Rect box = {
+        .x = state.draw_x - PROJECT_TREE_BOX_PAD_X,
+        .y = state.text_y - PROJECT_TREE_BOX_PAD_Y,
+        .w = textWidth + (PROJECT_TREE_BOX_PAD_X * 2),
+        .h = textHeight + (PROJECT_TREE_BOX_PAD_Y * 2)
+    };
+
+    UIRowSurfaceLayout rowSurface = ui_row_surface_layout_from_rect(box);
+    state.inside_viewport = ui_row_surface_clip(&rowSurface, &ctx->clipRect, &state.visible_surface);
+    if (!state.inside_viewport) {
+        return state;
+    }
+
+    bool isDirectoryDropTarget = ctx->drag && ctx->drag->validDirectoryTarget &&
+                                 ctx->drag->targetDirectory == entry;
+    bool isRunTarget = false;
+    bool isRunAncestor = false;
+    project_row_run_target_flags(entry, runTargetPath, &isRunTarget, &isRunAncestor);
+
+    state.hovered = ui_row_surface_contains(&state.visible_surface, project_mouse_x(), project_mouse_y());
+    state.surface_spec = project_row_surface_spec(entry,
+                                                  ctx,
+                                                  state.hovered,
+                                                  project_select_all_visual_active(),
+                                                  isDirectoryDropTarget,
+                                                  isRunTarget,
+                                                  isRunAncestor);
+    return state;
+}
+
 static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int depth) {
     const char* displayName = NULL;
     if (project_should_skip_entry(entry, &displayName)) return;
 
     float drawY = ctx->currentY - ctx->offset;
     ctx->currentY += (float)ctx->lineHeight;
+    ProjectRowVisualState row = project_build_row_visual_state(ctx, entry, displayName, depth, drawY);
 
-    int indent = depth * ctx->indentWidth;
-    int drawX = ctx->baseX + indent;
+    if (row.inside_viewport) {
+        TTF_Font* rowFont = project_entry_font();
+        ui_row_surface_render(ctx->renderer, &row.visible_surface, &row.surface_spec);
 
-    const bool selectAllVisual = project_select_all_visual_active();
-
-    const char* prefix = "";
-    if (entry->type == ENTRY_FOLDER) {
-        prefix = entry->isExpanded ? "[-] " : "[+] ";
-    }
-
-    char line[1024];
-    if (entry == renamingEntry) {
-        snprintf(line, sizeof(line), "%s%s_", prefix, renameBuffer);
-    } else {
-        snprintf(line, sizeof(line), "%s%s", prefix, displayName ? displayName : "");
-    }
-
-    TTF_Font* rowFont = project_entry_font();
-    int textWidth = getTextWidthWithFont(line, rowFont);
-    int textHeight = rowFont ? TTF_FontHeight(rowFont) : ctx->lineHeight;
-    if (textHeight < 1) textHeight = ctx->lineHeight;
-    int textY = (int)drawY + ((ctx->lineHeight - textHeight) / 2);
-    SDL_Rect box = {
-        .x = drawX - PROJECT_TREE_BOX_PAD_X,
-        .y = textY - PROJECT_TREE_BOX_PAD_Y,
-        .w = textWidth + (PROJECT_TREE_BOX_PAD_X * 2),
-        .h = textHeight + (PROJECT_TREE_BOX_PAD_Y * 2)
-    };
-    SDL_Rect visibleBox = {0};
-    bool insideViewport = SDL_IntersectRect(&box, &ctx->clipRect, &visibleBox);
-
-    bool isDirectoryDropTarget = ctx->drag && ctx->drag->validDirectoryTarget &&
-                                 ctx->drag->targetDirectory == entry;
-
-    if (insideViewport) {
-        if (selectAllVisual) {
-            SDL_Color fill = ui_selection_fill_color();
-            SDL_SetRenderDrawColor(ctx->renderer, fill.r, fill.g, fill.b, fill.a);
-            SDL_RenderFillRect(ctx->renderer, &box);
-            SDL_Color outline = ui_selection_outline_color();
-            SDL_SetRenderDrawColor(ctx->renderer, outline.r, outline.g, outline.b, outline.a);
-            SDL_RenderDrawRect(ctx->renderer, &box);
-        }
-        if (entry == selectedDirectory) {
-            SDL_SetRenderDrawColor(ctx->renderer, 80, 160, 90, 120);
-            SDL_RenderFillRect(ctx->renderer, &box);
-        }
-
-        if (entry == selectedFile) {
-            SDL_SetRenderDrawColor(ctx->renderer, 70, 120, 200, 140);
-            SDL_RenderFillRect(ctx->renderer, &box);
-        }
-        if (isDirectoryDropTarget) {
-            SDL_SetRenderDrawColor(ctx->renderer, 40, 170, 120, 210);
-            SDL_RenderDrawRect(ctx->renderer, &box);
-        }
-    }
-
-    bool isRunTarget = (runTargetPath[0] != '\0' && strcmp(entry->path, runTargetPath) == 0);
-    bool isRunAncestor = false;
-    if (!isRunTarget && runTargetPath[0] != '\0' && entry->type == ENTRY_FOLDER) {
-        size_t len = strlen(entry->path);
-        if (strncmp(runTargetPath, entry->path, len) == 0) {
-            char next = runTargetPath[len];
-            if (next == '/' || next == '\\') {
-                isRunAncestor = true;
-            }
-        }
-    }
-
-    if (insideViewport) {
-        if (isRunTarget) {
-            SDL_SetRenderDrawColor(ctx->renderer, 200, 60, 60, 120);
-            SDL_RenderFillRect(ctx->renderer, &box);
-        } else if (isRunAncestor) {
-            SDL_SetRenderDrawColor(ctx->renderer, 200, 60, 60, 80);
-            SDL_RenderDrawRect(ctx->renderer, &box);
-        }
-
-        drawTextUTF8WithFontColorClipped(drawX, textY, line, rowFont,
-                                         project_entry_text_color(entry), false,
+        drawTextUTF8WithFontColorClipped(row.draw_x, row.text_y, row.line, rowFont,
+                                         row.text_color, false,
                                          &ctx->clipRect);
 
-        if (mouseY >= visibleBox.y && mouseY < visibleBox.y + visibleBox.h &&
-            mouseX >= visibleBox.x && mouseX < visibleBox.x + visibleBox.w) {
+        if (row.hovered) {
             hoveredEntry = entry;
-            hoveredEntryDepth = depth;
-            SDL_SetRenderDrawColor(ctx->renderer, 180, 180, 180, 100);
-            SDL_RenderDrawRect(ctx->renderer, &box);
-            hoveredEntryRect = visibleBox;
+            hoveredEntryDepth = row.depth;
+            hoveredEntryRect = row.visible_surface.bounds;
         }
     }
 
@@ -228,11 +308,11 @@ static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int
 
 PaneScrollState* project_get_scroll_state(UIPane* pane) {
     if (!pane) return NULL;
-    if (!s_projectScrollInitialized) {
-        scroll_state_init(&s_projectScrollState, &s_projectScrollConfig);
-        s_projectScrollInitialized = true;
+    if (!*project_panel_scroll_initialized_ptr()) {
+        scroll_state_init(project_panel_scroll_state(), &s_projectScrollConfig);
+        *project_panel_scroll_initialized_ptr() = true;
     }
-    pane->scrollState = &s_projectScrollState;
+    pane->scrollState = project_panel_scroll_state();
     return pane->scrollState;
 }
 
@@ -273,26 +353,28 @@ void renderProjectFilesPanel(UIPane* pane) {
 
     const int iconBtnSize = 24;
     const int spacing = 8;
+    const int topControlCount = (int)(sizeof(s_projectTopControls) / sizeof(s_projectTopControls[0]));
+    UIPanelVerticalButtonStackLayout topControls =
+        ui_panel_vertical_button_stack_layout(x, y, iconBtnSize, iconBtnSize, spacing, topControlCount);
+    UIPanelTaggedRectList* topControlHits = project_top_control_hits();
+    ui_panel_tagged_rect_list_reset(topControlHits);
 
-    projectBtnAddFile = (SDL_Rect){ x, y, iconBtnSize, iconBtnSize };
-    renderButton(pane, projectBtnAddFile, "+");
-    drawText(x + iconBtnSize + 6, y + 4, "Add File");
-    y += iconBtnSize + spacing;
-
-    projectBtnDeleteFile = (SDL_Rect){ x, y, iconBtnSize, iconBtnSize };
-    renderButton(pane, projectBtnDeleteFile, "-");
-    drawText(x + iconBtnSize + 6, y + 4, "Delete File");
-    y += iconBtnSize + spacing;
-
-    projectBtnAddFolder = (SDL_Rect){ x, y, iconBtnSize, iconBtnSize };
-    renderButton(pane, projectBtnAddFolder, "+");
-    drawText(x + iconBtnSize + 6, y + 4, "Add Folder");
-    y += iconBtnSize + spacing;
-
-    projectBtnDeleteFolder = (SDL_Rect){ x, y, iconBtnSize, iconBtnSize };
-    renderButton(pane, projectBtnDeleteFolder, "-");
-    drawText(x + iconBtnSize + 6, y + 4, "Delete Folder");
-    y += iconBtnSize + spacing;
+    for (int i = 0; i < topControls.count; ++i) {
+        SDL_Rect buttonRect = topControls.button_rects[i];
+        ui_panel_compact_button_render(renderer,
+                                       &(UIPanelCompactButtonSpec){
+                                           .rect = buttonRect,
+                                           .label = s_projectTopControls[i].symbol,
+                                           .active = false,
+                                           .outlined = false,
+                                           .use_custom_fill = false,
+                                           .use_custom_outline = false,
+                                           .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                       });
+        (void)ui_panel_tagged_rect_list_add(topControlHits, s_projectTopControls[i].id, buttonRect);
+        drawText(buttonRect.x + buttonRect.w + 6, buttonRect.y + 4, s_projectTopControls[i].label);
+    }
+    y += (topControls.count * iconBtnSize) + ((topControls.count > 0 ? topControls.count - 1 : 0) * spacing);
 
     const int treeTopGap = 8;
     int contentTop = y;
@@ -318,12 +400,8 @@ void renderProjectFilesPanel(UIPane* pane) {
     int visibleLines = project_count_visible_entries(projectRoot);
     float contentHeight = (float)treeTopGap +
                           (float)visibleLines * s_projectScrollConfig.line_height_px;
-    float effectiveHeight = contentHeight;
-    if (scroll->line_height_px > 0.0f && scroll->viewport_height_px > scroll->line_height_px) {
-        float slack = scroll->viewport_height_px - scroll->line_height_px;
-        effectiveHeight = contentHeight + slack;
-    }
-    scroll_state_set_content_height(scroll, effectiveHeight);
+    scroll_state_set_content_height(scroll,
+                                    scroll_state_top_anchor_content_height(scroll, contentHeight));
 
     SDL_Rect clipRect = {
         .x = x - 6,
@@ -346,7 +424,7 @@ void renderProjectFilesPanel(UIPane* pane) {
             .clipRect = clipRect,
             .baseX = x,
             .lineHeight = (int)s_projectScrollConfig.line_height_px,
-            .indentWidth = PROJECT_TREE_INDENT_WIDTH,
+            .indentWidth = IDE_UI_TREE_INDENT_WIDTH,
             .drag = &coreState->projectDrag,
         };
         project_render_entry(&renderCtx, projectRoot, 0);
@@ -360,34 +438,34 @@ void renderProjectFilesPanel(UIPane* pane) {
                          (paneHovered || paneActive || scroll_state_is_dragging_thumb(scroll));
 
     if (showScrollbar) {
-        s_projectScrollTrack = (SDL_Rect){
+        *project_panel_scroll_track_ptr() = (SDL_Rect){
             clipRect.x + clipRect.w + trackPadding,
             clipRect.y,
             trackWidth,
             clipRect.h
         };
-        s_projectScrollThumb = scroll_state_thumb_rect(scroll,
-                                                       s_projectScrollTrack.x,
-                                                       s_projectScrollTrack.y,
-                                                       s_projectScrollTrack.w,
-                                                       s_projectScrollTrack.h);
+        *project_panel_scroll_thumb_ptr() = scroll_state_thumb_rect(scroll,
+                                                                    project_panel_scroll_track_ptr()->x,
+                                                                    project_panel_scroll_track_ptr()->y,
+                                                                    project_panel_scroll_track_ptr()->w,
+                                                                    project_panel_scroll_track_ptr()->h);
 
         SDL_Color trackColor = scroll->track_color;
         SDL_Color thumbColor = scroll->thumb_color;
         SDL_SetRenderDrawColor(renderer, trackColor.r, trackColor.g, trackColor.b, trackColor.a);
-        SDL_RenderFillRect(renderer, &s_projectScrollTrack);
+        SDL_RenderFillRect(renderer, project_panel_scroll_track_ptr());
         SDL_SetRenderDrawColor(renderer, thumbColor.r, thumbColor.g, thumbColor.b, thumbColor.a);
-        SDL_RenderFillRect(renderer, &s_projectScrollThumb);
+        SDL_RenderFillRect(renderer, project_panel_scroll_thumb_ptr());
     } else {
-        s_projectScrollTrack = (SDL_Rect){0};
-        s_projectScrollThumb = (SDL_Rect){0};
+        *project_panel_scroll_track_ptr() = (SDL_Rect){0};
+        *project_panel_scroll_thumb_ptr() = (SDL_Rect){0};
     }
 }
 
 SDL_Rect project_get_scroll_track_rect(void) {
-    return s_projectScrollTrack;
+    return *project_panel_scroll_track_ptr();
 }
 
 SDL_Rect project_get_scroll_thumb_rect(void) {
-    return s_projectScrollThumb;
+    return *project_panel_scroll_thumb_ptr();
 }

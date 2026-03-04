@@ -10,7 +10,7 @@ void handleBuildOutputMouseInput(UIPane* pane, SDL_Event* event) {
 }
 
 void handleBuildOutputScrollInput(UIPane* pane, SDL_Event* event) {
-    (void)pane; (void)event;
+    handleBuildOutputEvent(pane, event);
 }
 
 void handleBuildOutputHoverInput(UIPane* pane, int x, int y) {

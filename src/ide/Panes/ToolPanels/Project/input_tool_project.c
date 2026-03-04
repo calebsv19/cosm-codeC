@@ -3,6 +3,9 @@
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
 #include "ide/Panes/ToolPanels/Project/rename_callbacks.h"
 #include "ide/Panes/ToolPanels/Project/render_tool_project.h"
+#include "ide/UI/input_modifiers.h"
+#include "ide/UI/panel_control_widgets.h"
+#include "ide/UI/scroll_input_adapter.h"
 #include "ide/UI/scroll_manager.h"
 #include "app/GlobalInfo/core_state.h"
 #include "ide/Panes/Editor/editor_view.h"
@@ -15,40 +18,39 @@
 
 static ProjectRenameContext s_projectRenameContext;
 
-static bool pointInRect(int x, int y, SDL_Rect r) {
-    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
-}
-
 
 void handleProjectFilesKeyboardInput(UIPane* pane, SDL_Event* event) {
-    if (!pane || event->type != SDL_KEYDOWN) return;
-
-    SDL_Keycode key = event->key.keysym.sym;
-    Uint16 mod = event->key.keysym.mod;
-    bool accel = (mod & KMOD_CTRL) || (mod & KMOD_GUI);
+    if (!pane || !event) return;
 
     // === Rename mode input ===
     if (renamingEntry) {
+        if (event->type == SDL_TEXTINPUT) {
+            (void)project_handle_rename_text_input(event);
+            return;
+        }
+        if (event->type != SDL_KEYDOWN) return;
+
+        SDL_Keycode key = event->key.keysym.sym;
         if (key == SDLK_RETURN) {
+            CMD(COMMAND_CONFIRM_RENAME);
+            return;
+        } else if (key == SDLK_KP_ENTER) {
             CMD(COMMAND_CONFIRM_RENAME);
             return;
         } else if (key == SDLK_ESCAPE) {
             CMD(COMMAND_CANCEL_RENAME);
             return;
-        } else if (key == SDLK_BACKSPACE) {
-            int len = strlen(renameBuffer);
-            if (len > 0) renameBuffer[len - 1] = '\0';
-            return;
-        } else {
-            char ch = event->key.keysym.sym;
-            if (ch >= 32 && ch < 127 && strlen(renameBuffer) < sizeof(renameBuffer) - 1) {
-                int len = strlen(renameBuffer);
-                renameBuffer[len] = ch;
-                renameBuffer[len + 1] = '\0';
-            }
+        } else if (project_handle_rename_edit_key(key)) {
             return;
         }
+        return;
     }
+
+    if (event->type != SDL_KEYDOWN) return;
+
+    SDL_Keycode key = event->key.keysym.sym;
+    Uint16 mod = event->key.keysym.mod;
+    bool accel = ui_input_has_primary_accel(mod);
 
     // === CTRL Shortcuts ===
     if (accel && key == SDLK_a) {
@@ -99,7 +101,7 @@ void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
     if (scroll) {
         SDL_Rect track = project_get_scroll_track_rect();
         SDL_Rect thumb = project_get_scroll_thumb_rect();
-        if (scroll_state_handle_mouse_drag(scroll, event, &track, &thumb)) {
+        if (ui_scroll_input_consume(scroll, event, &track, &thumb)) {
             return;
         }
     }
@@ -154,30 +156,25 @@ void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
     // Left click handling (existing)
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
         project_clear_select_all_visual();
-        if (pointInRect(mx, my, projectBtnAddFile)) {
-            CMD(COMMAND_NEW_FILE);
-            return;
+        switch ((ProjectTopControlId)ui_panel_tagged_rect_list_hit_test(project_top_control_hits(), mx, my)) {
+            case PROJECT_TOP_CONTROL_ADD_FILE:
+                CMD(COMMAND_NEW_FILE);
+                return;
+            case PROJECT_TOP_CONTROL_DELETE_FILE:
+                CMD(COMMAND_DELETE_FILE);
+                return;
+            case PROJECT_TOP_CONTROL_ADD_FOLDER:
+                CMD(COMMAND_NEW_FOLDER);
+                return;
+            case PROJECT_TOP_CONTROL_DELETE_FOLDER:
+                CMD(COMMAND_DELETE_FOLDER);
+                return;
+            case PROJECT_TOP_CONTROL_NONE:
+            default:
+                break;
         }
 
-        if (pointInRect(mx, my, projectBtnDeleteFile)) {
-            CMD(COMMAND_DELETE_FILE);
-            return;
-        }
-
-        if (pointInRect(mx, my, projectBtnAddFolder)) {
-            CMD(COMMAND_NEW_FOLDER);
-            return;
-        }
-
-        if (pointInRect(mx, my, projectBtnDeleteFolder)) {
-            CMD(COMMAND_DELETE_FOLDER);
-            return;
-        }
-
-        if (hoveredEntry && hoveredEntry->type == ENTRY_FILE) {
-            beginProjectDrag(hoveredEntry, &hoveredEntryRect, mx, my);
-        }
-        handleProjectFilesClick(pane, mx);
+        handleProjectFilesClick(pane, mx, my);
     }
 }
 

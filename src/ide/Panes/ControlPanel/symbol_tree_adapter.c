@@ -284,10 +284,20 @@ static UITreeNode* clone_filtered_node(const UITreeNode* node,
     }
 
     clone->isExpanded = node->isExpanded;
-    if (query && query[0] &&
-        (clone->type == TREE_NODE_FOLDER || clone->type == TREE_NODE_SECTION) &&
-        descendantMatch) {
-        clone->isExpanded = true;
+    if (clone->type == TREE_NODE_FOLDER || clone->type == TREE_NODE_SECTION) {
+        bool cachedExpanded = false;
+        const char* key = NULL;
+        if (node->fullPath && node->fullPath[0]) {
+            key = cache_key_for_path(node->fullPath);
+        } else if (node->label) {
+            key = cache_key_for_label(node->label);
+        }
+        if (key && expansion_cache_get(key, &cachedExpanded)) {
+            clone->isExpanded = cachedExpanded;
+        }
+        if (query && query[0] && descendantMatch) {
+            clone->isExpanded = true;
+        }
     }
 
     if (outDescendantMatch) *outDescendantMatch = selfMatches || descendantMatch;

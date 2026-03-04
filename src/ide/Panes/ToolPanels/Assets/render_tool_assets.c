@@ -5,22 +5,15 @@
 #include "ide/Panes/ToolPanels/Assets/tool_assets.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
+#include "ide/UI/row_surface.h"
 #include "ide/UI/scroll_manager.h"
-#include "ide/UI/ui_selection_style.h"
 #include "engine/Render/render_font.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <stdio.h>
-
-static PaneScrollState gScrollState;
-static bool gScrollInit = false;
-static SDL_Rect gScrollTrack = {0};
-static SDL_Rect gScrollThumb = {0};
-static SDL_Rect gOpenAllRect = {0};
-static SDL_Rect gCloseAllRect = {0};
-static const PaneScrollConfig gScrollCfg = { .line_height_px = 18.0f, .deceleration_px = 0.0f, .allow_negative = false };
+static const PaneScrollConfig gScrollCfg = { .line_height_px = 14.0f, .deceleration_px = 0.0f, .allow_negative = false };
 
 static TTF_Font* asset_row_font(void) {
     TTF_Font* font = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
@@ -39,30 +32,41 @@ static SDL_Color asset_row_color(bool isHeader) {
 }
 
 void renderAssetManagerPanel(UIPane* pane) {
-    if (!gScrollInit) {
-        scroll_state_init(&gScrollState, &gScrollCfg);
-        gScrollInit = true;
+    PaneScrollState* scroll = assets_get_scroll_state(pane);
+    if (!scroll->line_height_px && !scroll->viewport_height_px && !scroll->content_height_px) {
+        scroll_state_init(scroll, &gScrollCfg);
     }
 
-    const int headerHeight = 18;
-    const int lineHeight = 16;
+    const int headerHeight = ASSET_PANEL_HEADER_HEIGHT;
+    const int lineHeight = ASSET_PANEL_ROW_HEIGHT;
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
     const int paddingX = d.pad_left;
     const int controlsY = pane->y + d.controls_top;
     const int trackWidth = 6;
     const int trackPadding = 4;
 
-    ToolPanelControlRow controls = tool_panel_control_row_at(pane, controlsY);
-    gOpenAllRect = tool_panel_row_take_left(&controls, 84);
-    gCloseAllRect = tool_panel_row_take_left(&controls, 84);
-    renderButton(pane, gOpenAllRect, "Open All");
-    renderButton(pane, gCloseAllRect, "Close All");
+    UIPanelTaggedRectList* controlHits = assets_get_control_hits();
+    ui_panel_tagged_rect_list_reset(controlHits);
+    const UIPanelCompactButtonRowItem controlItems[] = {
+        { ASSET_TOP_CONTROL_OPEN_ALL, "Open All", false, false },
+        { ASSET_TOP_CONTROL_CLOSE_ALL, "Close All", false, false }
+    };
+    ui_panel_compact_button_row_render(getRenderContext()->renderer,
+                                       pane->x + d.pad_left,
+                                       controlsY,
+                                       84,
+                                       d.button_h,
+                                       d.row_gap,
+                                       controlItems,
+                                       (int)(sizeof(controlItems) / sizeof(controlItems[0])),
+                                       CORE_FONT_TEXT_SIZE_CAPTION,
+                                       controlHits);
 
     int contentTop = tool_panel_single_row_content_top(pane);
     ToolPanelSplitLayout split = {0};
     tool_panel_compute_split_layout(pane, contentTop, &split);
     int viewportH = split.body_rect.h;
-    scroll_state_set_viewport(&gScrollState, (float)viewportH);
+    scroll_state_set_viewport(scroll, (float)viewportH);
 
     tool_panel_render_split_background(getRenderContext()->renderer, pane, contentTop, d.body_darken);
 
@@ -73,9 +77,10 @@ void renderAssetManagerPanel(UIPane* pane) {
     for (int i = 0; i < count; ++i) {
         contentHeight += (refs[i].isHeader ? (float)headerHeight : (float)lineHeight);
     }
-    scroll_state_set_content_height(&gScrollState, contentHeight);
+    scroll_state_set_content_height(scroll,
+                                    scroll_state_top_anchor_content_height(scroll, contentHeight));
 
-    float offset = scroll_state_get_offset(&gScrollState);
+    float offset = scroll_state_get_offset(scroll);
 
     SDL_Rect clipRect = {
         split.body_rect.x,
@@ -92,6 +97,9 @@ void renderAssetManagerPanel(UIPane* pane) {
     TTF_Font* rowFont = asset_row_font();
     int fontHeight = rowFont ? TTF_FontHeight(rowFont) : lineHeight;
     if (fontHeight < 1) fontHeight = lineHeight;
+    int mouseX = 0;
+    int mouseY = 0;
+    SDL_GetMouseState(&mouseX, &mouseY);
 
     if (count == 0) {
         drawTextUTF8WithFontColorClipped(x,
@@ -140,17 +148,22 @@ void renderAssetManagerPanel(UIPane* pane) {
                     textWidth + 12,
                     fontHeight + 2
                 };
-                SDL_Rect visibleBox = {0};
-                if (!SDL_IntersectRect(&textBox, &clipRect, &visibleBox)) {
+                UIRowSurfaceLayout rowSurface = ui_row_surface_layout_from_rect(textBox);
+                UIRowSurfaceLayout visibleSurface = {0};
+                if (!ui_row_surface_clip(&rowSurface, &clipRect, &visibleSurface)) {
                     y += h;
                     continue;
                 }
 
-                if (assets_is_selected(i)) {
-                    SDL_Color sel = ui_selection_fill_color();
-                    SDL_SetRenderDrawColor(getRenderContext()->renderer, sel.r, sel.g, sel.b, sel.a);
-                    SDL_RenderFillRect(getRenderContext()->renderer, &visibleBox);
-                }
+                bool isSelected = assets_is_selected(i);
+                bool isHovered = ui_row_surface_contains(&visibleSurface, mouseX, mouseY);
+                ui_row_surface_render(getRenderContext()->renderer,
+                                      &visibleSurface,
+                                      &(UIRowSurfaceRenderSpec){
+                                          .draw_selection_fill = isSelected,
+                                          .draw_selection_outline = isSelected,
+                                          .draw_hover_outline = isHovered
+                                      });
 
                 drawTextUTF8WithFontColorClipped(drawX,
                                                  textY,
@@ -166,48 +179,27 @@ void renderAssetManagerPanel(UIPane* pane) {
 
     popClipRect();
 
-    bool showScrollbar = scroll_state_can_scroll(&gScrollState) && viewportH > 0;
+    bool showScrollbar = scroll_state_can_scroll(scroll) && viewportH > 0;
     if (showScrollbar) {
-        gScrollTrack = (SDL_Rect){
+        SDL_Rect track = (SDL_Rect){
             split.body_rect.x + split.body_rect.w - trackWidth,
             split.body_rect.y,
             trackWidth,
             viewportH
         };
-        gScrollThumb = scroll_state_thumb_rect(&gScrollState,
-                                               gScrollTrack.x,
-                                               gScrollTrack.y,
-                                               gScrollTrack.w,
-                                               gScrollTrack.h);
-        SDL_Color trackColor = gScrollState.track_color;
-        SDL_Color thumbColor = gScrollState.thumb_color;
+        SDL_Rect thumb = scroll_state_thumb_rect(scroll,
+                                                 track.x,
+                                                 track.y,
+                                                 track.w,
+                                                 track.h);
+        SDL_Color trackColor = scroll->track_color;
+        SDL_Color thumbColor = scroll->thumb_color;
         SDL_SetRenderDrawColor(getRenderContext()->renderer, trackColor.r, trackColor.g, trackColor.b, trackColor.a);
-        SDL_RenderFillRect(getRenderContext()->renderer, &gScrollTrack);
+        SDL_RenderFillRect(getRenderContext()->renderer, &track);
         SDL_SetRenderDrawColor(getRenderContext()->renderer, thumbColor.r, thumbColor.g, thumbColor.b, thumbColor.a);
-        SDL_RenderFillRect(getRenderContext()->renderer, &gScrollThumb);
+        SDL_RenderFillRect(getRenderContext()->renderer, &thumb);
+        assets_set_scroll_rects(track, thumb);
     } else {
-        gScrollTrack = (SDL_Rect){0};
-        gScrollThumb = (SDL_Rect){0};
+        assets_set_scroll_rects((SDL_Rect){0}, (SDL_Rect){0});
     }
-}
-
-PaneScrollState* assets_get_scroll_state(UIPane* pane) {
-    (void)pane;
-    return &gScrollState;
-}
-
-SDL_Rect assets_get_scroll_track_rect(void) {
-    return gScrollTrack;
-}
-
-SDL_Rect assets_get_scroll_thumb_rect(void) {
-    return gScrollThumb;
-}
-
-SDL_Rect assets_get_open_all_rect(void) {
-    return gOpenAllRect;
-}
-
-SDL_Rect assets_get_close_all_rect(void) {
-    return gCloseAllRect;
 }

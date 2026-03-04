@@ -3,6 +3,7 @@
 
 #include "ide/Panes/PaneInfo/pane.h"
 #include "core/Diagnostics/diagnostics_engine.h"
+#include "ide/UI/panel_control_widgets.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 
@@ -12,6 +13,15 @@ typedef struct {
     int fileIndex;
     bool isHeader;
 } FlatDiagRef;
+
+typedef enum {
+    ERROR_TOP_CONTROL_NONE = 0,
+    ERROR_TOP_CONTROL_FILTER_ALL = 1,
+    ERROR_TOP_CONTROL_FILTER_ERRORS = 2,
+    ERROR_TOP_CONTROL_FILTER_WARNINGS = 3,
+    ERROR_TOP_CONTROL_OPEN_ALL = 4,
+    ERROR_TOP_CONTROL_CLOSE_ALL = 5
+} ErrorTopControlId;
 
 void handleErrorsEvent(UIPane* pane, SDL_Event* event);
 
@@ -38,11 +48,7 @@ void errors_get_layout_metrics(const UIPane* pane,
                                int* headerHeight,
                                int* diagHeight,
                                int* lineHeight);
-void errors_set_control_button_rects(SDL_Rect allRect,
-                                     SDL_Rect errorsRect,
-                                     SDL_Rect warningsRect,
-                                     SDL_Rect openAllRect,
-                                     SDL_Rect closeAllRect);
+UIPanelTaggedRectList* errors_get_control_hits(void);
 bool errors_filter_all_enabled(void);
 bool errors_filter_errors_enabled(void);
 bool errors_filter_warnings_enabled(void);

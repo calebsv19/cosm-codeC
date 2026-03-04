@@ -11,10 +11,10 @@
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
 #include "engine/Render/render_pipeline.h"
+#include "ide/UI/row_surface.h"
 #include "ide/UI/scroll_manager.h"
 #include "engine/Render/render_text_helpers.h"
 #include "ide/UI/shared_theme_font_adapter.h"
-#include "ide/UI/ui_selection_style.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -25,8 +25,6 @@
 bool is_error_selected(int idx);
 TTF_Font* get_error_font(void);
 void errors_get_layout_metrics(const UIPane* pane, int* contentTop, int* headerHeight, int* diagHeight, int* lineHeight);
-static SDL_Rect gErrorScrollTrack = {0};
-static SDL_Rect gErrorScrollThumb = {0};
 
 static const char* error_display_path(const char* rawPath, char* outBuf, size_t outCap) {
     if (!rawPath || !rawPath[0]) return "(unknown file)";
@@ -49,37 +47,6 @@ static const char* error_display_path(const char* rawPath, char* outBuf, size_t 
 
     snprintf(outBuf, outCap, "%s", rawPath);
     return outBuf;
-}
-
-static void render_state_button(const UIPane* pane,
-                                SDL_Rect rect,
-                                const char* label,
-                                bool active) {
-    (void)pane;
-    SDL_Renderer* r = getRenderContext()->renderer;
-    SDL_Color fill = {80, 80, 80, 255};
-    SDL_Color fillActive = {120, 120, 120, 255};
-    SDL_Color border = {180, 180, 180, 255};
-    SDL_Color text = {230, 230, 230, 255};
-    ide_shared_theme_button_colors(&fill, &fillActive, &border, &text);
-
-    SDL_Color bg = active ? fillActive : fill;
-    SDL_SetRenderDrawColor(r, bg.r, bg.g, bg.b, 255);
-    SDL_RenderFillRect(r, &rect);
-    SDL_SetRenderDrawColor(r, border.r, border.g, border.b, 255);
-    SDL_RenderDrawRect(r, &rect);
-
-    const char* src = label ? label : "";
-    int textMaxW = rect.w - 8;
-    size_t keepLen = getTextClampedLength(src, textMaxW);
-    char labelBuf[64];
-    if (keepLen >= sizeof(labelBuf)) keepLen = sizeof(labelBuf) - 1;
-    memcpy(labelBuf, src, keepLen);
-    labelBuf[keepLen] = '\0';
-
-    int tx = rect.x + (rect.w - getTextWidth(labelBuf)) / 2;
-    int ty = rect.y + 3;
-    drawTextWithTier(tx, ty, labelBuf, CORE_FONT_TEXT_SIZE_CAPTION);
 }
 
 static int button_text_cap(const char* const* labels, int count) {
@@ -207,12 +174,63 @@ void renderErrorsPanel(UIPane* pane) {
                            &btnCloseAll);
     drawTextWithTier(title1X, title1Y, "Show", CORE_FONT_TEXT_SIZE_CAPTION);
     drawTextWithTier(title2X, title2Y, "Batch", CORE_FONT_TEXT_SIZE_CAPTION);
-    errors_set_control_button_rects(btnAll, btnErrors, btnWarnings, btnOpenAll, btnCloseAll);
-    render_state_button(pane, btnAll, "All", errors_filter_all_enabled());
-    render_state_button(pane, btnErrors, "Errors", errors_filter_errors_enabled());
-    render_state_button(pane, btnWarnings, "Warnings", errors_filter_warnings_enabled());
-    renderButton(pane, btnOpenAll, "Open All");
-    renderButton(pane, btnCloseAll, "Close All");
+    UIPanelTaggedRectList* controlHits = errors_get_control_hits();
+    ui_panel_tagged_rect_list_reset(controlHits);
+    ui_panel_compact_button_render(getRenderContext()->renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = btnAll,
+                                       .label = "All",
+                                       .active = errors_filter_all_enabled(),
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+    (void)ui_panel_tagged_rect_list_add(controlHits, ERROR_TOP_CONTROL_FILTER_ALL, btnAll);
+    ui_panel_compact_button_render(getRenderContext()->renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = btnErrors,
+                                       .label = "Errors",
+                                       .active = errors_filter_errors_enabled(),
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+    (void)ui_panel_tagged_rect_list_add(controlHits, ERROR_TOP_CONTROL_FILTER_ERRORS, btnErrors);
+    ui_panel_compact_button_render(getRenderContext()->renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = btnWarnings,
+                                       .label = "Warnings",
+                                       .active = errors_filter_warnings_enabled(),
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+    (void)ui_panel_tagged_rect_list_add(controlHits, ERROR_TOP_CONTROL_FILTER_WARNINGS, btnWarnings);
+    ui_panel_compact_button_render(getRenderContext()->renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = btnOpenAll,
+                                       .label = "Open All",
+                                       .active = false,
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+    (void)ui_panel_tagged_rect_list_add(controlHits, ERROR_TOP_CONTROL_OPEN_ALL, btnOpenAll);
+    ui_panel_compact_button_render(getRenderContext()->renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = btnCloseAll,
+                                       .label = "Close All",
+                                       .active = false,
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+    (void)ui_panel_tagged_rect_list_add(controlHits, ERROR_TOP_CONTROL_CLOSE_ALL, btnCloseAll);
 
     tool_panel_render_split_background(getRenderContext()->renderer, pane, contentTop, 14);
 
@@ -252,7 +270,15 @@ void renderErrorsPanel(UIPane* pane) {
     FlatDiagRef refs[512];
     int flatCount = flatten_diagnostics(refs, 512);
     if (flatCount == 0) {
-        drawTextWithFont(x, firstRowY, "(No errors or warnings)", font ? font : getActiveFont());
+        SDL_Rect emptyClip = { pane->x, contentTop, pane->w - 8, viewportH };
+        SDL_Color textColor = {230, 230, 230, 255};
+        drawTextUTF8WithFontColorClipped(x,
+                                         firstRowY,
+                                         "(No errors or warnings)",
+                                         font ? font : getActiveFont(),
+                                         textColor,
+                                         false,
+                                         &emptyClip);
         return;
     }
 
@@ -260,7 +286,8 @@ void renderErrorsPanel(UIPane* pane) {
     for (int i = 0; i < flatCount; ++i) {
         contentHeight += refs[i].isHeader ? (float)headerHeight : (float)diagHeight;
     }
-    scroll_state_set_content_height(scroll, contentHeight);
+    scroll_state_set_content_height(scroll,
+                                    scroll_state_top_anchor_content_height(scroll, contentHeight));
     float offset = scroll_state_get_offset(scroll);
 
     SDL_Rect clip = { pane->x, contentTop, pane->w - 8, viewportH };
@@ -268,6 +295,10 @@ void renderErrorsPanel(UIPane* pane) {
 
     int y = firstRowY - (int)offset;
     int maxY = contentTop + viewportH;
+    SDL_Color textColor = {230, 230, 230, 255};
+    int mouseX = 0;
+    int mouseY = 0;
+    SDL_GetMouseState(&mouseX, &mouseY);
 
     for (int i = 0; i < flatCount; ++i) {
         int entryHeight = refs[i].isHeader ? headerHeight : diagHeight;
@@ -275,17 +306,29 @@ void renderErrorsPanel(UIPane* pane) {
         if (y >= maxY) break;
 
         bool sel = is_error_selected(i);
-        if (sel) {
-            SDL_Rect highlight = { x - 8, y - 2, clip.w - paddingX + 8, entryHeight };
-            SDL_Color selColor = ui_selection_fill_color();
-            SDL_SetRenderDrawColor(getRenderContext()->renderer, selColor.r, selColor.g, selColor.b, selColor.a);
-            SDL_RenderFillRect(getRenderContext()->renderer, &highlight);
+        SDL_Rect highlight = { x - 8, y - 2, clip.w - paddingX + 8, entryHeight };
+        UIRowSurfaceLayout highlightSurface = ui_row_surface_layout_from_rect(highlight);
+        UIRowSurfaceLayout visibleSurface = {0};
+        if (ui_row_surface_clip(&highlightSurface, &clip, &visibleSurface)) {
+            ui_row_surface_render(getRenderContext()->renderer,
+                                  &visibleSurface,
+                                  &(UIRowSurfaceRenderSpec){
+                                      .draw_selection_fill = sel,
+                                      .draw_selection_outline = sel,
+                                      .draw_hover_outline = ui_row_surface_contains(&visibleSurface, mouseX, mouseY)
+                                  });
         }
 
         if (refs[i].isHeader) {
             char pathBuf[1024];
             const char* displayPath = error_display_path(refs[i].path, pathBuf, sizeof(pathBuf));
-            drawTextWithFont(x, y, displayPath, font ? font : getActiveFont());
+            drawTextUTF8WithFontColorClipped(x,
+                                             y,
+                                             displayPath,
+                                             font ? font : getActiveFont(),
+                                             textColor,
+                                             false,
+                                             &clip);
             y += entryHeight;
         } else {
             const Diagnostic* diag = refs[i].diag;
@@ -296,11 +339,23 @@ void renderErrorsPanel(UIPane* pane) {
             int msgX   = x + 28;
 
             snprintf(line, sizeof(line), "%s %d:%d", sev, diag->line, diag->column);
-            drawTextWithFont(labelX, y, line, font ? font : getActiveFont());
+            drawTextUTF8WithFontColorClipped(labelX,
+                                             y,
+                                             line,
+                                             font ? font : getActiveFont(),
+                                             textColor,
+                                             false,
+                                             &clip);
             y += lineHeight;
 
             snprintf(line, sizeof(line), "%s", diag->message ? diag->message : "(no message)");
-            drawTextWithFont(msgX, y, line, font ? font : getActiveFont());
+            drawTextUTF8WithFontColorClipped(msgX,
+                                             y,
+                                             line,
+                                             font ? font : getActiveFont(),
+                                             textColor,
+                                             false,
+                                             &clip);
             y += lineHeight;
         }
     }
@@ -309,27 +364,25 @@ void renderErrorsPanel(UIPane* pane) {
 
     bool showScrollbar = scroll_state_can_scroll(scroll) && viewportH > 0;
     if (showScrollbar) {
-        gErrorScrollTrack = (SDL_Rect){
+        SDL_Rect track = (SDL_Rect){
             pane->x + pane->w - 8,
             contentTop,
             4,
             viewportH
         };
-        gErrorScrollThumb = scroll_state_thumb_rect(scroll,
-                                                   gErrorScrollTrack.x,
-                                                   gErrorScrollTrack.y,
-                                                   gErrorScrollTrack.w,
-                                                   gErrorScrollTrack.h);
+        SDL_Rect thumb = scroll_state_thumb_rect(scroll,
+                                                 track.x,
+                                                 track.y,
+                                                 track.w,
+                                                 track.h);
         SDL_Color trackColor = scroll->track_color;
         SDL_Color thumbColor = scroll->thumb_color;
         SDL_SetRenderDrawColor(getRenderContext()->renderer, trackColor.r, trackColor.g, trackColor.b, trackColor.a);
-        SDL_RenderFillRect(getRenderContext()->renderer, &gErrorScrollTrack);
+        SDL_RenderFillRect(getRenderContext()->renderer, &track);
         SDL_SetRenderDrawColor(getRenderContext()->renderer, thumbColor.r, thumbColor.g, thumbColor.b, thumbColor.a);
-        SDL_RenderFillRect(getRenderContext()->renderer, &gErrorScrollThumb);
+        SDL_RenderFillRect(getRenderContext()->renderer, &thumb);
+        errors_set_scroll_rects(track, thumb);
     } else {
-        gErrorScrollTrack = (SDL_Rect){0};
-        gErrorScrollThumb = (SDL_Rect){0};
+        errors_set_scroll_rects((SDL_Rect){0}, (SDL_Rect){0});
     }
-
-    errors_set_scroll_rects(gErrorScrollTrack, gErrorScrollThumb);
 }

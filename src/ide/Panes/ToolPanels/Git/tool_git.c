@@ -1,7 +1,11 @@
 #include "tool_git.h"
-#include "ide/Panes/ToolPanels/Git/render_tool_git.h"
+#include "ide/Panes/ToolPanels/Git/tree_git_adapter.h"
+#include "ide/Panes/ToolPanels/tool_panel_adapter.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
+#include "ide/UI/panel_text_edit.h"
+#include "ide/UI/Trees/tree_renderer.h"
+#include "ide/UI/text_input_focus.h"
 
 #include "engine/Render/render_pipeline.h"
 #include "app/GlobalInfo/project.h"
@@ -11,21 +15,118 @@
 #include <stdlib.h>
 #include <string.h>
 
-GitFileEntry gitFiles[MAX_GIT_ENTRIES];
-int gitFileCount = 0;
-char currentGitBranch[64] = "unknown";
-GitLogEntry gitLogEntries[MAX_GIT_LOG_ENTRIES];
-int gitLogCount = 0;
-static SDL_Rect g_addAllRect = {0};
-static SDL_Rect g_commitRect = {0};
-static SDL_Rect g_messageRect = {0};
-static bool g_messageFocused = false;
-static char g_commitMessage[256] = {0};
-static int g_commitCursor = 0;
-static char g_statusText[256] = {0};
+typedef struct {
+    GitFileEntry files[MAX_GIT_ENTRIES];
+    int file_count;
+    char current_branch[64];
+    GitLogEntry logs[MAX_GIT_LOG_ENTRIES];
+    int log_count;
+} GitPanelModelState;
 
-static uint64_t g_lastStatusHash = 0;
-static char g_lastWorkspacePath[1024] = {0};
+typedef struct {
+    UIPanelThreeSegmentStripLayout top_strip_layout;
+    bool message_focused;
+    char commit_message[256];
+    int commit_cursor;
+    char status_text[256];
+} GitPanelUIState;
+
+typedef struct {
+    UITreeNode* tree;
+    bool needs_refresh;
+    PaneScrollState scroll;
+    bool scroll_init;
+    SDL_Rect scroll_track;
+    SDL_Rect scroll_thumb;
+    UIDoubleClickTracker double_click_tracker;
+} GitPanelTreeState;
+
+typedef struct {
+    uint64_t last_status_hash;
+    char last_workspace_path[1024];
+} GitPanelWatcherState;
+
+typedef struct {
+    GitPanelModelState model;
+    GitPanelUIState ui;
+    GitPanelTreeState tree;
+    GitPanelWatcherState watcher;
+} GitPanelControllerState;
+
+static GitPanelControllerState g_gitPanelBootstrapState = {
+    .model = {
+        .current_branch = "unknown"
+    },
+    .tree = {
+        .needs_refresh = true
+    }
+};
+static bool g_gitPanelBootstrapInitialized = true;
+
+static void git_panel_init_controller_state(void* ptr) {
+    GitPanelControllerState* state = (GitPanelControllerState*)ptr;
+    if (!state) return;
+    memset(state, 0, sizeof(*state));
+    snprintf(state->model.current_branch, sizeof(state->model.current_branch), "%s", "unknown");
+    state->tree.needs_refresh = true;
+}
+
+static void git_panel_destroy_controller_state(void* ptr) {
+    GitPanelControllerState* state = (GitPanelControllerState*)ptr;
+    if (!state) return;
+
+    if (tree_select_all_visual_active_for(state->tree.tree)) {
+        clearTreeSelectAllVisual();
+    }
+    if (state->tree.tree) {
+        freeGitTree(state->tree.tree);
+        state->tree.tree = NULL;
+    }
+
+    free(state);
+}
+
+static GitPanelControllerState* git_panel_state(void) {
+    return (GitPanelControllerState*)tool_panel_resolve_state_slot(
+        TOOL_PANEL_STATE_SLOT_GIT,
+        sizeof(GitPanelControllerState),
+        git_panel_init_controller_state,
+        git_panel_destroy_controller_state,
+        &g_gitPanelBootstrapState,
+        &g_gitPanelBootstrapInitialized
+    );
+}
+
+#define gitFiles (git_panel_state()->model.files)
+#define gitFileCount (git_panel_state()->model.file_count)
+#define currentGitBranch (git_panel_state()->model.current_branch)
+#define gitLogEntries (git_panel_state()->model.logs)
+#define gitLogCount (git_panel_state()->model.log_count)
+
+#define g_topStripLayout (git_panel_state()->ui.top_strip_layout)
+#define g_messageFocused (git_panel_state()->ui.message_focused)
+#define g_commitMessage (git_panel_state()->ui.commit_message)
+#define g_commitCursor (git_panel_state()->ui.commit_cursor)
+#define g_statusText (git_panel_state()->ui.status_text)
+
+#define g_gitTree (git_panel_state()->tree.tree)
+#define g_needsRefresh (git_panel_state()->tree.needs_refresh)
+#define g_gitScroll (git_panel_state()->tree.scroll)
+#define g_gitScrollInit (git_panel_state()->tree.scroll_init)
+#define g_gitScrollTrack (git_panel_state()->tree.scroll_track)
+#define g_gitScrollThumb (git_panel_state()->tree.scroll_thumb)
+
+#define g_lastStatusHash (git_panel_state()->watcher.last_status_hash)
+#define g_lastWorkspacePath (git_panel_state()->watcher.last_workspace_path)
+
+static UIPanelTextEditBuffer git_panel_message_buffer(void) {
+    UIPanelTextEditBuffer buffer = {
+        g_commitMessage,
+        (int)sizeof(g_commitMessage),
+        &g_commitCursor
+    };
+    return buffer;
+}
 
 static uint64_t fnv1a64_bytes(const unsigned char* data, size_t len, uint64_t seed) {
     uint64_t h = seed ? seed : 0xcbf29ce484222325ULL;
@@ -34,11 +135,6 @@ static uint64_t fnv1a64_bytes(const unsigned char* data, size_t len, uint64_t se
         h *= 0x100000001b3ULL;
     }
     return h;
-}
-
-static bool point_in_rect(int x, int y, SDL_Rect r) {
-    return x >= r.x && x <= (r.x + r.w) &&
-           y >= r.y && y <= (r.y + r.h);
 }
 
 static void sanitize_line(char* s) {
@@ -104,25 +200,111 @@ static bool run_git_command(const char* gitArgs, char* outLine, size_t outLineCa
     return rc == 0;
 }
 
+const char* git_panel_branch_name(void) {
+    return currentGitBranch;
+}
+
+int git_panel_file_count(void) {
+    return gitFileCount;
+}
+
+const GitFileEntry* git_panel_file_at(int index) {
+    if (index < 0 || index >= gitFileCount) return NULL;
+    return &gitFiles[index];
+}
+
+int git_panel_log_count(void) {
+    return gitLogCount;
+}
+
+const GitLogEntry* git_panel_log_at(int index) {
+    if (index < 0 || index >= gitLogCount) return NULL;
+    return &gitLogEntries[index];
+}
+
+void git_panel_prepare_for_render(void) {
+    if (g_needsRefresh) {
+        refreshGitStatus();
+        refreshGitLog(20);
+        if (g_gitTree) {
+            if (tree_select_all_visual_active_for(g_gitTree)) {
+                clearTreeSelectAllVisual();
+            }
+            freeGitTree(g_gitTree);
+            g_gitTree = NULL;
+        }
+        g_needsRefresh = false;
+    }
+
+    if (!g_gitTree) {
+        g_gitTree = convertGitModelToTree();
+    }
+
+    if (!g_gitScrollInit) {
+        scroll_state_init(&g_gitScroll, NULL);
+        g_gitScrollInit = true;
+    }
+}
+
+void resetGitTree(void) {
+    if (tree_select_all_visual_active_for(g_gitTree)) {
+        clearTreeSelectAllVisual();
+    }
+    if (g_gitTree) {
+        freeGitTree(g_gitTree);
+        g_gitTree = NULL;
+    }
+    g_needsRefresh = true;
+}
+
+UITreeNode* git_panel_tree(void) {
+    return g_gitTree;
+}
+
+PaneScrollState* git_panel_scroll(void) {
+    if (!g_gitScrollInit) {
+        scroll_state_init(&g_gitScroll, NULL);
+        g_gitScrollInit = true;
+    }
+    return &g_gitScroll;
+}
+
+SDL_Rect* git_panel_scroll_track(void) {
+    return &g_gitScrollTrack;
+}
+
+SDL_Rect* git_panel_scroll_thumb(void) {
+    return &g_gitScrollThumb;
+}
+
+UIDoubleClickTracker* git_panel_tree_double_click_tracker(void) {
+    return &git_panel_state()->tree.double_click_tracker;
+}
+
 void resetGitStatusWatcher(void) {
     g_lastStatusHash = 0;
     g_lastWorkspacePath[0] = '\0';
 }
 
-void git_panel_set_add_all_rect(SDL_Rect rect) { g_addAllRect = rect; }
-void git_panel_set_commit_rect(SDL_Rect rect) { g_commitRect = rect; }
-void git_panel_set_message_rect(SDL_Rect rect) { g_messageRect = rect; }
-bool git_panel_point_in_add_all(int x, int y) { return point_in_rect(x, y, g_addAllRect); }
-bool git_panel_point_in_commit(int x, int y) { return point_in_rect(x, y, g_commitRect); }
-bool git_panel_point_in_message(int x, int y) { return point_in_rect(x, y, g_messageRect); }
-void git_panel_set_message_focus(bool focused) { g_messageFocused = focused; }
+void git_panel_set_top_strip_layout(UIPanelThreeSegmentStripLayout layout) {
+    g_topStripLayout = layout;
+}
+UIPanelThreeSegmentStripLayout git_panel_get_top_strip_layout(void) { return g_topStripLayout; }
+void git_panel_set_message_focus(bool focused) { (void)ui_text_input_focus_set(&g_messageFocused, focused); }
 bool git_panel_is_message_focused(void) { return g_messageFocused; }
 const char* git_panel_get_message(void) { return g_commitMessage; }
 int git_panel_get_message_cursor(void) { return g_commitCursor; }
 void git_panel_set_message(const char* text) {
-    if (!text) text = "";
-    snprintf(g_commitMessage, sizeof(g_commitMessage), "%s", text);
-    g_commitCursor = (int)strlen(g_commitMessage);
+    UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+    (void)ui_panel_text_edit_set_text(&buffer, text);
+}
+bool git_panel_handle_message_text_input(const SDL_Event* event) {
+    UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+    return ui_panel_text_edit_handle_text_input(&buffer, event);
+}
+bool git_panel_handle_message_edit_key(SDL_Keycode key) {
+    UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+    return ui_panel_text_edit_handle_keydown(&buffer, key);
 }
 const char* git_panel_get_status_text(void) { return g_statusText; }
 int git_panel_content_top(const UIPane* pane) {
@@ -154,45 +336,45 @@ int git_panel_tree_content_top(const UIPane* pane) {
     return git_panel_content_top(pane) + tool_panel_content_inset_default();
 }
 
+void git_panel_tree_viewport(const UIPane* pane, UIPane* out_pane) {
+    if (!pane || !out_pane) return;
+    *out_pane = *pane;
+    out_pane->y = git_panel_tree_content_top(pane) - tree_panel_content_offset_y();
+    out_pane->h = (pane->y + pane->h) - out_pane->y;
+    if (out_pane->h < 0) out_pane->h = 0;
+}
+
 void git_panel_insert_text(const char* text) {
-    if (!text || !text[0]) return;
-    size_t curLen = strlen(g_commitMessage);
-    size_t addLen = strlen(text);
-    if (addLen == 0 || curLen >= sizeof(g_commitMessage) - 1) return;
-    if (g_commitCursor < 0) g_commitCursor = 0;
-    if ((size_t)g_commitCursor > curLen) g_commitCursor = (int)curLen;
-    if (curLen + addLen >= sizeof(g_commitMessage)) addLen = sizeof(g_commitMessage) - 1 - curLen;
-    memmove(g_commitMessage + g_commitCursor + addLen,
-            g_commitMessage + g_commitCursor,
-            curLen - (size_t)g_commitCursor + 1);
-    memcpy(g_commitMessage + g_commitCursor, text, addLen);
-    g_commitCursor += (int)addLen;
+    UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+    (void)ui_panel_text_edit_insert(&buffer, text);
 }
 
 void git_panel_backspace(void) {
-    size_t len = strlen(g_commitMessage);
-    if (g_commitCursor <= 0 || len == 0) return;
-    memmove(g_commitMessage + g_commitCursor - 1,
-            g_commitMessage + g_commitCursor,
-            len - (size_t)g_commitCursor + 1);
-    g_commitCursor--;
+    UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+    (void)ui_panel_text_edit_backspace(&buffer);
 }
 
 void git_panel_delete(void) {
-    size_t len = strlen(g_commitMessage);
-    if ((size_t)g_commitCursor >= len) return;
-    memmove(g_commitMessage + g_commitCursor,
-            g_commitMessage + g_commitCursor + 1,
-            len - (size_t)g_commitCursor);
+    UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+    (void)ui_panel_text_edit_delete(&buffer);
 }
 
-void git_panel_move_cursor_left(void) { if (g_commitCursor > 0) g_commitCursor--; }
-void git_panel_move_cursor_right(void) {
-    int len = (int)strlen(g_commitMessage);
-    if (g_commitCursor < len) g_commitCursor++;
+void git_panel_move_cursor_left(void) {
+    UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+    (void)ui_panel_text_edit_move_left(&buffer);
 }
-void git_panel_move_cursor_home(void) { g_commitCursor = 0; }
-void git_panel_move_cursor_end(void) { g_commitCursor = (int)strlen(g_commitMessage); }
+void git_panel_move_cursor_right(void) {
+    UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+    (void)ui_panel_text_edit_move_right(&buffer);
+}
+void git_panel_move_cursor_home(void) {
+    UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+    (void)ui_panel_text_edit_move_home(&buffer);
+}
+void git_panel_move_cursor_end(void) {
+    UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+    (void)ui_panel_text_edit_move_end(&buffer);
+}
 
 bool git_stage_all_changes(void) {
     char line[256] = {0};
@@ -220,8 +402,8 @@ bool git_commit_with_message(void) {
     bool ok = run_git_command(args, line, sizeof(line));
     if (ok) {
         snprintf(g_statusText, sizeof(g_statusText), "%s", line[0] ? line : "Commit complete");
-        g_commitMessage[0] = '\0';
-        g_commitCursor = 0;
+        UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+        (void)ui_panel_text_edit_clear(&buffer);
     } else {
         snprintf(g_statusText, sizeof(g_statusText), "git commit failed: %s", line[0] ? line : "unknown error");
     }

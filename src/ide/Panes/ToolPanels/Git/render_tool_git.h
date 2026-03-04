@@ -4,7 +4,5 @@
 #include "ide/Panes/PaneInfo/pane.h"
 
 void renderGitPanel(UIPane* pane);
-void resetGitTree(void); // called on refresh to rebuild tree
 
 #endif
-

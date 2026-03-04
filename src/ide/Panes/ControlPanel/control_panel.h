@@ -5,6 +5,7 @@
 #include <SDL2/SDL.h>
 
 #include "ide/Panes/ControlPanel/symbol_tree_adapter.h"
+#include "ide/UI/panel_control_widgets.h"
 #include "ide/UI/scroll_manager.h"
 
 struct UITreeNode;
@@ -87,6 +88,9 @@ void toggleShowAutoParamNames();
 void toggleShowMacros();
 
 struct DirEntry;
+struct IDECoreState;
+void control_panel_attach_controller(struct UIPane* pane);
+void control_panel_prepare_for_render(struct IDECoreState* core);
 void control_panel_refresh_symbol_tree(const struct DirEntry* projectRoot,
                                        const char* filePath);
 void control_panel_refresh_visible_symbol_tree(void);
@@ -106,12 +110,8 @@ const char* control_panel_get_search_query(void);
 int control_panel_get_search_cursor(void);
 bool control_panel_is_search_focused(void);
 void control_panel_set_search_focused(bool focused);
-void control_panel_set_search_box_rect(SDL_Rect rect);
-void control_panel_set_search_pause_button_rect(SDL_Rect rect);
-void control_panel_set_search_clear_button_rect(SDL_Rect rect);
-bool control_panel_point_in_search_box(int x, int y);
-bool control_panel_point_in_search_pause_button(int x, int y);
-bool control_panel_point_in_search_clear_button(int x, int y);
+void control_panel_set_search_strip_layout(UIPanelTextFieldButtonStripLayout layout);
+UIPanelTextFieldButtonStripLayout control_panel_get_search_strip_layout(void);
 bool control_panel_is_search_enabled(void);
 void control_panel_set_search_enabled(bool enabled);
 void control_panel_toggle_search_enabled(void);
@@ -123,6 +123,8 @@ bool control_panel_search_cursor_right(void);
 bool control_panel_search_cursor_home(void);
 bool control_panel_search_cursor_end(void);
 bool control_panel_clear_search_query(void);
+bool control_panel_handle_search_text_input(const SDL_Event* event);
+bool control_panel_handle_search_edit_key(SDL_Keycode key);
 bool control_panel_has_active_search_state(void);
 void control_panel_get_search_filter_options(SymbolFilterOptions* outOptions);
 bool control_panel_target_symbols_enabled(void);
@@ -142,12 +144,12 @@ void control_panel_clear_match_button_selection(void);
 bool control_panel_move_selected_match_button(int direction, bool jump_to_edge);
 
 void control_panel_begin_filter_button_frame(void);
-void control_panel_register_filter_button(ControlFilterButtonId id, SDL_Rect rect);
+UIPanelTaggedRectList* control_panel_get_filter_button_hit_list(void);
 ControlFilterButtonId control_panel_hit_filter_button(int x, int y);
 bool control_panel_is_filter_button_active(ControlFilterButtonId id);
 void control_panel_activate_filter_button(ControlFilterButtonId id);
 void control_panel_set_filter_header_rect(SDL_Rect rect);
-bool control_panel_point_in_filter_header(int x, int y);
+SDL_Rect control_panel_get_filter_header_rect(void);
 bool control_panel_filters_collapsed(void);
 void control_panel_toggle_filters_collapsed(void);
 void control_panel_capture_persist_state(ControlPanelPersistState* outState);

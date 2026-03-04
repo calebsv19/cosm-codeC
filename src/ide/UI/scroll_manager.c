@@ -52,6 +52,15 @@ void scroll_state_set_content_height(PaneScrollState* state, float content_heigh
     scroll_state_clamp(state);
 }
 
+float scroll_state_top_anchor_content_height(const PaneScrollState* state, float content_height) {
+    if (!state) return content_height;
+    if (content_height < 0.0f) content_height = 0.0f;
+    if (state->line_height_px > 0.0f && state->viewport_height_px > state->line_height_px) {
+        content_height += state->viewport_height_px - state->line_height_px;
+    }
+    return content_height;
+}
+
 void scroll_state_scroll_lines(PaneScrollState* state, float lines) {
     if (!state || !state->scrolling_enabled) return;
     float delta = lines * state->line_height_px;

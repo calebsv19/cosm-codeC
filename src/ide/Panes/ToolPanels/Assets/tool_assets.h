@@ -2,6 +2,11 @@
 #define TOOL_ASSETS_H
 
 #include "ide/Panes/PaneInfo/pane.h"
+#include "ide/UI/flat_list_interaction.h"
+#include "ide/UI/interaction_timing.h"
+#include "ide/UI/panel_control_widgets.h"
+#include "ide/UI/panel_metrics.h"
+#include "ide/UI/scroll_manager.h"
 #include <SDL2/SDL.h>
 #include <stdbool.h>
 
@@ -42,6 +47,12 @@ typedef struct {
     bool isMoreLine;           // "… and N more" line
 } AssetFlatRef;
 
+typedef enum {
+    ASSET_TOP_CONTROL_NONE = 0,
+    ASSET_TOP_CONTROL_OPEN_ALL = 1,
+    ASSET_TOP_CONTROL_CLOSE_ALL = 2
+} AssetTopControlId;
+
 void initAssetManagerPanel(void);   // rebuild catalog for current workspace
 const AssetCatalog* assets_get_catalog(void);
 
@@ -68,8 +79,18 @@ bool assets_is_text_like(const AssetEntry* e);
 void assets_save_catalog(const char* workspaceRoot);
 void assets_load_catalog(const char* workspaceRoot);
 
+PaneScrollState* assets_get_scroll_state(UIPane* pane);
+SDL_Rect assets_get_scroll_track_rect(void);
+SDL_Rect assets_get_scroll_thumb_rect(void);
+void assets_set_scroll_rects(SDL_Rect track, SDL_Rect thumb);
+UIPanelTaggedRectList* assets_get_control_hits(void);
+UIDoubleClickTracker* assets_get_double_click_tracker(void);
+UIFlatListDragState* assets_get_drag_state(void);
+
 void handleAssetManagerEvent(UIPane* pane, SDL_Event* event);
 
+#define ASSET_PANEL_ROW_HEIGHT IDE_UI_DENSE_ROW_HEIGHT
+#define ASSET_PANEL_HEADER_HEIGHT IDE_UI_DENSE_HEADER_HEIGHT
 #define ASSET_RENDER_LIMIT_PER_BUCKET 50
 
 #endif

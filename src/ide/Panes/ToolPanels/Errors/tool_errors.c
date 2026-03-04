@@ -1,37 +1,24 @@
 #include "tool_errors.h"
+#include "ide/Panes/ToolPanels/tool_panel_adapter.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/Analysis/analysis_store.h"
 #include "core/Clipboard/clipboard.h"
-#include "app/GlobalInfo/core_state.h"
-#include "app/GlobalInfo/project.h"
+#include "ide/UI/editor_navigation.h"
+#include "ide/UI/flat_list_hit_test.h"
+#include "ide/UI/flat_list_interaction.h"
+#include "engine/Render/render_font.h"
+#include "ide/UI/flat_list_selection.h"
+#include "ide/UI/input_modifiers.h"
+#include "ide/UI/interaction_timing.h"
+#include "ide/UI/row_activation.h"
 #include "ide/UI/scroll_manager.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
-#include "ide/Panes/Editor/editor_view.h"
-#include "ide/Panes/Editor/editor_state.h"
 
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <SDL2/SDL_ttf.h>
-
-static bool selected[512];
-static bool dragging = false;
-static int dragAnchor = -1;
-static int flatCount = 0;
-static PaneScrollState errorScroll;
-static SDL_Rect errorScrollTrack = {0};
-static SDL_Rect errorScrollThumb = {0};
-static bool fileCollapsed[512];
-static bool fileCollapseInitialized[512];
-static bool g_filterAll = true;
-static bool g_filterErrors = true;
-static bool g_filterWarnings = true;
-static SDL_Rect g_btnAll = {0};
-static SDL_Rect g_btnErrors = {0};
-static SDL_Rect g_btnWarnings = {0};
-static SDL_Rect g_btnOpenAll = {0};
-static SDL_Rect g_btnCloseAll = {0};
 
 typedef struct {
     char* path;
@@ -40,9 +27,121 @@ typedef struct {
     bool seen;
 } ErrorFileSnapshot;
 
-static ErrorFileSnapshot* g_snapshotFiles = NULL;
-static int g_snapshotCount = 0;
-static int g_snapshotCap = 0;
+typedef struct {
+    bool selected[512];
+    UIFlatListDragState drag_state;
+    int flat_count;
+    PaneScrollState scroll;
+    SDL_Rect scroll_track;
+    SDL_Rect scroll_thumb;
+    bool file_collapsed[512];
+    bool file_collapse_initialized[512];
+    bool filter_all;
+    bool filter_errors;
+    bool filter_warnings;
+    UIPanelTaggedRect control_hit_storage[5];
+    UIPanelTaggedRectList control_hits;
+    UIDoubleClickTracker double_click_tracker;
+    ErrorFileSnapshot* snapshot_files;
+    int snapshot_count;
+    int snapshot_cap;
+} ErrorPanelState;
+
+static ErrorPanelState g_errorPanelBootstrapState = {0};
+static bool g_errorPanelBootstrapInitialized = false;
+
+static void errors_panel_init_state(void* ptr) {
+    ErrorPanelState* state = (ErrorPanelState*)ptr;
+    if (!state) return;
+    memset(state, 0, sizeof(*state));
+    state->drag_state.active = false;
+    state->drag_state.anchor = -1;
+    state->filter_all = true;
+    state->filter_errors = true;
+    state->filter_warnings = true;
+    state->control_hits.items = state->control_hit_storage;
+    state->control_hits.capacity =
+        (int)(sizeof(state->control_hit_storage) / sizeof(state->control_hit_storage[0]));
+}
+
+static void free_snapshot_file(ErrorFileSnapshot* f);
+static void jump_to_diag(const Diagnostic* d);
+static void jump_to_first_diag_for_file(int fileIndex);
+
+static void errors_panel_destroy_state(void* ptr) {
+    ErrorPanelState* state = (ErrorPanelState*)ptr;
+    if (!state) return;
+    for (int i = 0; i < state->snapshot_count; ++i) {
+        free_snapshot_file(&state->snapshot_files[i]);
+    }
+    free(state->snapshot_files);
+    free(state);
+}
+
+static ErrorPanelState* errors_panel_state(void) {
+    return (ErrorPanelState*)tool_panel_resolve_state_slot(
+        TOOL_PANEL_STATE_SLOT_ERRORS,
+        sizeof(ErrorPanelState),
+        errors_panel_init_state,
+        errors_panel_destroy_state,
+        &g_errorPanelBootstrapState,
+        &g_errorPanelBootstrapInitialized
+    );
+}
+
+#define selected (errors_panel_state()->selected)
+#define g_errorDragState (errors_panel_state()->drag_state)
+#define flatCount (errors_panel_state()->flat_count)
+#define errorScroll (errors_panel_state()->scroll)
+#define errorScrollTrack (errors_panel_state()->scroll_track)
+#define errorScrollThumb (errors_panel_state()->scroll_thumb)
+#define fileCollapsed (errors_panel_state()->file_collapsed)
+#define fileCollapseInitialized (errors_panel_state()->file_collapse_initialized)
+#define g_filterAll (errors_panel_state()->filter_all)
+#define g_filterErrors (errors_panel_state()->filter_errors)
+#define g_filterWarnings (errors_panel_state()->filter_warnings)
+#define g_errorDoubleClickTracker (errors_panel_state()->double_click_tracker)
+#define g_snapshotFiles (errors_panel_state()->snapshot_files)
+#define g_snapshotCount (errors_panel_state()->snapshot_count)
+#define g_snapshotCap (errors_panel_state()->snapshot_cap)
+
+typedef struct {
+    const FlatDiagRef* refs;
+    int headerHeight;
+    int diagHeight;
+} ErrorHitTestContext;
+
+typedef struct {
+    const FlatDiagRef* refs;
+    int hit_index;
+    bool collapse_only;
+} ErrorRowActivationState;
+
+static int errors_row_height_for_index(int rowIndex, void* context) {
+    ErrorHitTestContext* ctx = (ErrorHitTestContext*)context;
+    if (!ctx || !ctx->refs || rowIndex < 0) return 0;
+    return ctx->refs[rowIndex].isHeader ? ctx->headerHeight : ctx->diagHeight;
+}
+
+static int errors_hit_test_flat_index(const FlatDiagRef* refs,
+                                      int count,
+                                      int mouseY,
+                                      int firstY,
+                                      float offset,
+                                      int headerHeight,
+                                      int diagHeight) {
+    ErrorHitTestContext ctx = {
+        .refs = refs,
+        .headerHeight = headerHeight,
+        .diagHeight = diagHeight
+    };
+    return ui_flat_list_hit_test_variable(mouseY,
+                                          firstY,
+                                          offset,
+                                          count,
+                                          errors_row_height_for_index,
+                                          &ctx);
+}
 
 static void free_snapshot_file(ErrorFileSnapshot* f) {
     if (!f) return;
@@ -152,17 +251,7 @@ static void errors_refresh_snapshot_from_store(void) {
 void errors_refresh_snapshot(void) {
     errors_refresh_snapshot_from_store();
 }
-void errors_set_control_button_rects(SDL_Rect allRect,
-                                     SDL_Rect errorsRect,
-                                     SDL_Rect warningsRect,
-                                     SDL_Rect openAllRect,
-                                     SDL_Rect closeAllRect) {
-    g_btnAll = allRect;
-    g_btnErrors = errorsRect;
-    g_btnWarnings = warningsRect;
-    g_btnOpenAll = openAllRect;
-    g_btnCloseAll = closeAllRect;
-}
+UIPanelTaggedRectList* errors_get_control_hits(void) { return &errors_panel_state()->control_hits; }
 bool errors_filter_all_enabled(void) { return g_filterAll; }
 bool errors_filter_errors_enabled(void) { return g_filterErrors; }
 bool errors_filter_warnings_enabled(void) { return g_filterWarnings; }
@@ -171,15 +260,10 @@ SDL_Rect errors_get_scroll_track_rect(void) { return errorScrollTrack; }
 SDL_Rect errors_get_scroll_thumb_rect(void) { return errorScrollThumb; }
 void errors_set_scroll_rects(SDL_Rect track, SDL_Rect thumb) { errorScrollTrack = track; errorScrollThumb = thumb; }
 
-// Shared font/layout
-static TTF_Font* gErrorSmallFont = NULL;
 TTF_Font* get_error_font(void) {
-    if (gErrorSmallFont) return gErrorSmallFont;
-    gErrorSmallFont = TTF_OpenFont("include/fonts/Montserrat/Montserrat-Regular.ttf", 12);
-    if (!gErrorSmallFont) {
-        fprintf(stderr, "Failed to load error panel font: %s\n", TTF_GetError());
-    }
-    return gErrorSmallFont;
+    TTF_Font* font = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
+    if (font) return font;
+    return getActiveFont();
 }
 
 void errors_get_layout_metrics(const UIPane* pane,
@@ -188,7 +272,8 @@ void errors_get_layout_metrics(const UIPane* pane,
                                int* diagHeight,
                                int* lineHeight) {
     TTF_Font* font = get_error_font();
-    int lh = font ? TTF_FontHeight(font) : 16;
+    int lh = font ? TTF_FontHeight(font) : 14;
+    if (lh < 14) lh = 14;
     if (lineHeight) *lineHeight = lh;
     if (headerHeight) *headerHeight = lh;
     if (diagHeight) *diagHeight = lh * 2;
@@ -207,37 +292,162 @@ int getSelectedErrorDiag(void) {
 }
 
 void setSelectedErrorDiag(int index) {
-    memset(selected, 0, sizeof(selected));
-    if (index >= 0 && index < (int)(sizeof(selected) / sizeof(selected[0]))) {
-        selected[index] = true;
-    }
+    ui_flat_list_selection_clear(selected, (int)(sizeof(selected) / sizeof(selected[0])));
+    (void)ui_flat_list_selection_select_single(selected,
+                                               (int)(sizeof(selected) / sizeof(selected[0])),
+                                               0,
+                                               index);
 }
 
 static void clear_selected(void) {
-    memset(selected, 0, sizeof(selected));
+    ui_flat_list_selection_clear(selected, (int)(sizeof(selected) / sizeof(selected[0])));
+}
+
+static void errors_clear_selected_cb(void* context) {
+    (void)context;
+    clear_selected();
 }
 
 static void toggle_selected(int idx, bool additive) {
-    if (idx < 0 || idx >= flatCount || idx >= (int)(sizeof(selected) / sizeof(selected[0]))) return;
-    if (!additive) {
-        clear_selected();
-    }
-    selected[idx] = !selected[idx];
+    (void)ui_flat_list_selection_toggle(selected,
+                                        (int)(sizeof(selected) / sizeof(selected[0])),
+                                        flatCount,
+                                        idx,
+                                        additive);
 }
 
 static bool is_selected(int idx) {
-    if (idx < 0 || idx >= (int)(sizeof(selected) / sizeof(selected[0]))) return false;
-    return selected[idx];
+    return ui_flat_list_selection_contains(selected,
+                                           (int)(sizeof(selected) / sizeof(selected[0])),
+                                           idx);
 }
 
 static void select_range(int a, int b) {
-    if (a < 0 || b < 0) return;
-    clear_selected();
-    if (a > b) {
-        int tmp = a; a = b; b = tmp;
+    (void)ui_flat_list_selection_select_range(selected,
+                                              (int)(sizeof(selected) / sizeof(selected[0])),
+                                              flatCount,
+                                              a,
+                                              b);
+}
+
+static void errors_select_range_cb(int anchorIndex, int hitIndex, void* context) {
+    (void)context;
+    select_range(anchorIndex, hitIndex);
+}
+
+static void mark_selected(int idx) {
+    if (idx < 0 || idx >= (int)(sizeof(selected) / sizeof(selected[0]))) return;
+    selected[idx] = true;
+}
+
+static void errors_select_file_group_rows(const ErrorRowActivationState* state, bool additive) {
+    if (!state || !state->refs || state->hit_index < 0) return;
+    const FlatDiagRef* hitRef = &state->refs[state->hit_index];
+    if (!additive) {
+        clear_selected();
     }
-    for (int i = a; i <= b && i < (int)(sizeof(selected) / sizeof(selected[0])); ++i) {
-        selected[i] = true;
+
+    mark_selected(state->hit_index);
+    if (!hitRef->isHeader) {
+        return;
+    }
+
+    for (int i = 0; i < flatCount; ++i) {
+        if (i == state->hit_index) continue;
+        if (state->refs[i].fileIndex == hitRef->fileIndex && !state->refs[i].isHeader) {
+            mark_selected(i);
+        }
+    }
+}
+
+static void errors_row_select_single(void* context) {
+    ErrorRowActivationState* state = (ErrorRowActivationState*)context;
+    if (!state || !state->refs || state->hit_index < 0) return;
+    if (state->collapse_only) {
+        clear_selected();
+        mark_selected(state->hit_index);
+        return;
+    }
+    if (state->refs[state->hit_index].isHeader) {
+        errors_select_file_group_rows(state, false);
+        return;
+    }
+    toggle_selected(state->hit_index, false);
+}
+
+static void errors_row_select_additive(void* context) {
+    ErrorRowActivationState* state = (ErrorRowActivationState*)context;
+    if (!state || !state->refs || state->hit_index < 0) return;
+    if (state->collapse_only) {
+        clear_selected();
+        mark_selected(state->hit_index);
+        return;
+    }
+    if (state->refs[state->hit_index].isHeader) {
+        errors_select_file_group_rows(state, true);
+        return;
+    }
+    toggle_selected(state->hit_index, true);
+}
+
+static void errors_row_prefix_action(void* context) {
+    ErrorRowActivationState* state = (ErrorRowActivationState*)context;
+    if (!state || !state->refs || state->hit_index < 0) return;
+    const FlatDiagRef* ref = &state->refs[state->hit_index];
+    if (!ref->isHeader) return;
+    if (ref->fileIndex < 0 ||
+        ref->fileIndex >= (int)(sizeof(fileCollapsed) / sizeof(fileCollapsed[0]))) {
+        return;
+    }
+    fileCollapsed[ref->fileIndex] = !fileCollapsed[ref->fileIndex];
+    fileCollapseInitialized[ref->fileIndex] = true;
+}
+
+static void errors_row_activate(void* context) {
+    ErrorRowActivationState* state = (ErrorRowActivationState*)context;
+    if (!state || !state->refs || state->hit_index < 0) return;
+    const FlatDiagRef* ref = &state->refs[state->hit_index];
+    if (ref->isHeader) {
+        jump_to_first_diag_for_file(ref->fileIndex);
+    } else {
+        jump_to_diag(ref->diag);
+    }
+}
+
+static void errors_row_drag_start(void* context) {
+    ErrorRowActivationState* state = (ErrorRowActivationState*)context;
+    if (!state || state->hit_index < 0) return;
+    ui_flat_list_drag_state_begin(&g_errorDragState, state->hit_index);
+}
+
+static bool errors_handle_top_control_click(int mx, int my) {
+    switch ((ErrorTopControlId)ui_panel_tagged_rect_list_hit_test(errors_get_control_hits(), mx, my)) {
+        case ERROR_TOP_CONTROL_FILTER_ALL:
+            g_filterAll = !g_filterAll;
+            clear_selected();
+            return true;
+        case ERROR_TOP_CONTROL_FILTER_ERRORS:
+            g_filterErrors = !g_filterErrors;
+            clear_selected();
+            return true;
+        case ERROR_TOP_CONTROL_FILTER_WARNINGS:
+            g_filterWarnings = !g_filterWarnings;
+            clear_selected();
+            return true;
+        case ERROR_TOP_CONTROL_OPEN_ALL:
+            for (int i = 0; i < g_snapshotCount && i < (int)(sizeof(fileCollapsed) / sizeof(fileCollapsed[0])); ++i) {
+                fileCollapsed[i] = false;
+            }
+            return true;
+        case ERROR_TOP_CONTROL_CLOSE_ALL:
+            for (int i = 0; i < g_snapshotCount && i < (int)(sizeof(fileCollapsed) / sizeof(fileCollapsed[0])); ++i) {
+                fileCollapsed[i] = true;
+                fileCollapseInitialized[i] = true;
+            }
+            return true;
+        case ERROR_TOP_CONTROL_NONE:
+        default:
+            return false;
     }
 }
 
@@ -285,34 +495,7 @@ int flatten_diagnostics(FlatDiagRef* out, int max) {
 }
 static void jump_to_diag(const Diagnostic* d) {
     if (!d) return;
-    IDECoreState* core = getCoreState();
-    if (!core || !core->activeEditorView) return;
-    EditorView* view = core->activeEditorView;
-
-    char fullPath[1024];
-    if (d->filePath && d->filePath[0] == '/') {
-        snprintf(fullPath, sizeof(fullPath), "%s", d->filePath);
-    } else {
-        snprintf(fullPath, sizeof(fullPath), "%s/%s", projectPath, d->filePath ? d->filePath : "");
-    }
-    OpenFile* file = openFileInView(view, fullPath);
-    if (!file || !file->buffer) return;
-
-    int targetRow = d->line > 0 ? d->line - 1 : 0;
-    if (targetRow >= file->buffer->lineCount) targetRow = file->buffer->lineCount - 1;
-    if (targetRow < 0) targetRow = 0;
-    int lineLen = file->buffer->lines && file->buffer->lines[targetRow]
-                      ? (int)strlen(file->buffer->lines[targetRow])
-                      : 0;
-    int targetCol = d->column > 0 ? d->column - 1 : 0;
-    if (targetCol > lineLen) targetCol = lineLen;
-
-    file->state.cursorRow = targetRow;
-    file->state.cursorCol = targetCol;
-    file->state.viewTopRow = (targetRow > 2) ? targetRow - 2 : 0;
-    file->state.selecting = false;
-    file->state.draggingWithMouse = false;
-    setActiveEditorView(view);
+    (void)ui_open_path_at_location_in_active_editor(d->filePath, d->line, d->column);
 }
 
 static void jump_to_first_diag_for_file(int fileIndex) {
@@ -398,11 +581,9 @@ void errors_select_all_visible(void) {
     errors_refresh_snapshot_from_store();
     FlatDiagRef refs[512];
     flatCount = flatten_diagnostics(refs, 512);
-    memset(selected, 0, sizeof(selected));
-    int maxSel = (int)(sizeof(selected) / sizeof(selected[0]));
-    for (int i = 0; i < flatCount && i < maxSel; ++i) {
-        selected[i] = true;
-    }
+    (void)ui_flat_list_selection_select_all(selected,
+                                            (int)(sizeof(selected) / sizeof(selected[0])),
+                                            flatCount);
 }
 
 void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
@@ -414,144 +595,77 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
     int lineHeight = 0;
     errors_get_layout_metrics(pane, &firstY, &headerHeight, &diagHeight, &lineHeight);
     firstY += tool_panel_content_inset_default();
-    static Uint32 lastClickTicks = 0;
-    static int lastClickIndex = -1;
-    const Uint32 doubleClickMs = 400;
-
-    if (event->type == SDL_MOUSEWHEEL) {
-        PaneScrollState* scroll = errors_get_scroll_state();
-        if (scroll && scroll_state_handle_mouse_wheel(scroll, event)) {
-            return;
-        }
-    }
-
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
         const int mx = event->button.x;
         const int my = event->button.y;
-        if (mx >= g_btnAll.x && mx < g_btnAll.x + g_btnAll.w &&
-            my >= g_btnAll.y && my < g_btnAll.y + g_btnAll.h) {
-            g_filterAll = !g_filterAll;
-            clear_selected();
-            return;
-        }
-        if (mx >= g_btnErrors.x && mx < g_btnErrors.x + g_btnErrors.w &&
-            my >= g_btnErrors.y && my < g_btnErrors.y + g_btnErrors.h) {
-            g_filterErrors = !g_filterErrors;
-            clear_selected();
-            return;
-        }
-        if (mx >= g_btnWarnings.x && mx < g_btnWarnings.x + g_btnWarnings.w &&
-            my >= g_btnWarnings.y && my < g_btnWarnings.y + g_btnWarnings.h) {
-            g_filterWarnings = !g_filterWarnings;
-            clear_selected();
-            return;
-        }
-        if (mx >= g_btnOpenAll.x && mx < g_btnOpenAll.x + g_btnOpenAll.w &&
-            my >= g_btnOpenAll.y && my < g_btnOpenAll.y + g_btnOpenAll.h) {
-            for (int i = 0; i < g_snapshotCount && i < (int)(sizeof(fileCollapsed) / sizeof(fileCollapsed[0])); ++i) {
-                fileCollapsed[i] = false;
-            }
-            return;
-        }
-        if (mx >= g_btnCloseAll.x && mx < g_btnCloseAll.x + g_btnCloseAll.w &&
-            my >= g_btnCloseAll.y && my < g_btnCloseAll.y + g_btnCloseAll.h) {
-            for (int i = 0; i < g_snapshotCount && i < (int)(sizeof(fileCollapsed) / sizeof(fileCollapsed[0])); ++i) {
-                fileCollapsed[i] = true;
-                fileCollapseInitialized[i] = true;
-            }
+        if (errors_handle_top_control_click(mx, my)) {
             return;
         }
 
         FlatDiagRef refs[512];
         flatCount = flatten_diagnostics(refs, 512);
-        int listMy = event->button.y;
-        int y = firstY - (int)scroll_state_get_offset(errors_get_scroll_state());
-        int hit = -1;
-        for (int i = 0; i < flatCount; ++i) {
-            int blockTop = y;
-            int h = refs[i].isHeader ? headerHeight : diagHeight;
-            int blockBottom = y + h;
-            if (listMy >= blockTop && listMy < blockBottom) {
-                hit = i;
-                break;
-            }
-            y = blockBottom;
+        int hit = errors_hit_test_flat_index(refs,
+                                             flatCount,
+                                             event->button.y,
+                                             firstY,
+                                             scroll_state_get_offset(errors_get_scroll_state()),
+                                             headerHeight,
+                                             diagHeight);
+        if (!ui_flat_list_drag_state_prepare_hit(&g_errorDragState,
+                                                 hit,
+                                                 errors_clear_selected_cb,
+                                                 NULL)) {
+            return;
         }
-        if (hit >= 0) {
-            Uint32 now = SDL_GetTicks();
-            bool dbl = (hit == lastClickIndex) && (now - lastClickTicks < doubleClickMs);
-            lastClickTicks = now;
-            lastClickIndex = hit;
-            Uint16 mod = SDL_GetModState();
-            bool additive = (mod & KMOD_CTRL) || (mod & KMOD_GUI) || (mod & KMOD_SHIFT);
-            if (refs[hit].isHeader) {
-                // shift-click collapses/expands that file
-                bool shift = (mod & KMOD_SHIFT) != 0;
-                if (shift && refs[hit].fileIndex >= 0 && refs[hit].fileIndex < (int)(sizeof(fileCollapsed)/sizeof(fileCollapsed[0]))) {
-                    fileCollapsed[refs[hit].fileIndex] = !fileCollapsed[refs[hit].fileIndex];
-                    // refresh selection to just this header
-                    clear_selected();
-                    toggle_selected(hit, false);
-                    return;
-                }
 
-                bool add = additive;
-                toggle_selected(hit, add);
-                add = true;
-                for (int i = 0; i < flatCount; ++i) {
-                    if (refs[i].fileIndex == refs[hit].fileIndex && !refs[i].isHeader) {
-                        toggle_selected(i, add);
-                        add = true;
-                    }
-                }
-                if (dbl) {
-                    jump_to_first_diag_for_file(refs[hit].fileIndex);
-                }
-            } else {
-                toggle_selected(hit, additive);
-            }
-            dragging = true;
-            dragAnchor = hit;
-            if (dbl) {
-                jump_to_diag(refs[hit].diag);
-            }
-        } else {
-            clear_selected();
-            dragging = false;
-            dragAnchor = -1;
-        }
-    } else if (event->type == SDL_MOUSEMOTION && dragging) {
+        Uint16 mod = SDL_GetModState();
+        bool collapseOnly = refs[hit].isHeader && ui_input_has_shift(mod);
+        bool additive = !collapseOnly && ui_input_is_additive_selection(mod);
+        ErrorRowActivationState activation = {
+            .refs = refs,
+            .hit_index = hit,
+            .collapse_only = collapseOnly
+        };
+        (void)ui_row_activation_handle_primary(
+            &(UIRowActivationContext){
+                .double_click_tracker = &g_errorDoubleClickTracker,
+                .row_identity = (uintptr_t)(uint32_t)(hit + 1),
+                .double_click_ms = UI_DOUBLE_CLICK_MS_DEFAULT,
+                .clicked_prefix = collapseOnly,
+                .additive_modifier = additive,
+                .range_modifier = false,
+                .wants_drag_start = true,
+                .on_select_single = errors_row_select_single,
+                .on_select_additive = errors_row_select_additive,
+                .on_prefix = errors_row_prefix_action,
+                .on_activate = errors_row_activate,
+                .on_drag_start = errors_row_drag_start,
+                .user_data = &activation
+            });
+    } else if (event->type == SDL_MOUSEMOTION && g_errorDragState.active) {
         FlatDiagRef refs[512];
         flatCount = flatten_diagnostics(refs, 512);
-        int my = event->motion.y;
-        int y = firstY - (int)scroll_state_get_offset(errors_get_scroll_state());
-        int hit = -1;
-        for (int i = 0; i < flatCount; ++i) {
-            int blockTop = y;
-            int h = refs[i].isHeader ? headerHeight : diagHeight;
-            int blockBottom = y + h;
-            if (my >= blockTop && my < blockBottom) {
-                hit = i;
-                break;
-            }
-            y = blockBottom;
-        }
-        if (hit >= 0 && dragAnchor >= 0) {
-            select_range(dragAnchor, hit);
-        }
+        int hit = errors_hit_test_flat_index(refs,
+                                             flatCount,
+                                             event->motion.y,
+                                             firstY,
+                                             scroll_state_get_offset(errors_get_scroll_state()),
+                                             headerHeight,
+                                             diagHeight);
+        (void)ui_flat_list_drag_state_apply_range(&g_errorDragState,
+                                                  hit,
+                                                  errors_select_range_cb,
+                                                  NULL);
     } else if (event->type == SDL_MOUSEBUTTONUP && event->button.button == SDL_BUTTON_LEFT) {
-        dragging = false;
-        dragAnchor = -1;
+        ui_flat_list_drag_state_reset(&g_errorDragState);
     } else if (event->type == SDL_KEYDOWN) {
         SDL_Keycode key = event->key.keysym.sym;
         Uint16 mod = event->key.keysym.mod;
-        bool ctrl = (mod & KMOD_CTRL) != 0;
-        bool gui = (mod & KMOD_GUI) != 0;
-        if ((ctrl || gui) && key == SDLK_a) {
+        if (ui_input_has_primary_accel(mod) && key == SDLK_a) {
             errors_select_all_visible();
             return;
         }
-        if ((ctrl || gui) && key == SDLK_c) {
+        if (ui_input_has_primary_accel(mod) && key == SDLK_c) {
             errors_copy_selection_to_clipboard();
             return;
         }

@@ -1,6 +1,5 @@
 #include "ide/Panes/ToolPanels/Git/render_tool_git.h"
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
-#include "ide/Panes/ToolPanels/Git/tree_git_adapter.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 
@@ -8,14 +7,12 @@
 #include "engine/Render/render_pipeline.h"
 #include "engine/Render/render_text_helpers.h"
 #include "engine/Render/render_font.h"
+#include "ide/UI/panel_control_widgets.h"
+#include "ide/UI/panel_text_field.h"
 #include "ide/UI/Trees/tree_renderer.h"
-#include "ide/UI/scroll_manager.h"
 
 #include <SDL2/SDL.h>
 #include <string.h>
-
-extern int mouseX;
-extern int mouseY;
 
 typedef struct {
     int controlsY;
@@ -40,50 +37,7 @@ static GitPanelLayout git_panel_layout(const UIPane* pane) {
     return l;
 }
 
-static UIPane git_tree_pane(const UIPane* pane, int firstRowY) {
-    UIPane treePane = *pane;
-    treePane.y = firstRowY - 30;
-    treePane.h = (pane->y + pane->h) - treePane.y;
-    if (treePane.h < 0) treePane.h = 0;
-    return treePane;
-}
-
-// === Static Tree Cache ===
-UITreeNode* gitTree = NULL;
-bool needsRefresh = true;
-PaneScrollState gitScroll;
-bool gitScrollInit = false;
-SDL_Rect gitScrollTrack = {0};
-SDL_Rect gitScrollThumb = {0};
-
-void resetGitTree(void) {
-    if (tree_select_all_visual_active_for(gitTree)) {
-        clearTreeSelectAllVisual();
-    }
-    if (gitTree) {
-        freeGitTree(gitTree);
-        gitTree = NULL;
-    }
-    needsRefresh = true; // mark for refresh
-}
-
 void renderGitPanel(UIPane* pane) {
-    if (needsRefresh) {
-        refreshGitStatus();  // Now runs before the tree is built
-        refreshGitLog(20);
-        resetGitTree();      // Clears any existing tree
-        needsRefresh = false;
-    }
-
-    if (!gitTree) {
-        gitTree = convertGitModelToTree();
-    }
-
-    if (!gitScrollInit) {
-        scroll_state_init(&gitScroll, NULL);
-        gitScrollInit = true;
-    }
-
     RenderContext* rctx = getRenderContext();
     if (!rctx || !rctx->renderer) return;
     SDL_Renderer* renderer = rctx->renderer;
@@ -91,88 +45,61 @@ void renderGitPanel(UIPane* pane) {
     GitPanelLayout layout = git_panel_layout(pane);
     tool_panel_render_split_background(renderer, pane, layout.contentTop, 14);
 
-    ToolPanelControlRow row = tool_panel_control_row_with(pane, layout.controlsY, 10, 10, layout.controlsHeight, 8);
-    SDL_Rect addAllBtn = tool_panel_row_take_left(&row, 70);
-    SDL_Rect commitBtn = tool_panel_row_take_right(&row, 66);
-    SDL_Rect msgBox = tool_panel_row_take_fill(&row, 48);
-
-    git_panel_set_add_all_rect(addAllBtn);
-    git_panel_set_commit_rect(commitBtn);
-    git_panel_set_message_rect(msgBox);
-
-    renderButton(pane, addAllBtn, "Add All");
-    renderButton(pane, commitBtn, "Commit");
-
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 20);
-    SDL_RenderFillRect(renderer, &msgBox);
-    if (git_panel_is_message_focused()) {
-        SDL_SetRenderDrawColor(renderer, 220, 220, 220, 255);
-    } else {
-        SDL_SetRenderDrawColor(renderer, 170, 170, 170, 255);
+    UIPanelThreeSegmentStripLayout topStrip =
+        ui_panel_three_segment_strip_layout(pane->x + 10,
+                                            layout.controlsY,
+                                            pane->w - 20,
+                                            70,
+                                            66,
+                                            8,
+                                            layout.controlsHeight);
+    if (topStrip.middle_rect.w < 48) {
+        topStrip.middle_rect.w = 48;
+        topStrip.trailing_rect.x = topStrip.middle_rect.x + topStrip.middle_rect.w + 8;
     }
-    SDL_RenderDrawRect(renderer, &msgBox);
+    SDL_Rect addAllBtn = topStrip.leading_rect;
+    SDL_Rect msgBox = topStrip.middle_rect;
+    SDL_Rect commitBtn = topStrip.trailing_rect;
+    git_panel_set_top_strip_layout(topStrip);
+
+    ui_panel_compact_button_render(renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = addAllBtn,
+                                       .label = "Add All",
+                                       .active = false,
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+    ui_panel_compact_button_render(renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = commitBtn,
+                                       .label = "Commit",
+                                       .active = false,
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+
+    const char* msg = git_panel_get_message();
+    ui_panel_text_field_render(renderer,
+                               &(UIPanelTextFieldSpec){
+                                   .rect = msgBox,
+                                   .text = msg,
+                                   .placeholder = "commit message...",
+                                   .focused = git_panel_is_message_focused(),
+                                   .cursor = git_panel_get_message_cursor(),
+                                   .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                               });
 
     TTF_Font* uiFont = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
     if (!uiFont) uiFont = getActiveFont();
-    SDL_Color commitTextColor = {238, 243, 252, 255};
-    SDL_Color placeholderTextColor = {176, 186, 204, 255};
-
-    const char* msg = git_panel_get_message();
-    if (msg && msg[0]) {
-        SDL_Rect msgClip = {
-            msgBox.x + 4,
-            msgBox.y + 1,
-            msgBox.w - 8,
-            msgBox.h - 2
-        };
-        if (msgClip.w < 0) msgClip.w = 0;
-        if (msgClip.h < 0) msgClip.h = 0;
-        drawTextUTF8WithFontColorClipped(msgBox.x + 6,
-                                         msgBox.y + 3,
-                                         msg,
-                                         uiFont,
-                                         commitTextColor,
-                                         false,
-                                         &msgClip);
-    } else if (!git_panel_is_message_focused()) {
-        SDL_Rect msgClip = {
-            msgBox.x + 4,
-            msgBox.y + 1,
-            msgBox.w - 8,
-            msgBox.h - 2
-        };
-        if (msgClip.w < 0) msgClip.w = 0;
-        if (msgClip.h < 0) msgClip.h = 0;
-        drawTextUTF8WithFontColorClipped(msgBox.x + 6,
-                                         msgBox.y + 3,
-                                         "commit message...",
-                                         uiFont,
-                                         placeholderTextColor,
-                                         false,
-                                         &msgClip);
-    }
-
-    if (git_panel_is_message_focused()) {
-        int cursor = git_panel_get_message_cursor();
-        if (cursor < 0) cursor = 0;
-        size_t msgLen = msg ? strlen(msg) : 0;
-        if ((size_t)cursor > msgLen) cursor = (int)msgLen;
-        int caretAdvance = (msg && cursor > 0) ? getTextWidthNWithFont(msg, cursor, uiFont) : 0;
-        int caretX = msgBox.x + 6 + caretAdvance;
-        int caretMinX = msgBox.x + 4;
-        if (caretX > msgBox.x + msgBox.w - 4) caretX = msgBox.x + msgBox.w - 4;
-        if (caretX < caretMinX) caretX = caretMinX;
-        SDL_Rect caretClip = { msgBox.x + 4, msgBox.y + 2, msgBox.w - 8, msgBox.h - 4 };
-        if (caretClip.w > 0 && caretClip.h > 0) {
-            pushClipRect(&caretClip);
-            SDL_SetRenderDrawColor(renderer, 220, 220, 220, 255);
-            SDL_RenderDrawLine(renderer, caretX, msgBox.y + 3, caretX, msgBox.y + 17);
-            popClipRect();
-        }
-    }
 
     char branchLine[96];
-    snprintf(branchLine, sizeof(branchLine), "Branch: %s", currentGitBranch[0] ? currentGitBranch : "unknown");
+    const char* branchName = git_panel_branch_name();
+    snprintf(branchLine, sizeof(branchLine), "Branch: %s", (branchName && branchName[0]) ? branchName : "unknown");
     SDL_Rect branchClip = { pane->x + 10, layout.branchY, pane->w - 20, 14 };
     if (branchClip.w < 0) branchClip.w = 0;
     SDL_Color branchColor = {232, 238, 248, 255};
@@ -198,7 +125,11 @@ void renderGitPanel(UIPane* pane) {
                                          &statusClip);
     }
 
-    handleTreeMouseMove(mouseX, mouseY);
-    UIPane treePane = git_tree_pane(pane, git_panel_tree_content_top(pane));
-    renderTreePanelWithScroll(&treePane, gitTree, &gitScroll, &gitScrollTrack, &gitScrollThumb);
+    UIPane treePane = {0};
+    git_panel_tree_viewport(pane, &treePane);
+    renderTreePanelWithScroll(&treePane,
+                              git_panel_tree(),
+                              git_panel_scroll(),
+                              git_panel_scroll_track(),
+                              git_panel_scroll_thumb());
 }

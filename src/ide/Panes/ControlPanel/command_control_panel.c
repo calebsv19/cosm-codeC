@@ -1,11 +1,12 @@
 #include "command_control_panel.h"
+#include "ide/Panes/ControlPanel/control_panel_adapter.h"
 #include "core/CommandBus/command_metadata.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
 #include <stdio.h>
 
 void initControlPanelCommandHandler(UIPane* pane) {
     if (pane) {
-        pane->handleCommand = handleControlPanelCommand;
+        pane->handleCommand = handleControlPanelViaAdapterCommand;
     }
 }
 

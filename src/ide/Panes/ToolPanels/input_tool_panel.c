@@ -1,101 +1,46 @@
 
 #include "input_tool_panel.h"
-#include "ide/Panes/IconBar/icon_bar.h" // for getActiveIcon()
-
-
-// Subpanel Input Handlers
-#include "ide/Panes/ToolPanels/Project/input_tool_project.h"
-#include "ide/Panes/ToolPanels/Libraries/input_tool_libraries.h"
-#include "ide/Panes/ToolPanels/Tasks/input_tool_tasks.h"
-#include "ide/Panes/ToolPanels/BuildOutput/input_tool_build_output.h"
-#include "ide/Panes/ToolPanels/Errors/input_tool_errors.h"
-#include "ide/Panes/ToolPanels/Assets/input_tool_assets.h"
-#include "ide/Panes/ToolPanels/Git/input_tool_git.h"
-
+#include "ide/Panes/panel_view_adapter.h"
+#include "ide/Panes/ToolPanels/tool_panel_adapter.h"
 #include "ide/Panes/ToolPanels/command_tool_panel.h"
 
 
 
 // ==== Keyboard ====
 void handleToolPanelKeyboardInput(UIPane* pane, SDL_Event* event) {
-    IconTool current = getActiveIcon();
-
-    switch (current) {
-        case ICON_PROJECT_FILES:     handleProjectFilesKeyboardInput(pane, event); break;
-        case ICON_LIBRARIES:         handleLibrariesKeyboardInput(pane, event); break;
-        case ICON_TASKS:             handleTasksKeyboardInput(pane, event); break;
-        case ICON_BUILD_OUTPUT:      handleBuildOutputKeyboardInput(pane, event); break;
-        case ICON_ERRORS:            handleErrorsKeyboardInput(pane, event); break;
-        case ICON_ASSET_MANAGER:     handleAssetsKeyboardInput(pane, event); break;
-        case ICON_VERSION_CONTROL:   handleGitKeyboardInput(pane, event); break;
-        default: break;
-    }
+    UIPane* previousPane = tool_panel_bind_dispatch_pane(pane);
+    ui_panel_view_adapter_keyboard(tool_panel_active_adapter(), pane, event);
+    tool_panel_restore_dispatch_pane(previousPane);
 }
 
 
 // ==== Mouse ====
 void handleToolPanelMouseInput(UIPane* pane, SDL_Event* event) {
-    IconTool current = getActiveIcon();
-
-    switch (current) {
-        case ICON_PROJECT_FILES:     handleProjectFilesMouseInput(pane, event); break;
-        case ICON_LIBRARIES:         handleLibrariesMouseInput(pane, event); break;
-        case ICON_TASKS:             handleTasksMouseInput(pane, event); break;
-        case ICON_BUILD_OUTPUT:      handleBuildOutputMouseInput(pane, event); break;
-        case ICON_ERRORS:            handleErrorsMouseInput(pane, event); break;
-        case ICON_ASSET_MANAGER:     handleAssetsMouseInput(pane, event); break;
-        case ICON_VERSION_CONTROL:   handleGitMouseInput(pane, event); break;
-        default: break;
-    }
+    UIPane* previousPane = tool_panel_bind_dispatch_pane(pane);
+    ui_panel_view_adapter_mouse(tool_panel_active_adapter(), pane, event);
+    tool_panel_restore_dispatch_pane(previousPane);
 }
 
 
 // ==== Scroll ====
 void handleToolPanelScrollInput(UIPane* pane, SDL_Event* event) {
-    IconTool current = getActiveIcon();
-
-    switch (current) {
-        case ICON_PROJECT_FILES:     handleProjectFilesScrollInput(pane, event); break;
-        case ICON_LIBRARIES:         handleLibrariesScrollInput(pane, event); break;
-        case ICON_TASKS:             handleTasksScrollInput(pane, event); break;
-        case ICON_BUILD_OUTPUT:      handleBuildOutputScrollInput(pane, event); break;
-        case ICON_ERRORS:            handleErrorsScrollInput(pane, event); break;
-        case ICON_ASSET_MANAGER:     handleAssetsScrollInput(pane, event); break;
-        case ICON_VERSION_CONTROL:   handleGitScrollInput(pane, event); break;
-        default: break;
-    }
+    UIPane* previousPane = tool_panel_bind_dispatch_pane(pane);
+    ui_panel_view_adapter_scroll(tool_panel_active_adapter(), pane, event);
+    tool_panel_restore_dispatch_pane(previousPane);
 }
 
 // ==== Hover ====
 void handleToolPanelHoverInput(UIPane* pane, int x, int y) {
-    IconTool current = getActiveIcon();
-
-    switch (current) {
-        case ICON_PROJECT_FILES:     handleProjectFilesHoverInput(pane, x, y); break;
-        case ICON_LIBRARIES:         handleLibrariesHoverInput(pane, x, y); break;
-        case ICON_TASKS:             handleTasksHoverInput(pane, x, y); break;
-        case ICON_BUILD_OUTPUT:      handleBuildOutputHoverInput(pane, x, y); break;
-        case ICON_ERRORS:            handleErrorsHoverInput(pane, x, y); break;
-        case ICON_ASSET_MANAGER:     handleAssetsHoverInput(pane, x, y); break;
-        case ICON_VERSION_CONTROL:   handleGitHoverInput(pane, x, y); break;
-        default: break;
-    }
+    UIPane* previousPane = tool_panel_bind_dispatch_pane(pane);
+    ui_panel_view_adapter_hover(tool_panel_active_adapter(), pane, x, y);
+    tool_panel_restore_dispatch_pane(previousPane);
 }
 
 // ==== Text Input ====
 void handleToolPanelTextInput(UIPane* pane, SDL_Event* event) {
-    IconTool current = getActiveIcon();
-
-    switch (current) {
-        case ICON_PROJECT_FILES:     handleProjectFilesKeyboardInput(pane, event); break;
-        case ICON_LIBRARIES:         handleLibrariesKeyboardInput(pane, event); break;
-        case ICON_TASKS:             handleTasksKeyboardInput(pane, event); break;
-        case ICON_BUILD_OUTPUT:      handleBuildOutputKeyboardInput(pane, event); break;
-        case ICON_ERRORS:            handleErrorsKeyboardInput(pane, event); break;
-        case ICON_ASSET_MANAGER:     handleAssetsKeyboardInput(pane, event); break;
-        case ICON_VERSION_CONTROL:   handleGitKeyboardInput(pane, event); break;
-        default: break;
-    }
+    UIPane* previousPane = tool_panel_bind_dispatch_pane(pane);
+    ui_panel_view_adapter_text_input(tool_panel_active_adapter(), pane, event);
+    tool_panel_restore_dispatch_pane(previousPane);
 }
 
 

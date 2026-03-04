@@ -30,39 +30,38 @@ void handleProjectFilesCommand(UIPane* pane, InputCommandMetadata meta) {
 
         case COMMAND_RENAME_FILE:
             if (selectedFile) {
-                renamingEntry = selectedFile;
+                project_begin_inline_rename(selectedFile);
             } else if (selectedDirectory && selectedDirectory != projectRoot) {
-                renamingEntry = selectedDirectory;
+                project_begin_inline_rename(selectedDirectory);
             } else {
-                renamingEntry = NULL;
+                project_end_inline_rename();
             }
 
             if (renamingEntry) {
-                strncpy(renameBuffer, renamingEntry->name, sizeof(renameBuffer));
-                renameBuffer[sizeof(renameBuffer) - 1] = '\0';
                 printf("[ProjectPanelCommand] Entering rename mode: %s\n", renameBuffer);
             }
             break;
 
         case COMMAND_CONFIRM_RENAME:
             if (renamingEntry && renamingEntry->parent) {
+                char* newlyCreatedPath = project_newly_created_path_buffer();
                 char oldPath[1024];
                 char newPath[1024];
                 snprintf(oldPath, sizeof(oldPath), "%s", renamingEntry->path);
                 snprintf(newPath, sizeof(newPath), "%s/%s", renamingEntry->parent->path, renameBuffer);
 
                 if (renameFileOnDisk(oldPath, newPath)) {
-                    strncpy(newlyCreatedPath, newPath, sizeof(newlyCreatedPath));
-                    newlyCreatedPath[sizeof(newlyCreatedPath) - 1] = '\0';
+                    strncpy(newlyCreatedPath, newPath, PROJECT_PATH_BUFFER_CAP);
+                    newlyCreatedPath[PROJECT_PATH_BUFFER_CAP - 1] = '\0';
                 }
 
-                renamingEntry = NULL;
+                project_end_inline_rename();
                 queueProjectRefresh(ANALYSIS_REASON_PROJECT_MUTATION);
             }
             break;
 
         case COMMAND_CANCEL_RENAME:
-            renamingEntry = NULL;
+            project_end_inline_rename();
             break;
 
         case COMMAND_NEW_FILE: {

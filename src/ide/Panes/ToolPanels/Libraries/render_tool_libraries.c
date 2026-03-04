@@ -10,8 +10,8 @@
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
+#include "ide/UI/row_surface.h"
 #include "ide/UI/scroll_manager.h"
-#include "ide/UI/ui_selection_style.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -45,8 +45,18 @@ static SDL_Color library_row_color(const LibraryFlatRow* row) {
     return primary;
 }
 
+static UIRowSurfaceRenderSpec library_row_surface_spec(bool is_selected,
+                                                       bool is_primary_selected,
+                                                       bool hovered) {
+    UIRowSurfaceRenderSpec spec = {0};
+    spec.draw_selection_fill = is_selected;
+    spec.draw_hover_outline = hovered;
+    spec.draw_selection_outline = is_primary_selected && !hovered;
+    return spec;
+}
+
 void renderLibrariesPanel(UIPane* pane) {
-    LibraryPanelState* st = &g_libraryPanelState;
+    LibraryPanelState* st = libraries_panel_state();
     static bool scrollInit = false;
     if (!scrollInit) {
         scroll_state_init(&st->scroll, NULL);
@@ -69,16 +79,32 @@ void renderLibrariesPanel(UIPane* pane) {
 
     ToolPanelControlRow row = tool_panel_control_row_at(pane, pane->y + d.controls_top);
     SDL_Rect toggleRect = tool_panel_row_take_left(&row, 112);
-    st->systemToggleRect = toggleRect;
-    renderButton(pane,
-                 toggleRect,
-                 st->includeSystemHeaders ? "System: On" : "System: Off");
+    UIPanelTaggedRectList* controlHits = libraries_control_hits();
+    ui_panel_tagged_rect_list_reset(controlHits);
+    ui_panel_compact_button_render(renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = toggleRect,
+                                       .label = st->includeSystemHeaders ? "System: On" : "System: Off",
+                                       .active = st->includeSystemHeaders,
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+    (void)ui_panel_tagged_rect_list_add(controlHits, LIB_TOP_CONTROL_SYSTEM_TOGGLE, toggleRect);
 
     SDL_Rect logsRect = tool_panel_row_take_left(&row, 98);
-    st->logsToggleRect = logsRect;
-    renderButton(pane,
-                 logsRect,
-                 analysis_frontend_logs_enabled() ? "Logs: On" : "Logs: Off");
+    ui_panel_compact_button_render(renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = logsRect,
+                                       .label = analysis_frontend_logs_enabled() ? "Logs: On" : "Logs: Off",
+                                       .active = analysis_frontend_logs_enabled(),
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+    (void)ui_panel_tagged_rect_list_add(controlHits, LIB_TOP_CONTROL_LOGS_TOGGLE, logsRect);
 
     // Status indicator in header area (not clipped)
     AnalysisStatusSnapshot snap = {0};
@@ -131,11 +157,10 @@ void renderLibrariesPanel(UIPane* pane) {
     if (clip.w < 0) clip.w = 0;
     pushClipRect(&clip);
 
-    // Allow full scroll so the last line can sit at the top (add viewport height).
-    float totalHeight = (float)(st->flatCount * LIBRARY_ROW_HEIGHT) +
-                        (float)contentH;
+    float totalHeight = (float)(st->flatCount * LIBRARY_ROW_HEIGHT);
     scroll_state_set_viewport(&st->scroll, (float)contentH);
-    scroll_state_set_content_height(&st->scroll, totalHeight);
+    scroll_state_set_content_height(&st->scroll,
+                                    scroll_state_top_anchor_content_height(&st->scroll, totalHeight));
     st->scrollThumb = scroll_state_thumb_rect(&st->scroll,
                                               st->scrollTrack.x,
                                               st->scrollTrack.y,
@@ -196,27 +221,21 @@ void renderLibrariesPanel(UIPane* pane) {
             textWidth + 12,
             textHeight + 2
         };
-        SDL_Rect visibleBox = {0};
-        bool rowVisible = SDL_IntersectRect(&box, &clip, &visibleBox);
-        if (!rowVisible) {
+        UIRowSurfaceLayout rowSurface = ui_row_surface_layout_from_rect(box);
+        UIRowSurfaceLayout visibleSurface = {0};
+        if (!ui_row_surface_clip(&rowSurface, &clip, &visibleSurface)) {
             continue;
         }
 
         bool isSel = library_row_is_selected(i);
-        if (isSel) {
-            SDL_Color sel = ui_selection_fill_color();
-            SDL_SetRenderDrawColor(renderer, sel.r, sel.g, sel.b, sel.a);
-            SDL_RenderFillRect(renderer, &visibleBox);
-        }
+        bool hovered = ui_row_surface_contains(&visibleSurface, mouseX, mouseY);
+        UIRowSurfaceRenderSpec rowSpec = library_row_surface_spec(isSel,
+                                                                  st->selectedRow == i,
+                                                                  hovered);
+        ui_row_surface_render(renderer, &visibleSurface, &rowSpec);
 
-        if (mouseY >= visibleBox.y && mouseY < visibleBox.y + visibleBox.h &&
-            mouseX >= visibleBox.x && mouseX < visibleBox.x + visibleBox.w) {
+        if (hovered) {
             st->hoveredRow = i;
-            SDL_SetRenderDrawColor(renderer, 100, 100, 140, 120);
-            SDL_RenderDrawRect(renderer, &visibleBox);
-        } else if (st->selectedRow == i) {
-            SDL_SetRenderDrawColor(renderer, 200, 200, 240, 180);
-            SDL_RenderDrawRect(renderer, &visibleBox);
         }
 
         drawTextUTF8WithFontColorClipped(drawX,

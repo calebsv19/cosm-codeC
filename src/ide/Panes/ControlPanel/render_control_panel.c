@@ -7,12 +7,14 @@
 
 #include "app/GlobalInfo/system_control.h"
 #include "app/GlobalInfo/core_state.h"
-#include "app/GlobalInfo/project.h"
 
 #include "ide/Panes/PaneInfo/pane.h"
-#include "ide/Panes/Editor/editor_view.h"
+#include "ide/UI/panel_control_widgets.h"
 #include "ide/UI/Trees/tree_renderer.h"
+#include "ide/UI/panel_text_field.h"
 #include "ide/UI/shared_theme_font_adapter.h"
+#include "ide/Panes/ToolPanels/tool_panel_chrome.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "core/Analysis/analysis_status.h"
 #include "core/Analysis/analysis_scheduler.h"
 
@@ -34,10 +36,6 @@ static SDL_Color darken_color(SDL_Color c, int amount) {
     };
 }
 
-static bool same_rgb(SDL_Color a, SDL_Color b) {
-    return a.r == b.r && a.g == b.g && a.b == b.b;
-}
-
 typedef struct {
     ControlFilterButtonId id;
     const char* label;
@@ -54,14 +52,6 @@ static int render_filter_group(SDL_Renderer* renderer,
                                int buttonW,
                                int gapX) {
     if (!renderer || !title || !specs || specCount <= 0) return y;
-
-    IDEThemePalette palette = {0};
-    SDL_Color fill = {80, 80, 80, 255};
-    SDL_Color fillActive = {120, 120, 120, 255};
-    SDL_Color border = {180, 180, 180, 255};
-    SDL_Color text = {230, 230, 230, 255};
-    ide_shared_theme_resolve_palette(&palette);
-    ide_shared_theme_button_colors(&fill, &fillActive, &border, &text);
 
     const int buttonH = 16;
     const int titleGap = 7;
@@ -80,46 +70,29 @@ static int render_filter_group(SDL_Renderer* renderer,
     (void)titleW;
     if (startX < rowStartX) startX = rowStartX;
 
-    int cx = startX;
-    for (int i = 0; i < specCount; ++i) {
-        const char* label = specs[i].label ? specs[i].label : "";
-        SDL_Rect rect = { cx, y, bw, buttonH };
-        bool active = control_panel_is_filter_button_active(specs[i].id);
-
-        SDL_Color bg = active ? fillActive : fill;
-        SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, 255);
-        SDL_RenderFillRect(renderer, &rect);
-        SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, 255);
-        SDL_RenderDrawRect(renderer, &rect);
-        if (control_panel_is_match_button_selected(specs[i].id)) {
-            SDL_Rect highlight = {
-                rect.x - 1,
-                rect.y - 1,
-                rect.w + 2,
-                rect.h + 2
-            };
-            SDL_SetRenderDrawColor(renderer,
-                                   palette.accent_warning.r,
-                                   palette.accent_warning.g,
-                                   palette.accent_warning.b,
-                                   palette.accent_warning.a);
-            SDL_RenderDrawRect(renderer, &highlight);
-        }
-
-        int textMaxW = rect.w - 8;
-        size_t keepLen = getTextClampedLength(label, textMaxW);
-        char labelBuf[64];
-        if (keepLen >= sizeof(labelBuf)) keepLen = sizeof(labelBuf) - 1;
-        memcpy(labelBuf, label, keepLen);
-        labelBuf[keepLen] = '\0';
-
-        int tx = rect.x + (rect.w - getTextWidth(labelBuf)) / 2;
-        int ty = rect.y + 2;
-        drawTextWithTier(tx, ty, labelBuf, CORE_FONT_TEXT_SIZE_CAPTION);
-
-        control_panel_register_filter_button(specs[i].id, rect);
-        cx += bw + gapX;
+    UIPanelCompactButtonRowItem rowItems[8];
+    int rowItemCount = specCount;
+    if (rowItemCount > (int)(sizeof(rowItems) / sizeof(rowItems[0]))) {
+        rowItemCount = (int)(sizeof(rowItems) / sizeof(rowItems[0]));
     }
+    for (int i = 0; i < rowItemCount; ++i) {
+        rowItems[i] = (UIPanelCompactButtonRowItem){
+            .tag = (int)specs[i].id,
+            .label = specs[i].label ? specs[i].label : "",
+            .active = control_panel_is_filter_button_active(specs[i].id),
+            .outlined = control_panel_is_match_button_selected(specs[i].id)
+        };
+    }
+    ui_panel_compact_button_row_render(renderer,
+                                       startX,
+                                       y,
+                                       bw,
+                                       buttonH,
+                                       gapX,
+                                       rowItems,
+                                       rowItemCount,
+                                       CORE_FONT_TEXT_SIZE_CAPTION,
+                                       control_panel_get_filter_button_hit_list());
 
     return y + buttonH + 5;
 }
@@ -130,15 +103,16 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
     ide_shared_theme_resolve_palette(&palette);
+    (void)hovered;
+    (void)core;
 
-    renderUIPane(pane, hovered);
-
-    int padding = 8;
-    int x = pane->x + padding;
-    int y = pane->y + padding;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    int x = pane->x + d.pad_left;
+    int y = pane->y + d.controls_top - 1;
+    const int searchRowHeight = 22;
 
     // Panel title
-    drawTextWithTier(x, y, pane->title, CORE_FONT_TEXT_SIZE_HEADER);
+    drawTextWithTier(x, tool_panel_info_line_y(pane, 0), pane->title, CORE_FONT_TEXT_SIZE_HEADER);
     AnalysisStatusSnapshot snap = {0};
     AnalysisSchedulerSnapshot sched = {0};
     int progressCompleted = 0;
@@ -170,7 +144,7 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
         if (statusBuf[0]) {
             int tw = getTextWidth(statusBuf);
             int tx = pane->x + pane->w - tw - 16;
-            int ty = pane->y + 8;
+            int ty = tool_panel_info_line_y(pane, 0);
             if (snap.last_error[0]) {
                 drawTextWithTierError(tx, ty, statusBuf, CORE_FONT_TEXT_SIZE_CAPTION);
             } else {
@@ -178,6 +152,8 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
             }
         }
     }
+    int infoLineCount = 0;
+    int infoStartY = y + searchRowHeight + d.row_gap;
     if (!snap.updating && !snap.last_error[0]) {
         char runBuf[128] = {0};
         if (snap.refresh_mode == ANALYSIS_REFRESH_MODE_INCREMENTAL) {
@@ -192,115 +168,117 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
             snprintf(runBuf, sizeof(runBuf), "Full rebuild");
         }
         if (runBuf[0]) {
-            drawTextWithTierMuted(x, y + 13, runBuf, CORE_FONT_TEXT_SIZE_CAPTION);
+            drawTextWithTierMuted(x, infoStartY, runBuf, CORE_FONT_TEXT_SIZE_CAPTION);
+            infoLineCount = 1;
         }
     }
-    y += 34;
-
-    // Search bar label
-    drawTextWithTier(x, y, "Search", CORE_FONT_TEXT_SIZE_CAPTION);
-    y += 14;
+    if (snap.last_error[0] || snap.updating || snap.has_cache) {
+        int statusLineY = infoStartY + (infoLineCount * 12);
+        char secondaryBuf[128] = {0};
+        if (snap.last_error[0]) {
+            snprintf(secondaryBuf, sizeof(secondaryBuf), "%s", snap.last_error);
+        } else if (snap.refresh_mode == ANALYSIS_REFRESH_MODE_INCREMENTAL) {
+            snprintf(secondaryBuf,
+                     sizeof(secondaryBuf),
+                     "Inc d:%d r:%d dep:%d t:%d",
+                     snap.dirty_files,
+                     snap.removed_files,
+                     snap.dependent_files,
+                     snap.target_files);
+        } else if (snap.refresh_mode == ANALYSIS_REFRESH_MODE_FULL) {
+            snprintf(secondaryBuf, sizeof(secondaryBuf), "Full rebuild");
+        }
+        if (secondaryBuf[0]) {
+            if (snap.last_error[0]) {
+                drawTextWithTierError(x, statusLineY, secondaryBuf, CORE_FONT_TEXT_SIZE_CAPTION);
+            } else {
+                drawTextWithTierMuted(x, statusLineY, secondaryBuf, CORE_FONT_TEXT_SIZE_CAPTION);
+            }
+            infoLineCount++;
+        }
+    }
 
     const int pauseW = 20;
     const int clearW = 20;
     const int gap = 6;
-    int searchW = pane->w - 2 * padding - pauseW - clearW - (2 * gap);
-    if (searchW < 40) searchW = 40;
-    SDL_Rect searchBox = { x, y, searchW, 22 };
-    SDL_Rect pauseBtn = { x + searchW + gap, y, pauseW, 22 };
-    SDL_Rect clearBtn = { pauseBtn.x + pauseW + gap, y, clearW, 22 };
-    control_panel_set_search_box_rect(searchBox);
-    control_panel_set_search_pause_button_rect(pauseBtn);
-    control_panel_set_search_clear_button_rect(clearBtn);
-    SDL_SetRenderDrawColor(renderer,
-                           palette.input_fill.r,
-                           palette.input_fill.g,
-                           palette.input_fill.b,
-                           80);
-    SDL_RenderFillRect(renderer, &searchBox);
-    if (control_panel_is_search_focused()) {
-        SDL_SetRenderDrawColor(renderer,
-                               palette.input_focus_border.r,
-                               palette.input_focus_border.g,
-                               palette.input_focus_border.b,
-                               255);
-    } else {
-        SDL_SetRenderDrawColor(renderer,
-                               palette.input_border.r,
-                               palette.input_border.g,
-                               palette.input_border.b,
-                               255);
+    ToolPanelControlRow searchRow =
+        tool_panel_control_row_with(pane, y, d.pad_left, d.pad_right, searchRowHeight, gap);
+    UIPanelTextFieldButtonStripLayout searchLayout =
+        ui_panel_text_field_button_strip_layout(searchRow.x_left,
+                                                searchRow.y,
+                                                searchRow.x_right - searchRow.x_left,
+                                                pauseW,
+                                                clearW,
+                                                gap,
+                                                searchRow.h);
+    if (searchLayout.text_field_rect.w < 40) {
+        searchLayout.text_field_rect.w = 40;
+        searchLayout.aux_button_rect.x = searchLayout.text_field_rect.x +
+                                         searchLayout.text_field_rect.w + gap;
+        searchLayout.trailing_button_rect.x = searchLayout.aux_button_rect.x +
+                                              searchLayout.aux_button_rect.w + gap;
     }
-    SDL_RenderDrawRect(renderer, &searchBox);
+    SDL_Rect searchBox = searchLayout.text_field_rect;
+    SDL_Rect pauseBtn = searchLayout.aux_button_rect;
+    SDL_Rect clearBtn = searchLayout.trailing_button_rect;
+    control_panel_set_search_strip_layout(searchLayout);
     const char* query = control_panel_get_search_query();
-    if (query && query[0]) {
-        drawTextWithTier(x + 6, y + 3, query, CORE_FONT_TEXT_SIZE_CAPTION);
-    } else if (!control_panel_is_search_focused()) {
-        drawTextWithTierMuted(x + 6, y + 3, "type to filter...", CORE_FONT_TEXT_SIZE_CAPTION);
-    }
-
-    if (control_panel_is_search_focused()) {
-        int cursor = control_panel_get_search_cursor();
-        if (cursor < 0) cursor = 0;
-        size_t queryLen = query ? strlen(query) : 0;
-        if ((size_t)cursor > queryLen) cursor = (int)queryLen;
-
-        char beforeCursor[256];
-        size_t prefixLen = (size_t)cursor;
-        if (prefixLen >= sizeof(beforeCursor)) prefixLen = sizeof(beforeCursor) - 1;
-        if (query && prefixLen > 0) {
-            memcpy(beforeCursor, query, prefixLen);
-        }
-        beforeCursor[prefixLen] = '\0';
-
-        int caretX = x + 6 + getTextWidth(beforeCursor);
-        SDL_SetRenderDrawColor(renderer,
-                               palette.input_focus_border.r,
-                               palette.input_focus_border.g,
-                               palette.input_focus_border.b,
-                               255);
-        SDL_RenderDrawLine(renderer, caretX, y + 3, caretX, y + 18);
-    }
+    ui_panel_text_field_render(renderer,
+                               &(UIPanelTextFieldSpec){
+                                   .rect = searchBox,
+                                   .text = query,
+                                   .placeholder = "type to filter...",
+                                   .focused = control_panel_is_search_focused(),
+                                   .cursor = control_panel_get_search_cursor(),
+                                   .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                               });
 
     bool searchEnabled = control_panel_is_search_enabled();
     SDL_Color pauseFill = searchEnabled ? palette.input_fill : darken_color(palette.button_fill, 20);
-    SDL_SetRenderDrawColor(renderer, pauseFill.r, pauseFill.g, pauseFill.b, pauseFill.a);
-    SDL_RenderFillRect(renderer, &pauseBtn);
-    SDL_SetRenderDrawColor(renderer,
-                           palette.input_border.r,
-                           palette.input_border.g,
-                           palette.input_border.b,
-                           255);
-    SDL_RenderDrawRect(renderer, &pauseBtn);
-    drawTextWithTier(pauseBtn.x + 6, pauseBtn.y + 3, "||", CORE_FONT_TEXT_SIZE_CAPTION);
+    ui_panel_compact_button_render(renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = pauseBtn,
+                                       .label = "||",
+                                       .active = false,
+                                       .outlined = false,
+                                       .use_custom_fill = true,
+                                       .custom_fill = pauseFill,
+                                       .use_custom_outline = true,
+                                       .custom_outline = palette.input_border,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
 
-    SDL_SetRenderDrawColor(renderer,
-                           palette.input_fill.r,
-                           palette.input_fill.g,
-                           palette.input_fill.b,
-                           80);
-    SDL_RenderFillRect(renderer, &clearBtn);
-    SDL_SetRenderDrawColor(renderer,
-                           palette.input_border.r,
-                           palette.input_border.g,
-                           palette.input_border.b,
-                           255);
-    SDL_RenderDrawRect(renderer, &clearBtn);
-    drawTextWithTier(clearBtn.x + 6, clearBtn.y + 3, "x", CORE_FONT_TEXT_SIZE_CAPTION);
-    y += 30;
+    SDL_Color clearFill = palette.input_fill;
+    clearFill.a = 80;
+    ui_panel_compact_button_render(renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = clearBtn,
+                                       .label = "x",
+                                       .active = false,
+                                       .outlined = false,
+                                       .use_custom_fill = true,
+                                       .custom_fill = clearFill,
+                                       .use_custom_outline = true,
+                                       .custom_outline = palette.input_border,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+    y = infoStartY + (infoLineCount > 0 ? (infoLineCount * 12) : 0) + d.row_gap + 2;
 
     const bool collapsed = control_panel_filters_collapsed();
-    char filterTitle[32];
-    snprintf(filterTitle, sizeof(filterTitle), "%s Filters", collapsed ? "[+]" : "[-]");
-    drawTextWithTier(x, y, filterTitle, CORE_FONT_TEXT_SIZE_CAPTION);
-    int titleW = getTextWidth(filterTitle);
-    SDL_Rect filterHeader = { x - 2, y - 1, titleW + 8, 14 };
+    SDL_Rect filterHeader = {0};
+    (void)ui_panel_collapsible_header_render(renderer,
+                                             x,
+                                             y,
+                                             "Filters",
+                                             collapsed,
+                                             CORE_FONT_TEXT_SIZE_CAPTION,
+                                             &filterHeader);
     control_panel_set_filter_header_rect(filterHeader);
-    y += 12;
+    y += d.info_line_gap - 2;
 
     control_panel_begin_filter_button_frame();
 
-    const int filterW = pane->w - (2 * padding);
+    const int filterW = pane->w - (d.pad_left + d.pad_right);
     const FilterButtonSpec targetButtons[] = {
         { CONTROL_FILTER_BTN_TARGET_SYMBOLS, "Symbols" },
         { CONTROL_FILTER_BTN_TARGET_EDITOR, "Editor" }
@@ -462,31 +440,25 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
         y += 2;
     }
 
-    int listTop = y + 10;
+    ToolPanelHeaderMetrics headerMetrics = {
+        .controls_y = searchRow.y,
+        .controls_h = searchRow.h,
+        .info_start_y = infoStartY,
+        .info_line_gap = 12,
+        .info_line_count = infoLineCount > 0 ? infoLineCount : 1,
+        .bottom_padding = d.row_gap + 2,
+        .min_content_top = searchRow.y + searchRow.h + d.row_gap + 12
+    };
+    int minListTop = tool_panel_compute_content_top(&headerMetrics);
+    int listTop = y + d.row_gap;
+    if (listTop < minListTop) listTop = minListTop;
     control_panel_set_symbol_list_top(listTop);
     int listHeight = (pane->y + pane->h) - listTop;
     if (listHeight < 0) listHeight = 0;
 
-    SDL_Color symbolsBgColor = palette.pane_body_fill;
-    if (same_rgb(symbolsBgColor, pane->bgColor)) {
-        // Guarantee visual separation even when theme adapter returns same tone.
-        symbolsBgColor = darken_color(pane->bgColor, 14);
+    if (listHeight > 0) {
+        tool_panel_render_split_background(renderer, pane, listTop, d.body_darken);
     }
-    SDL_Rect symbolsBg = {
-        pane->x + 1,
-        listTop,
-        pane->w - 2,
-        listHeight
-    };
-    SDL_SetRenderDrawColor(renderer, symbolsBgColor.r, symbolsBgColor.g, symbolsBgColor.b, 255);
-    SDL_RenderFillRect(renderer, &symbolsBg);
-
-    OpenFile* activeFile = NULL;
-    if (core && core->activeEditorView) {
-        activeFile = getActiveOpenFile(core->activeEditorView);
-    }
-    const char* activePath = activeFile ? activeFile->filePath : NULL;
-    control_panel_refresh_symbol_tree(projectRoot, activePath);
 
     UITreeNode* tree = control_panel_get_symbol_tree();
     PaneScrollState* scroll = control_panel_get_symbol_scroll();

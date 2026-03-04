@@ -1,9 +1,11 @@
 #include "tool_assets.h"
+#include "ide/Panes/ToolPanels/tool_panel_adapter.h"
 
 #include "app/GlobalInfo/project.h"
 #include "app/GlobalInfo/core_state.h"
 #include "core/Clipboard/clipboard.h"
 #include "core/FileIO/file_ops.h"
+#include "ide/UI/flat_list_selection.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -16,9 +18,52 @@
 #include <ctype.h>
 #include <json-c/json.h>
 
-static AssetCatalog gCatalog = {0};
-static bool selected[1024];
-static int flatCountCached = 0;
+typedef struct {
+    AssetCatalog catalog;
+    bool selected[1024];
+    PaneScrollState scroll;
+    bool scroll_init;
+    SDL_Rect scroll_track;
+    SDL_Rect scroll_thumb;
+    UIPanelTaggedRect control_hit_storage[2];
+    UIPanelTaggedRectList control_hits;
+    UIDoubleClickTracker double_click_tracker;
+    UIFlatListDragState drag_state;
+} AssetPanelState;
+
+static AssetPanelState g_assetPanelBootstrapState = {0};
+static bool g_assetPanelBootstrapInitialized = false;
+
+static void assets_panel_init_state(void* ptr) {
+    AssetPanelState* state = (AssetPanelState*)ptr;
+    if (!state) return;
+    memset(state, 0, sizeof(*state));
+    state->control_hits.items = state->control_hit_storage;
+    state->control_hits.capacity =
+        (int)(sizeof(state->control_hit_storage) / sizeof(state->control_hit_storage[0]));
+    state->drag_state.active = false;
+    state->drag_state.anchor = -1;
+}
+
+static void free_asset_catalog(AssetCatalog* catalog);
+
+static void assets_panel_destroy_state(void* ptr) {
+    AssetPanelState* state = (AssetPanelState*)ptr;
+    if (!state) return;
+    free_asset_catalog(&state->catalog);
+    free(state);
+}
+
+static AssetPanelState* assets_panel_state(void) {
+    return (AssetPanelState*)tool_panel_resolve_state_slot(
+        TOOL_PANEL_STATE_SLOT_ASSETS,
+        sizeof(AssetPanelState),
+        assets_panel_init_state,
+        assets_panel_destroy_state,
+        &g_assetPanelBootstrapState,
+        &g_assetPanelBootstrapInitialized
+    );
+}
 
 static void free_asset_entry(AssetEntry* e) {
     if (!e) return;
@@ -38,12 +83,18 @@ static void clear_category(AssetCategoryList* list) {
     list->capacity = 0;
 }
 
-static void clear_catalog(void) {
+static void free_asset_catalog(AssetCatalog* catalog) {
+    if (!catalog) return;
     for (int i = 0; i < ASSET_CATEGORY_COUNT; i++) {
-        clear_category(&gCatalog.categories[i]);
+        clear_category(&catalog->categories[i]);
     }
-    gCatalog.totalCount = 0;
-    memset(selected, 0, sizeof(selected));
+    catalog->totalCount = 0;
+}
+
+static void clear_catalog(void) {
+    AssetPanelState* state = assets_panel_state();
+    free_asset_catalog(&state->catalog);
+    memset(state->selected, 0, sizeof(state->selected));
 }
 
 static void ensure_capacity(AssetCategoryList* list) {
@@ -119,7 +170,8 @@ static bool should_skip_dir(const char* name) {
 
 static void add_asset(const char* workspace, const char* absPath, const char* relPath, const char* name, AssetCategory cat) {
     if (!absPath || !relPath || !name) return;
-    AssetCategoryList* list = &gCatalog.categories[cat];
+    AssetPanelState* state = assets_panel_state();
+    AssetCategoryList* list = &state->catalog.categories[cat];
     ensure_capacity(list);
     if (list->count >= list->capacity) return;
 
@@ -130,7 +182,7 @@ static void add_asset(const char* workspace, const char* absPath, const char* re
     e->category = cat;
     list->category = cat;
     list->collapsed = false;
-    gCatalog.totalCount++;
+    state->catalog.totalCount++;
 }
 
 static void walk_dir(const char* workspace, const char* basePath, const char* relPrefix) {
@@ -182,6 +234,7 @@ static int compare_entries(const void* a, const void* b) {
 }
 
 void initAssetManagerPanel(void) {
+    AssetPanelState* state = assets_panel_state();
     clear_catalog();
 
     const char* workspace = getWorkspacePath();
@@ -192,7 +245,7 @@ void initAssetManagerPanel(void) {
     walk_dir(workspace, workspace, "");
 
     for (int i = 0; i < ASSET_CATEGORY_COUNT; i++) {
-        AssetCategoryList* list = &gCatalog.categories[i];
+        AssetCategoryList* list = &state->catalog.categories[i];
         list->category = (AssetCategory)i;
         list->collapsed = false;
         if (list->count > 1) {
@@ -202,22 +255,24 @@ void initAssetManagerPanel(void) {
 }
 
 const AssetCatalog* assets_get_catalog(void) {
-    return &gCatalog;
+    return &assets_panel_state()->catalog;
 }
 
 bool assets_category_collapsed(AssetCategory cat) {
     if (cat < 0 || cat >= ASSET_CATEGORY_COUNT) return false;
-    return gCatalog.categories[cat].collapsed;
+    return assets_panel_state()->catalog.categories[cat].collapsed;
 }
 
 void assets_toggle_collapse(AssetCategory cat) {
     if (cat < 0 || cat >= ASSET_CATEGORY_COUNT) return;
-    gCatalog.categories[cat].collapsed = !gCatalog.categories[cat].collapsed;
+    AssetPanelState* state = assets_panel_state();
+    state->catalog.categories[cat].collapsed = !state->catalog.categories[cat].collapsed;
 }
 
 void assets_set_all_collapsed(bool collapsed) {
+    AssetPanelState* state = assets_panel_state();
     for (int c = 0; c < ASSET_CATEGORY_COUNT; ++c) {
-        gCatalog.categories[c].collapsed = collapsed;
+        state->catalog.categories[c].collapsed = collapsed;
     }
 }
 
@@ -233,12 +288,13 @@ static void ensure_ide_dir(const char* workspace) {
 }
 
 void assets_save_catalog(const char* workspaceRoot) {
+    AssetPanelState* state = assets_panel_state();
     if (!workspaceRoot || !*workspaceRoot) return;
     ensure_ide_dir(workspaceRoot);
     json_object* root = json_object_new_object();
     json_object* cats = json_object_new_array();
     for (int c = 0; c < ASSET_CATEGORY_COUNT; ++c) {
-        AssetCategoryList* list = &gCatalog.categories[c];
+        AssetCategoryList* list = &state->catalog.categories[c];
         json_object* jc = json_object_new_object();
         json_object_object_add(jc, "category", json_object_new_int(list->category));
         json_object_object_add(jc, "collapsed", json_object_new_boolean(list->collapsed));
@@ -255,7 +311,7 @@ void assets_save_catalog(const char* workspaceRoot) {
         json_object_array_add(cats, jc);
     }
     json_object_object_add(root, "categories", cats);
-    json_object_object_add(root, "total", json_object_new_int(gCatalog.totalCount));
+    json_object_object_add(root, "total", json_object_new_int(state->catalog.totalCount));
 
     const char* serialized = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
     char path[PATH_MAX];
@@ -299,7 +355,8 @@ void assets_load_catalog(const char* workspaceRoot) {
             json_object_object_get_ex(jc, "items", &jitems);
             json_object_object_get_ex(jc, "collapsed", &jcoll);
             json_object_object_get_ex(jc, "category", &jcat);
-            AssetCategoryList* list = &gCatalog.categories[ci];
+            AssetPanelState* state = assets_panel_state();
+            AssetCategoryList* list = &state->catalog.categories[ci];
             list->category = jcat ? (AssetCategory)json_object_get_int(jcat) : (AssetCategory)ci;
             list->collapsed = jcoll ? json_object_get_boolean(jcoll) : false;
             if (!jitems || !json_object_is_type(jitems, json_type_array)) continue;
@@ -321,12 +378,12 @@ void assets_load_catalog(const char* workspaceRoot) {
 
     json_object* jtotal = NULL;
     if (json_object_object_get_ex(root, "total", &jtotal)) {
-        gCatalog.totalCount = json_object_get_int(jtotal);
+        assets_panel_state()->catalog.totalCount = json_object_get_int(jtotal);
     } else {
         // Recompute totalCount in case it wasn't stored or was stale.
-        gCatalog.totalCount = 0;
+        assets_panel_state()->catalog.totalCount = 0;
         for (int c = 0; c < ASSET_CATEGORY_COUNT; ++c) {
-            gCatalog.totalCount += gCatalog.categories[c].count;
+            assets_panel_state()->catalog.totalCount += assets_panel_state()->catalog.categories[c].count;
         }
     }
 
@@ -359,9 +416,10 @@ bool assets_is_text_like(const AssetEntry* e) {
 }
 
 int assets_flatten(AssetFlatRef* out, int max) {
+    AssetPanelState* state = assets_panel_state();
     int total = 0;
     for (int c = 0; c < ASSET_CATEGORY_COUNT && total < max; ++c) {
-        AssetCategoryList* list = &gCatalog.categories[c];
+        AssetCategoryList* list = &state->catalog.categories[c];
         out[total].entry = NULL;
         out[total].category = (AssetCategory)c;
         out[total].indexInCategory = -1;
@@ -389,42 +447,50 @@ int assets_flatten(AssetFlatRef* out, int max) {
             total++;
         }
     }
-    flatCountCached = total;
     return total;
 }
 
 bool assets_is_selected(int flatIndex) {
-    if (flatIndex < 0 || flatIndex >= (int)(sizeof(selected) / sizeof(selected[0]))) return false;
-    return selected[flatIndex];
+    AssetPanelState* state = assets_panel_state();
+    return ui_flat_list_selection_contains(state->selected,
+                                           (int)(sizeof(state->selected) / sizeof(state->selected[0])),
+                                           flatIndex);
 }
 
 void assets_clear_selection(void) {
-    memset(selected, 0, sizeof(selected));
+    AssetPanelState* state = assets_panel_state();
+    ui_flat_list_selection_clear(state->selected,
+                                 (int)(sizeof(state->selected) / sizeof(state->selected[0])));
 }
 
 void assets_select_toggle(int flatIndex, bool additive) {
-    if (flatIndex < 0 || flatIndex >= (int)(sizeof(selected) / sizeof(selected[0]))) return;
-    if (!additive) assets_clear_selection();
-    selected[flatIndex] = !selected[flatIndex];
+    AssetPanelState* state = assets_panel_state();
+    (void)ui_flat_list_selection_toggle(state->selected,
+                                        (int)(sizeof(state->selected) / sizeof(state->selected[0])),
+                                        0,
+                                        flatIndex,
+                                        additive);
 }
 
 void assets_select_range(int a, int b) {
-    if (a < 0 || b < 0) return;
-    if (a > b) { int t = a; a = b; b = t; }
-    assets_clear_selection();
-    for (int i = a; i <= b && i < (int)(sizeof(selected) / sizeof(selected[0])); ++i) {
-        selected[i] = true;
-    }
+    AssetPanelState* state = assets_panel_state();
+    (void)ui_flat_list_selection_select_range(state->selected,
+                                              (int)(sizeof(state->selected) / sizeof(state->selected[0])),
+                                              0,
+                                              a,
+                                              b);
 }
 
 void assets_select_all_visible(void) {
+    AssetPanelState* state = assets_panel_state();
     AssetFlatRef refs[1024];
     int count = assets_flatten(refs, 1024);
-    memset(selected, 0, sizeof(selected));
-    int maxSel = (int)(sizeof(selected) / sizeof(selected[0]));
+    ui_flat_list_selection_clear(state->selected,
+                                 (int)(sizeof(state->selected) / sizeof(state->selected[0])));
+    int maxSel = (int)(sizeof(state->selected) / sizeof(state->selected[0]));
     for (int i = 0; i < count && i < maxSel; ++i) {
         if (refs[i].isMoreLine) continue;
-        selected[i] = true;
+        state->selected[i] = true;
     }
 }
 
@@ -466,4 +532,36 @@ bool assets_copy_selection_to_clipboard(void) {
 void handleAssetManagerEvent(UIPane* pane, SDL_Event* event) {
     (void)pane; (void)event;
     // Future: selection and preview handling lives here.
+}
+
+PaneScrollState* assets_get_scroll_state(UIPane* pane) {
+    (void)pane;
+    AssetPanelState* state = assets_panel_state();
+    return &state->scroll;
+}
+
+SDL_Rect assets_get_scroll_track_rect(void) {
+    return assets_panel_state()->scroll_track;
+}
+
+SDL_Rect assets_get_scroll_thumb_rect(void) {
+    return assets_panel_state()->scroll_thumb;
+}
+
+void assets_set_scroll_rects(SDL_Rect track, SDL_Rect thumb) {
+    AssetPanelState* state = assets_panel_state();
+    state->scroll_track = track;
+    state->scroll_thumb = thumb;
+}
+
+UIPanelTaggedRectList* assets_get_control_hits(void) {
+    return &assets_panel_state()->control_hits;
+}
+
+UIDoubleClickTracker* assets_get_double_click_tracker(void) {
+    return &assets_panel_state()->double_click_tracker;
+}
+
+UIFlatListDragState* assets_get_drag_state(void) {
+    return &assets_panel_state()->drag_state;
 }

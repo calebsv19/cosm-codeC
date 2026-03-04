@@ -8,10 +8,17 @@
 #include "ide/Panes/Terminal/terminal.h"
 #include "ide/Panes/PaneInfo/pane.h"
 #include "ide/Panes/Editor/editor_view.h"
+#include "ide/Panes/ToolPanels/tool_panel_adapter.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
+#include "ide/UI/editor_navigation.h"
 #include "core/FileIO/file_ops.h"
 #include "core/Analysis/analysis_scheduler.h"
 #include "core/Clipboard/clipboard.h"
+#include "core/LoopTime/loop_time.h"
+#include "ide/UI/interaction_timing.h"
+#include "ide/UI/panel_metrics.h"
+#include "ide/UI/panel_text_edit.h"
+#include "ide/UI/row_activation.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -22,58 +29,126 @@
 #include <dirent.h>
 #include <errno.h>
 
-static const int PROJECT_TREE_INDENT_WIDTH = 10;
-static bool g_projectSelectAllVisible = false;
-
-
-static Uint32 lastClickTime = 0;
-static DirEntry* lastClickedEntry = NULL;
-int hoveredEntryDepth = 0;     // remove 'static'!
-
-DirEntry* hoveredEntry = NULL;
-DirEntry* selectedEntry = NULL;
-DirEntry* selectedFile = NULL;
-DirEntry* selectedDirectory = NULL;
-SDL_Rect hoveredEntryRect = {0};
-
-int mouseX = 0;
-int mouseY = 0;
-
-// --- Global Button Hitboxes for Project Panel ---
-SDL_Rect projectBtnAddFile = {0};
-SDL_Rect projectBtnDeleteFile = {0};
-SDL_Rect projectBtnAddFolder = {0};
-SDL_Rect projectBtnDeleteFolder = {0};
-
-
 typedef struct {
-    char path[1024];
+    char path[PROJECT_PATH_BUFFER_CAP];
     bool isExpanded;
 } DirState;
 
-DirEntry* renamingEntry = NULL;
-char renameBuffer[256] = "";
+typedef struct {
+    bool select_all_visible;
+    UIDoubleClickTracker double_click_tracker;
+    int hovered_entry_depth;
+    DirEntry* hovered_entry;
+    DirEntry* selected_entry;
+    DirEntry* selected_file;
+    DirEntry* selected_directory;
+    SDL_Rect hovered_entry_rect;
+    int mouse_x;
+    int mouse_y;
+    UIPanelTaggedRect top_control_hit_storage[4];
+    UIPanelTaggedRectList top_control_hits;
+    DirEntry* renaming_entry;
+    char rename_buffer[PROJECT_RENAME_BUFFER_CAP];
+    int rename_cursor;
+    char newly_created_path[PROJECT_PATH_BUFFER_CAP];
+    char run_target_path[PROJECT_PATH_BUFFER_CAP];
+    char selected_file_path[PROJECT_PATH_BUFFER_CAP];
+    char selected_directory_path[PROJECT_PATH_BUFFER_CAP];
+    PaneScrollState scroll;
+    bool scroll_initialized;
+    SDL_Rect scroll_track;
+    SDL_Rect scroll_thumb;
+    DirState temp_dir_states[2048];
+    int temp_dir_state_count;
+} ProjectPanelState;
 
-char newlyCreatedPath[1024] = "";
-char runTargetPath[1024] = "";
-static char selectedFilePath[1024] = "";
-static char selectedDirectoryPath[1024] = "";
+static ProjectPanelState g_projectPanelBootstrapState = {0};
+static bool g_projectPanelBootstrapInitialized = false;
+
+static void project_panel_bind_state(ProjectPanelState* state) {
+    if (!state) return;
+    state->top_control_hits.items = state->top_control_hit_storage;
+    state->top_control_hits.count = 0;
+    state->top_control_hits.capacity =
+        (int)(sizeof(state->top_control_hit_storage) / sizeof(state->top_control_hit_storage[0]));
+}
+
+static void project_panel_init_state(void* ptr) {
+    ProjectPanelState* state = (ProjectPanelState*)ptr;
+    if (!state) return;
+    memset(state, 0, sizeof(*state));
+    project_panel_bind_state(state);
+}
+
+static void project_panel_destroy_state(void* ptr) {
+    ProjectPanelState* state = (ProjectPanelState*)ptr;
+    if (!state) return;
+    free(state);
+}
+
+static ProjectPanelState* project_panel_state_internal(void) {
+    return (ProjectPanelState*)tool_panel_resolve_state_slot(
+        TOOL_PANEL_STATE_SLOT_PROJECT,
+        sizeof(ProjectPanelState),
+        project_panel_init_state,
+        project_panel_destroy_state,
+        &g_projectPanelBootstrapState,
+        &g_projectPanelBootstrapInitialized
+    );
+}
+
+static UIPanelTextEditBuffer project_rename_text_edit_buffer(void) {
+    ProjectPanelState* state = project_panel_state_internal();
+    return (UIPanelTextEditBuffer){
+        .text = state ? state->rename_buffer : NULL,
+        .capacity = PROJECT_RENAME_BUFFER_CAP,
+        .cursor = state ? &state->rename_cursor : NULL
+    };
+}
+
+int project_mouse_x(void) { return project_panel_state_internal()->mouse_x; }
+int project_mouse_y(void) { return project_panel_state_internal()->mouse_y; }
+
+void project_set_mouse_position(int x, int y) {
+    ProjectPanelState* state = project_panel_state_internal();
+    state->mouse_x = x;
+    state->mouse_y = y;
+}
+
+int* project_hovered_entry_depth_ptr(void) { return &project_panel_state_internal()->hovered_entry_depth; }
+DirEntry** project_hovered_entry_ptr(void) { return &project_panel_state_internal()->hovered_entry; }
+DirEntry** project_selected_entry_ptr(void) { return &project_panel_state_internal()->selected_entry; }
+DirEntry** project_selected_file_ptr(void) { return &project_panel_state_internal()->selected_file; }
+DirEntry** project_selected_directory_ptr(void) { return &project_panel_state_internal()->selected_directory; }
+SDL_Rect* project_hovered_entry_rect_ptr(void) { return &project_panel_state_internal()->hovered_entry_rect; }
+UIPanelTaggedRectList* project_top_control_hits(void) { return &project_panel_state_internal()->top_control_hits; }
+DirEntry** project_renaming_entry_ptr(void) { return &project_panel_state_internal()->renaming_entry; }
+char* project_rename_buffer(void) { return project_panel_state_internal()->rename_buffer; }
+int* project_rename_cursor_ptr(void) { return &project_panel_state_internal()->rename_cursor; }
+char* project_newly_created_path_buffer(void) { return project_panel_state_internal()->newly_created_path; }
+char* project_run_target_path_buffer(void) { return project_panel_state_internal()->run_target_path; }
+PaneScrollState* project_panel_scroll_state(void) { return &project_panel_state_internal()->scroll; }
+bool* project_panel_scroll_initialized_ptr(void) { return &project_panel_state_internal()->scroll_initialized; }
+SDL_Rect* project_panel_scroll_track_ptr(void) { return &project_panel_state_internal()->scroll_track; }
+SDL_Rect* project_panel_scroll_thumb_ptr(void) { return &project_panel_state_internal()->scroll_thumb; }
 
 static void clearRunTargetSelection(void);
 static void updateRunTargetSelection(DirEntry* entry);
 static DirEntry* findEntryByPath(DirEntry* root, const char* targetPath);
 
 static void setSelectedDirectory(DirEntry* entry) {
+    ProjectPanelState* state = project_panel_state_internal();
     selectedDirectory = entry;
     if (entry && entry->path) {
-        strncpy(selectedDirectoryPath, entry->path, sizeof(selectedDirectoryPath));
-        selectedDirectoryPath[sizeof(selectedDirectoryPath) - 1] = '\0';
+        strncpy(state->selected_directory_path, entry->path, sizeof(state->selected_directory_path));
+        state->selected_directory_path[sizeof(state->selected_directory_path) - 1] = '\0';
     } else {
-        selectedDirectoryPath[0] = '\0';
+        state->selected_directory_path[0] = '\0';
     }
 }
 
 static void clearRunTargetSelection(void) {
+    char* runTargetPath = project_run_target_path_buffer();
     runTargetPath[0] = '\0';
     setRunTargetPath(NULL);
     saveRunTargetPreference(NULL);
@@ -87,12 +162,13 @@ static bool entryIsExecutableFile(const DirEntry* entry) {
 }
 
 static void setSelectedFile(DirEntry* entry) {
+    ProjectPanelState* state = project_panel_state_internal();
     selectedFile = entry;
     if (entry && entry->path) {
-        strncpy(selectedFilePath, entry->path, sizeof(selectedFilePath));
-        selectedFilePath[sizeof(selectedFilePath) - 1] = '\0';
+        strncpy(state->selected_file_path, entry->path, sizeof(state->selected_file_path));
+        state->selected_file_path[sizeof(state->selected_file_path) - 1] = '\0';
     } else {
-        selectedFilePath[0] = '\0';
+        state->selected_file_path[0] = '\0';
     }
 }
 
@@ -179,20 +255,21 @@ static bool project_append_visible_entry(ProjectTextBuilder* b, const DirEntry* 
 }
 
 void project_select_all_visible_entries(void) {
-    g_projectSelectAllVisible = true;
+    project_panel_state_internal()->select_all_visible = true;
 }
 
 bool project_select_all_visual_active(void) {
-    return g_projectSelectAllVisible;
+    return project_panel_state_internal()->select_all_visible;
 }
 
 void project_clear_select_all_visual(void) {
-    g_projectSelectAllVisible = false;
+    project_panel_state_internal()->select_all_visible = false;
 }
 
 bool project_copy_visible_entries_to_clipboard(void) {
+    ProjectPanelState* state = project_panel_state_internal();
     if (!projectRoot) return false;
-    if (!g_projectSelectAllVisible && hoveredEntry) {
+    if (!state->select_all_visible && hoveredEntry) {
         const char* name = project_display_name(hoveredEntry);
         char line[1024];
         if (hoveredEntry->type == ENTRY_FOLDER) {
@@ -212,10 +289,36 @@ bool project_copy_visible_entries_to_clipboard(void) {
         free(b.data);
         return false;
     }
-    g_projectSelectAllVisible = false;
+    state->select_all_visible = false;
     bool ok = clipboard_copy_text(b.data);
     free(b.data);
     return ok;
+}
+
+int project_get_rename_cursor(void) {
+    UIPanelTextEditBuffer buffer = project_rename_text_edit_buffer();
+    return ui_panel_text_edit_clamp_cursor(&buffer);
+}
+
+void project_begin_inline_rename(DirEntry* entry) {
+    renamingEntry = entry;
+    UIPanelTextEditBuffer buffer = project_rename_text_edit_buffer();
+    (void)ui_panel_text_edit_set_text(&buffer, (entry && entry->name) ? entry->name : "");
+}
+
+void project_end_inline_rename(void) {
+    renamingEntry = NULL;
+    renameCursor = 0;
+}
+
+bool project_handle_rename_text_input(const SDL_Event* event) {
+    UIPanelTextEditBuffer buffer = project_rename_text_edit_buffer();
+    return ui_panel_text_edit_handle_text_input(&buffer, event);
+}
+
+bool project_handle_rename_edit_key(SDL_Keycode key) {
+    UIPanelTextEditBuffer buffer = project_rename_text_edit_buffer();
+    return ui_panel_text_edit_handle_keydown(&buffer, key);
 }
 
 void selectDirectoryEntry(DirEntry* entry) {
@@ -267,6 +370,7 @@ static DirEntry* findNewestExecutableRecursive(DirEntry* entry, time_t* newestTi
 }
 
 static void updateRunTargetSelection(DirEntry* entry) {
+    char* runTargetPath = project_run_target_path_buffer();
     if (!entry) {
         clearRunTargetSelection();
         return;
@@ -299,6 +403,7 @@ static void updateRunTargetSelection(DirEntry* entry) {
 }
 
 void restoreRunTargetSelection(void) {
+    char* runTargetPath = project_run_target_path_buffer();
     const char* saved = getRunTargetPath();
     if (!saved || !saved[0]) {
         runTargetPath[0] = '\0';
@@ -341,6 +446,7 @@ static void setProjectDirectoryDropTarget(ProjectDragState* drag) {
 }
 
 static bool moveFileEntryToDirectory(DirEntry* fileEntry, DirEntry* destDir) {
+    char* newlyCreatedPath = project_newly_created_path_buffer();
     if (!fileEntry || fileEntry->type != ENTRY_FILE || !fileEntry->path || !fileEntry->name) return false;
     if (!destDir || destDir->type != ENTRY_FOLDER || !destDir->path) return false;
 
@@ -354,8 +460,8 @@ static bool moveFileEntryToDirectory(DirEntry* fileEntry, DirEntry* destDir) {
     fileEntry->path = strdup(destPath);
 
     destDir->isExpanded = true;
-    strncpy(newlyCreatedPath, destPath, sizeof(newlyCreatedPath));
-    newlyCreatedPath[sizeof(newlyCreatedPath) - 1] = '\0';
+    strncpy(newlyCreatedPath, destPath, PROJECT_PATH_BUFFER_CAP);
+    newlyCreatedPath[PROJECT_PATH_BUFFER_CAP - 1] = '\0';
     queueProjectRefresh(ANALYSIS_REASON_PROJECT_MUTATION);
     return true;
 }
@@ -419,7 +525,7 @@ void beginProjectDrag(DirEntry* entry, const SDL_Rect* rect, int mouseX, int mou
     drag->currentY = mouseY;
     drag->cachedLabel[0] = '\0';
     drag->labelWidth = 0;
-    drag->startTicks = SDL_GetTicks();
+    drag->startTicks = loop_time_now_ms32();
 }
 
 void updateProjectDrag(int mouseX, int mouseY) {
@@ -507,9 +613,6 @@ void renderProjectDragOverlay(void) {
 }
 
 
-static DirState tempDirStates[2048];
-static int tempDirStateCount = 0;
-
 bool pendingProjectRefresh = false;
 unsigned int pendingProjectRefreshReasonMask = 0;
 
@@ -531,44 +634,93 @@ static void handleCommandFolderClick(DirEntry* entry, bool clickedPrefix, bool i
     }
 }
 
-void handleCommandOpenFileInEditor(DirEntry* entry) {
-    IDECoreState* core = getCoreState();
-    if (core->activeEditorView) {
-        openFileInView(core->activeEditorView, entry->path);
-    } else {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "[Project] No active editor view to open %s", entry->path);
-    }
-}
-
-void handleProjectFilesClick(UIPane* pane, int clickX) {
-    if (!hoveredEntry) return;
-
-    Uint32 now = SDL_GetTicks();
-    bool isDoubleClick = (hoveredEntry == lastClickedEntry) && (now - lastClickTime < 400);
-    lastClickedEntry = hoveredEntry;
-    lastClickTime = now;
-
-    int indent = hoveredEntryDepth * PROJECT_TREE_INDENT_WIDTH;
+static bool project_row_click_hits_prefix(UIPane* pane, int depth, int click_x) {
+    if (!pane) return false;
+    int indent = depth * IDE_UI_TREE_INDENT_WIDTH;
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
     int drawX = pane->x + d.pad_left + indent;
     int prefixWidth = getTextWidth("[-] ");
-    bool clickedPrefix = (clickX >= drawX && clickX <= drawX + prefixWidth);
+    return (click_x >= drawX && click_x <= drawX + prefixWidth);
+}
 
-    if (hoveredEntry->type == ENTRY_FOLDER) {
-        selectDirectoryEntry(hoveredEntry);
-        strncpy(renameBuffer, hoveredEntry->name, sizeof(renameBuffer));
-        renameBuffer[sizeof(renameBuffer) - 1] = '\0';
-        handleCommandFolderClick(hoveredEntry, clickedPrefix, isDoubleClick);
-    } else if (hoveredEntry->type == ENTRY_FILE && isDoubleClick) {
-        selectFileEntry(hoveredEntry);
-        if (hoveredEntry->path) {
-            handleCommandOpenFileInEditor(hoveredEntry);
+typedef struct ProjectRowActivationState {
+    DirEntry* entry;
+    int click_x;
+    int click_y;
+} ProjectRowActivationState;
+
+static void project_row_select_single(void* user_data) {
+    ProjectRowActivationState* state = (ProjectRowActivationState*)user_data;
+    if (!state || !state->entry) return;
+
+    if (state->entry->type == ENTRY_FOLDER) {
+        selectDirectoryEntry(state->entry);
+        snprintf(renameBuffer, PROJECT_RENAME_BUFFER_CAP, "%s", state->entry->name ? state->entry->name : "");
+    } else if (state->entry->type == ENTRY_FILE) {
+        selectFileEntry(state->entry);
+    }
+}
+
+static void project_row_prefix_action(void* user_data) {
+    ProjectRowActivationState* state = (ProjectRowActivationState*)user_data;
+    if (!state || !state->entry || state->entry->type != ENTRY_FOLDER) return;
+    handleCommandFolderClick(state->entry, true, false);
+}
+
+static void project_row_activate(void* user_data) {
+    ProjectRowActivationState* state = (ProjectRowActivationState*)user_data;
+    if (!state || !state->entry) return;
+
+    if (state->entry->type == ENTRY_FOLDER) {
+        handleCommandFolderClick(state->entry, false, true);
+    } else if (state->entry->type == ENTRY_FILE) {
+        if (state->entry->path) {
+            handleCommandOpenFileInEditor(state->entry);
         } else {
             fprintf(stderr, "[WARN] hoveredEntry has null path!\n");
         }
-    } else if (hoveredEntry->type == ENTRY_FILE) {
-        selectFileEntry(hoveredEntry);
     }
+}
+
+static void project_row_drag_start(void* user_data) {
+    ProjectRowActivationState* state = (ProjectRowActivationState*)user_data;
+    if (!state || !state->entry || state->entry->type != ENTRY_FILE) return;
+    beginProjectDrag(state->entry, &hoveredEntryRect, state->click_x, state->click_y);
+}
+
+void handleCommandOpenFileInEditor(DirEntry* entry) {
+    if (!ui_open_path_in_active_editor(entry ? entry->path : NULL)) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "[Project] No active editor view to open %s",
+                    (entry && entry->path) ? entry->path : "(null)");
+    }
+}
+
+void handleProjectFilesClick(UIPane* pane, int clickX, int clickY) {
+    if (!hoveredEntry) return;
+
+    bool clickedPrefix = project_row_click_hits_prefix(pane, hoveredEntryDepth, clickX);
+    ProjectRowActivationState activation = {
+        .entry = hoveredEntry,
+        .click_x = clickX,
+        .click_y = clickY
+    };
+
+    (void)ui_row_activation_handle_primary(
+        &(UIRowActivationContext){
+            .double_click_tracker = &project_panel_state_internal()->double_click_tracker,
+            .row_identity = (uintptr_t)hoveredEntry,
+            .double_click_ms = UI_DOUBLE_CLICK_MS_DEFAULT,
+            .clicked_prefix = clickedPrefix,
+            .additive_modifier = false,
+            .range_modifier = false,
+            .wants_drag_start = (hoveredEntry->type == ENTRY_FILE),
+            .on_select_single = project_row_select_single,
+            .on_prefix = project_row_prefix_action,
+            .on_activate = project_row_activate,
+            .on_drag_start = project_row_drag_start,
+            .user_data = &activation
+        });
 }
 
 
@@ -582,6 +734,7 @@ void handleProjectFilesClick(UIPane* pane, int clickX) {
 
 
 void createFileInProject(DirEntry* parent, const char* name) {
+    char* newlyCreatedPath = project_newly_created_path_buffer();
     if (!parent || !name) return;
 
     char path[1024];
@@ -604,12 +757,13 @@ void createFileInProject(DirEntry* parent, const char* name) {
     printf("[ProjectPanel] Created file: %s\n", path);
     parent->isExpanded = true;
 
-    strncpy(newlyCreatedPath, path, sizeof(newlyCreatedPath));
-    newlyCreatedPath[sizeof(newlyCreatedPath) - 1] = '\0';
+    strncpy(newlyCreatedPath, path, PROJECT_PATH_BUFFER_CAP);
+    newlyCreatedPath[PROJECT_PATH_BUFFER_CAP - 1] = '\0';
 }
 
 
 void createFolderInProject(DirEntry* parent, const char* name) {
+    char* newlyCreatedPath = project_newly_created_path_buffer();
     char path[1024];
     snprintf(path, sizeof(path), "%s/%s", parent->path, name);
 
@@ -621,8 +775,8 @@ void createFolderInProject(DirEntry* parent, const char* name) {
     printf("[ProjectPanel] Created folder: %s\n", path);
     parent->isExpanded = true;
 
-    strncpy(newlyCreatedPath, path, sizeof(newlyCreatedPath));
-    newlyCreatedPath[sizeof(newlyCreatedPath) - 1] = '\0';
+    strncpy(newlyCreatedPath, path, PROJECT_PATH_BUFFER_CAP);
+    newlyCreatedPath[PROJECT_PATH_BUFFER_CAP - 1] = '\0';
 }
 
 
@@ -688,6 +842,7 @@ static void closeFilesRecursive(EditorView* view, DirEntry* entry) {
 }
 
 void deleteSelectedFile(void) {
+    char* runTargetPath = project_run_target_path_buffer();
     if (!selectedFile || !selectedFile->path) return;
 
     DirEntry* fileEntry = selectedFile;
@@ -710,11 +865,6 @@ void deleteSelectedFile(void) {
     setSelectedFile(NULL);
     if (parent) {
         selectDirectoryEntry(parent);
-        selectedDirectory = parent;
-        if (parent->path) {
-            strncpy(selectedDirectoryPath, parent->path, sizeof(selectedDirectoryPath));
-            selectedDirectoryPath[sizeof(selectedDirectoryPath) - 1] = '\0';
-        }
     } else {
         selectedEntry = NULL;
     }
@@ -723,6 +873,7 @@ void deleteSelectedFile(void) {
 }
 
 void deleteSelectedDirectory(void) {
+    char* runTargetPath = project_run_target_path_buffer();
     if (!selectedDirectory || selectedDirectory == projectRoot || !selectedDirectory->path) {
         fprintf(stderr, "[Delete] No deletable directory selected.\n");
         return;
@@ -776,13 +927,16 @@ void deleteSelectedDirectory(void) {
 
 
 static void cacheExpandedStateRecursive(DirEntry* entry) {
+    ProjectPanelState* state = project_panel_state_internal();
     if (entry->type != ENTRY_FOLDER) return;
 
-    if (tempDirStateCount < 2048) {
-        strncpy(tempDirStates[tempDirStateCount].path, entry->path, sizeof(tempDirStates[0].path));
-        tempDirStates[tempDirStateCount].path[sizeof(tempDirStates[0].path) - 1] = '\0';
-        tempDirStates[tempDirStateCount].isExpanded = entry->isExpanded;
-        tempDirStateCount++;
+    if (state->temp_dir_state_count < 2048) {
+        strncpy(state->temp_dir_states[state->temp_dir_state_count].path,
+                entry->path,
+                sizeof(state->temp_dir_states[0].path));
+        state->temp_dir_states[state->temp_dir_state_count].path[sizeof(state->temp_dir_states[0].path) - 1] = '\0';
+        state->temp_dir_states[state->temp_dir_state_count].isExpanded = entry->isExpanded;
+        state->temp_dir_state_count++;
     }
 
     for (int i = 0; i < entry->childCount; i++) {
@@ -791,9 +945,10 @@ static void cacheExpandedStateRecursive(DirEntry* entry) {
 }
 
 static bool findCachedExpandedState(const char* path) {
-    for (int i = 0; i < tempDirStateCount; i++) {
-        if (strcmp(tempDirStates[i].path, path) == 0) {
-            return tempDirStates[i].isExpanded;
+    ProjectPanelState* state = project_panel_state_internal();
+    for (int i = 0; i < state->temp_dir_state_count; i++) {
+        if (strcmp(state->temp_dir_states[i].path, path) == 0) {
+            return state->temp_dir_states[i].isExpanded;
         }
     }
     return false;
@@ -839,7 +994,9 @@ static void restoreExpandedStateRecursive(DirEntry* entry) {
 
 
 void refreshProjectDirectory(void) {
-    tempDirStateCount = 0;
+    ProjectPanelState* state = project_panel_state_internal();
+    char* newlyCreatedPath = project_newly_created_path_buffer();
+    state->temp_dir_state_count = 0;
 
     // Invalidate all UI pointers before refreshing
     selectedEntry = NULL;
@@ -872,21 +1029,21 @@ void refreshProjectDirectory(void) {
         }
         newlyCreatedPath[0] = '\0';
     } else {
-        if (selectedFilePath[0] != '\0') {
-            DirEntry* restoredFile = findEntryByPath(projectRoot, selectedFilePath);
+        if (state->selected_file_path[0] != '\0') {
+            DirEntry* restoredFile = findEntryByPath(projectRoot, state->selected_file_path);
             if (restoredFile && restoredFile->type == ENTRY_FILE) {
                 setSelectedFile(restoredFile);
             } else {
-                selectedFilePath[0] = '\0';
+                state->selected_file_path[0] = '\0';
             }
         }
 
-        if (selectedDirectoryPath[0] != '\0') {
-            DirEntry* restoredDir = findEntryByPath(projectRoot, selectedDirectoryPath);
+        if (state->selected_directory_path[0] != '\0') {
+            DirEntry* restoredDir = findEntryByPath(projectRoot, state->selected_directory_path);
             if (restoredDir && restoredDir->type == ENTRY_FOLDER) {
                 setSelectedDirectory(restoredDir);
             } else {
-                selectedDirectoryPath[0] = '\0';
+                state->selected_directory_path[0] = '\0';
             }
         }
 
@@ -920,8 +1077,7 @@ void refreshProjectDirectory(void) {
 
 
 void updateHoveredMousePosition(int x, int y) {
-    mouseX = x;
-    mouseY = y;
+    project_set_mouse_position(x, y);
 }
          
 

@@ -5,8 +5,10 @@
 #include "engine/Render/render_font.h"
 #include "app/GlobalInfo/core_state.h"
 #include "ide/UI/scroll_manager.h"
+#include "ide/UI/row_surface.h"
 #include "ide/UI/ui_selection_style.h"
 #include "ide/UI/shared_theme_font_adapter.h"
+#include "ide/UI/panel_metrics.h"
 #include "fisics_frontend.h"
 
 #include <stdlib.h>
@@ -15,7 +17,8 @@
 static UITreeNode* hoveredNode = NULL;
 static UITreeNode* selectedNode = NULL;
 static UITreeNode* selectAllVisualRoot = NULL;
-static const int TREE_INDENT_WIDTH = 10;
+static const int TREE_PANEL_PADDING_X = 12;
+static const int TREE_PANEL_PADDING_Y = 30;
 
 // Optional color overrides
 static SDL_Color statusColors[8] = {
@@ -29,10 +32,12 @@ static SDL_Color statusColors[8] = {
 };
 
 static int tree_line_height_for_pane(const UIPane* pane) {
-    if (pane && pane->role == PANE_ROLE_CONTROLPANEL) {
-        return 18;
-    }
-    return 22;
+    (void)pane;
+    return IDE_UI_DENSE_ROW_HEIGHT;
+}
+
+int tree_panel_content_offset_y(void) {
+    return TREE_PANEL_PADDING_Y;
 }
 
 static TTF_Font* tree_row_font(void) {
@@ -100,6 +105,9 @@ void setTreeColorOverride(TreeNodeColor color, SDL_Color sdlColor) {
 
 UITreeNode* getHoveredTreeNode(void) { return hoveredNode; }
 UITreeNode* getSelectedTreeNode(void) { return selectedNode; }
+void setSelectedTreeNode(UITreeNode* node) {
+    selectedNode = node;
+}
 void clearTreeSelectionState(void) {
     hoveredNode = NULL;
     selectedNode = NULL;
@@ -133,7 +141,7 @@ static void renderTreeRecursive(UITreeNode* node,
                                 bool selectAllVisual,
                                 int lineHeight) {
     if (!node || *y > maxY) return;
-    int indent = node->depth * TREE_INDENT_WIDTH;
+    int indent = node->depth * IDE_UI_TREE_INDENT_WIDTH;
     int drawX = x + indent;
     int drawY = *y;
 
@@ -150,12 +158,16 @@ static void renderTreeRecursive(UITreeNode* node,
     char line[512];
     snprintf(line, sizeof(line), "%s%s", prefix, node->label);
 
-    int textWidth = getTextWidth(line);
+    TTF_Font* rowFont = tree_row_font();
+    int textWidth = getTextWidthWithFont(line, rowFont);
+    int textHeight = rowFont ? TTF_FontHeight(rowFont) : lineHeight;
+    if (textHeight < 1) textHeight = lineHeight;
+    int textY = drawY + ((lineHeight - textHeight) / 2);
     SDL_Rect textBox = {
         drawX - 6,
-        drawY - 1,
+        textY - 1,
         textWidth + 12,
-        lineHeight
+        textHeight + 2
     };
 
     bool isHovered = allowHover && (mouseY >= drawY && mouseY < drawY + lineHeight);
@@ -164,23 +176,16 @@ static void renderTreeRecursive(UITreeNode* node,
                      mouseY >= textBox.y && mouseY <= (textBox.y + textBox.h));
     }
 
-    //  Draw hover outline
-    if (isHovered) {
-        hoveredNode = node;
-        SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255); // light gray
-        SDL_RenderDrawRect(renderer, &textBox);
+    bool selectedVisual = (node == selectedNode) || selectAllVisual;
+    UIRowSurfaceLayout rowSurface = ui_row_surface_layout_from_rect(textBox);
+    if (selectedVisual) {
+        ui_row_surface_draw_selection_fill(renderer, &rowSurface);
+        ui_row_surface_draw_selection_outline(renderer, &rowSurface);
     }
 
-    bool selectedVisual = (node == selectedNode) || selectAllVisual;
-    if (selectedVisual) {
-        SDL_Color fill = ui_selection_fill_color();
-        SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
-        SDL_RenderFillRect(renderer, &textBox);
-        if (!isHovered) {
-            SDL_Color outline = ui_selection_outline_color();
-            SDL_SetRenderDrawColor(renderer, outline.r, outline.g, outline.b, outline.a);
-            SDL_RenderDrawRect(renderer, &textBox);
-        }
+    if (isHovered) {
+        hoveredNode = node;
+        ui_row_surface_draw_hover_outline(renderer, &rowSurface);
     }
 
     //  Set color by node->color enum
@@ -190,7 +195,7 @@ static void renderTreeRecursive(UITreeNode* node,
         col = control_panel_symbol_tone_by_node(node);
     }
     SDL_SetRenderDrawColor(renderer, col.r, col.g, col.b, 255);
-    drawTextUTF8WithFontColor(drawX, drawY, line, getActiveFont(), col, false);
+    drawTextUTF8WithFontColor(drawX, textY, line, rowFont, col, false);
     *y += lineHeight;
 
     // Recurse into children if expanded
@@ -216,8 +221,8 @@ void renderTreePanel(UIPane* pane, UITreeNode* root) {
 
     int lineHeight = tree_line_height_for_pane(pane);
     bool controlPanelTone = (pane->role == PANE_ROLE_CONTROLPANEL);
-    int x = pane->x + 12;
-    int y = pane->y + 30;
+    int x = pane->x + TREE_PANEL_PADDING_X;
+    int y = pane->y + TREE_PANEL_PADDING_Y;
     int maxY = pane->y + pane->h;
     int mx = getCoreState()->mouseX;
     int my = getCoreState()->mouseY;
@@ -247,8 +252,8 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
 
     const int lineHeight = tree_line_height_for_pane(pane);
     const bool controlPanelTone = (pane->role == PANE_ROLE_CONTROLPANEL);
-    int paddingX = 12;
-    int paddingY = 30;
+    int paddingX = TREE_PANEL_PADDING_X;
+    int paddingY = TREE_PANEL_PADDING_Y;
     int contentTop = pane->y + paddingY;
     int viewportH = pane->h - (contentTop - pane->y);
     if (viewportH < 0) viewportH = 0;
@@ -285,12 +290,8 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
         }
     }
     float contentHeight = (float)visibleLines * (float)lineHeight;
-    float effectiveHeight = contentHeight;
-    if (scroll->line_height_px > 0.0f && scroll->viewport_height_px > scroll->line_height_px) {
-        float slack = scroll->viewport_height_px - scroll->line_height_px;
-        effectiveHeight = contentHeight + slack;
-    }
-    scroll_state_set_content_height(scroll, effectiveHeight);
+    scroll_state_set_content_height(scroll,
+                                    scroll_state_top_anchor_content_height(scroll, contentHeight));
     float offset = scroll_state_get_offset(scroll);
 
     SDL_Rect clip = { pane->x, contentTop, pane->w - 8, viewportH };
@@ -327,7 +328,7 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
         if (drawY + lineHeight <= contentTop) {
             // Skip draw, but continue traversal (need depth info)
         } else if (drawY < maxY) {
-            int indent = n->depth * TREE_INDENT_WIDTH;
+            int indent = n->depth * IDE_UI_TREE_INDENT_WIDTH;
             int drawX = x + indent;
 
             RenderContext* ctx = getRenderContext();
@@ -353,32 +354,22 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
                 textWidth + 12,
                 textHeight + 2
             };
-            SDL_Rect visibleBox = {0};
-            if (!SDL_IntersectRect(&textBox, &clip, &visibleBox)) {
-                visibleBox = (SDL_Rect){0};
-            }
+            UIRowSurfaceLayout rowSurface = ui_row_surface_layout_from_rect(textBox);
+            UIRowSurfaceLayout visibleSurface = {0};
+            bool rowVisible = ui_row_surface_clip(&rowSurface, &clip, &visibleSurface);
 
             bool isHovered = mouseInsidePane &&
-                             visibleBox.w > 0 && visibleBox.h > 0 &&
-                             (mx >= visibleBox.x && mx < (visibleBox.x + visibleBox.w)) &&
-                             (my >= visibleBox.y && my < (visibleBox.y + visibleBox.h));
-
-            if (isHovered) {
-                hoveredNode = n;
-                SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255);
-                SDL_RenderDrawRect(renderer, &visibleBox);
-            }
+                             rowVisible &&
+                             ui_row_surface_contains(&visibleSurface, mx, my);
 
             bool selectedVisual = (n == selectedNode) || selectAllVisual;
-            if (selectedVisual && visibleBox.w > 0 && visibleBox.h > 0) {
-                SDL_Color fill = ui_selection_fill_color();
-                SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
-                SDL_RenderFillRect(renderer, &visibleBox);
-                if (!isHovered) {
-                    SDL_Color outline = ui_selection_outline_color();
-                    SDL_SetRenderDrawColor(renderer, outline.r, outline.g, outline.b, outline.a);
-                    SDL_RenderDrawRect(renderer, &visibleBox);
-                }
+            if (selectedVisual && rowVisible) {
+                ui_row_surface_draw_selection_fill(renderer, &visibleSurface);
+                ui_row_surface_draw_selection_outline(renderer, &visibleSurface);
+            }
+            if (isHovered) {
+                hoveredNode = n;
+                ui_row_surface_draw_hover_outline(renderer, &visibleSurface);
             }
 
             TreeNodeColor color = n->color;
@@ -439,30 +430,16 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
     }
 }
 
-void handleTreeClick(UIPane* pane, int clickX, int clickY) {
-    if (!hoveredNode || !pane) return;
-
-    selectedNode = hoveredNode;
-    clearTreeSelectAllVisual();
-
-    // Only folders/sections can expand/collapse
-    if (hoveredNode->type == TREE_NODE_FOLDER || hoveredNode->type == TREE_NODE_SECTION) {
-        int indent = hoveredNode->depth * TREE_INDENT_WIDTH;
-        int drawX = pane->x + 12 + indent;
-        int prefixWidth = getTextWidth("[-] ") + 10;
-        bool clickedPrefix = (clickX >= drawX && clickX <= drawX + prefixWidth);
-        if (clickedPrefix) {
-            hoveredNode->isExpanded = !hoveredNode->isExpanded;
-        }
-    }
-}
-
-void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, PaneScrollState* scroll, int clickX, int clickY) {
-    if (!pane || !root || !scroll) return;
+UITreeNode* hitTestTreeNodeWithScroll(UIPane* pane,
+                                      UITreeNode* root,
+                                      PaneScrollState* scroll,
+                                      int clickX,
+                                      int clickY) {
+    if (!pane || !root || !scroll) return NULL;
+    (void)clickX;
 
     const int lineHeight = tree_line_height_for_pane(pane);
-    int paddingX = 12;
-    int paddingY = 30;
+    int paddingY = TREE_PANEL_PADDING_Y;
     int contentTop = pane->y + paddingY;
     float offset = scroll_state_get_offset(scroll);
 
@@ -471,7 +448,7 @@ void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, PaneScrollState* 
     size_t sp = 0;
     size_t stackCap = 128;
     stack = (UITreeNode**)malloc(stackCap * sizeof(UITreeNode*));
-    if (!stack) return;
+    if (!stack) return NULL;
     stack[sp++] = root;
     int y = contentTop - (int)offset;
 
@@ -494,7 +471,7 @@ void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, PaneScrollState* 
                     UITreeNode** grown = (UITreeNode**)realloc(stack, newCap * sizeof(UITreeNode*));
                     if (!grown) {
                         free(stack);
-                        return;
+                        return NULL;
                     }
                     stack = grown;
                     stackCap = newCap;
@@ -506,22 +483,19 @@ void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, PaneScrollState* 
 
     if (!hit) {
         free(stack);
-        return;
+        return NULL;
     }
 
-    selectedNode = hit;
-    if (tree_select_all_visual_active_for(root)) {
-        clearTreeSelectAllVisual();
-    }
-
-    if (hit->type == TREE_NODE_FOLDER || hit->type == TREE_NODE_SECTION) {
-        int indent = hit->depth * TREE_INDENT_WIDTH;
-        int drawX = pane->x + paddingX + indent;
-        int prefixWidth = getTextWidth("[-] ") + 10;
-        bool clickedPrefix = (clickX >= drawX && clickX <= drawX + prefixWidth);
-        if (clickedPrefix) {
-            hit->isExpanded = !hit->isExpanded;
-        }
-    }
     free(stack);
+    return hit;
+}
+
+bool treeNodePrefixHit(const UIPane* pane, const UITreeNode* node, int clickX) {
+    if (!pane || !node) return false;
+    if (node->type != TREE_NODE_FOLDER && node->type != TREE_NODE_SECTION) return false;
+
+    int indent = node->depth * IDE_UI_TREE_INDENT_WIDTH;
+    int drawX = pane->x + TREE_PANEL_PADDING_X + indent;
+    int prefixWidth = getTextWidth("[-] ") + 10;
+    return (clickX >= drawX && clickX <= drawX + prefixWidth);
 }

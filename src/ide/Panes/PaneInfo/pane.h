@@ -72,6 +72,10 @@ typedef struct UIPane {
     // Optional EditorView linkage
     struct EditorView* editorView;
 
+    // Optional pane-owned controller state
+    void* controllerState;
+    void (*destroyControllerState)(void*);
+
     // Rendering and Interaction
     void (*render)(struct UIPane*, bool, struct IDECoreState* core);
     void (*handleCommand)(struct UIPane*, InputCommandMetadata meta);      // Central dispatcher

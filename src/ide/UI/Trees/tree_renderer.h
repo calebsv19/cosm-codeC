@@ -15,15 +15,22 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
 // Optionally expose mouse hover + selection tracking
 UITreeNode* getHoveredTreeNode(void);
 UITreeNode* getSelectedTreeNode(void);
+void setSelectedTreeNode(UITreeNode* node);
 void clearTreeSelectionState(void);
 
 // Pass mouse inputs to track hover/select states
 void handleTreeMouseMove(int x, int y);
-void handleTreeClick(UIPane* pane, int mouseX, int mouseY);
-void handleTreeClickWithScroll(UIPane* pane, UITreeNode* root, struct PaneScrollState* scroll, int mouseX, int mouseY);
+UITreeNode* hitTestTreeNodeWithScroll(UIPane* pane,
+                                      UITreeNode* root,
+                                      struct PaneScrollState* scroll,
+                                      int mouseX,
+                                      int mouseY);
+bool treeNodePrefixHit(const UIPane* pane, const UITreeNode* node, int clickX);
 void setTreeSelectAllVisualRoot(UITreeNode* root);
 void clearTreeSelectAllVisual(void);
 bool tree_select_all_visual_active_for(const UITreeNode* root);
+
+int tree_panel_content_offset_y(void);
 
 // Optionally customize visuals
 void setTreeColorOverride(TreeNodeColor color, SDL_Color sdlColor); // optional (internal styling)

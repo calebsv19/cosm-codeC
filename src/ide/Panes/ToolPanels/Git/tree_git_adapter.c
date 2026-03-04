@@ -20,9 +20,11 @@ UITreeNode* convertGitModelToTree(void) {
     UITreeNode* deleted = createSection("Deleted", NODE_COLOR_DELETED, true);
     UITreeNode* untracked = createSection("Untracked", NODE_COLOR_UNTRACKED, true);
 
-    for (int i = 0; i < gitFileCount; i++) {
-        GitFileEntry* f = &gitFiles[i];
-        UITreeNode* node = createTreeNode(f->path, TREE_NODE_FILE, NODE_COLOR_DEFAULT, f->path, f);
+    int fileCount = git_panel_file_count();
+    for (int i = 0; i < fileCount; i++) {
+        const GitFileEntry* f = git_panel_file_at(i);
+        if (!f) continue;
+        UITreeNode* node = createTreeNode(f->path, TREE_NODE_FILE, NODE_COLOR_DEFAULT, f->path, (void*)f);
 
         switch (f->status) {
             case GIT_STATUS_STAGED:    node->color = NODE_COLOR_STAGED;    addChildNode(staged, node); break;
@@ -48,21 +50,23 @@ UITreeNode* convertGitModelToTree(void) {
 
     // Log section
     UITreeNode* logRoot = createSection("Log", NODE_COLOR_SECTION, false);
-    for (int i = 0; i < gitLogCount; ++i) {
-        GitLogEntry* e = &gitLogEntries[i];
+    int logCount = git_panel_log_count();
+    for (int i = 0; i < logCount; ++i) {
+        const GitLogEntry* e = git_panel_log_at(i);
+        if (!e) continue;
         char label[320];
         snprintf(label, sizeof(label), "%s %s", e->hash, e->message);
-        UITreeNode* n = createTreeNode(label, TREE_NODE_SECTION, NODE_COLOR_DEFAULT, e->hash, e);
+        UITreeNode* n = createTreeNode(label, TREE_NODE_SECTION, NODE_COLOR_DEFAULT, e->hash, (void*)e);
         n->isExpanded = false;
 
         char authorLine[196];
         snprintf(authorLine, sizeof(authorLine), "Author: %s", e->author[0] ? e->author : "unknown");
-        UITreeNode* authorNode = createTreeNode(authorLine, TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, e);
+        UITreeNode* authorNode = createTreeNode(authorLine, TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, (void*)e);
         addChildNode(n, authorNode);
 
         char dateLine[128];
         snprintf(dateLine, sizeof(dateLine), "Date: %s", e->date[0] ? e->date : "unknown");
-        UITreeNode* dateNode = createTreeNode(dateLine, TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, e);
+        UITreeNode* dateNode = createTreeNode(dateLine, TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, (void*)e);
         addChildNode(n, dateNode);
 
         addChildNode(logRoot, n);

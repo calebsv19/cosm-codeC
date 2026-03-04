@@ -1,7 +1,6 @@
 #include "ide/Panes/ToolPanels/Git/command_tool_git.h"
 #include "core/CommandBus/command_metadata.h"
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
-#include "ide/Panes/ToolPanels/Git/render_tool_git.h" // ✅ ADD THIS LINE
 
 #include <stdio.h>
 
@@ -12,7 +11,7 @@ void handleGitCommand(UIPane* pane, InputCommandMetadata meta) {
         case COMMAND_REFRESH_GIT_STATUS:
             printf("[GitCommand] Refreshing Git status...\n");
             refreshGitStatus();
-            resetGitTree();  // ✅ ADD THIS LINE
+            resetGitTree();
             break;
 
         case COMMAND_STAGE_SELECTED_FILE:
@@ -28,4 +27,3 @@ void handleGitCommand(UIPane* pane, InputCommandMetadata meta) {
             break;
     }
 }
-

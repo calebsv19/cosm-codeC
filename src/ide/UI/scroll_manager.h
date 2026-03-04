@@ -29,6 +29,7 @@ typedef struct PaneScrollConfig {
 void scroll_state_init(PaneScrollState* state, const PaneScrollConfig* config);
 void scroll_state_set_viewport(PaneScrollState* state, float viewport_height);
 void scroll_state_set_content_height(PaneScrollState* state, float content_height);
+float scroll_state_top_anchor_content_height(const PaneScrollState* state, float content_height);
 void scroll_state_scroll_lines(PaneScrollState* state, float lines);
 void scroll_state_scroll_pixels(PaneScrollState* state, float pixels);
 void scroll_state_begin_drag(PaneScrollState* state, float mouse_y);

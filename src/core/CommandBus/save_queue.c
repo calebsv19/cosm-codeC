@@ -5,7 +5,7 @@
 #include "core/Analysis/analysis_status.h"
 #include "app/GlobalInfo/project.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
-#include "ide/Panes/ToolPanels/Git/render_tool_git.h"
+#include "ide/Panes/ToolPanels/Git/tool_git.h"
 
 #include <stdio.h>
 #include <stdlib.h>

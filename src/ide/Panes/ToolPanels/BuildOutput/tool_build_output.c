@@ -1,66 +1,204 @@
 #include "tool_build_output.h"
+#include "ide/Panes/ToolPanels/tool_panel_adapter.h"
 #include "core/BuildSystem/build_diagnostics.h"
 #include "core/Clipboard/clipboard.h"
 #include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
+#include "ide/UI/editor_navigation.h"
+#include "ide/UI/flat_list_hit_test.h"
+#include "ide/UI/flat_list_interaction.h"
+#include "ide/UI/flat_list_selection.h"
+#include "ide/UI/input_modifiers.h"
+#include "ide/UI/interaction_timing.h"
+#include "ide/UI/row_activation.h"
+#include "ide/UI/scroll_input_adapter.h"
 #include <SDL2/SDL.h>
-#include "app/GlobalInfo/core_state.h"
-#include "ide/Panes/Editor/editor_view.h"
-#include "ide/Panes/Editor/editor_state.h"
-#include "app/GlobalInfo/project.h" // projectPath
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 
-static int hit_test_diag(UIPane* pane, int mx, int my, int lineHeight, int firstY) {
-    if (!pane) return -1;
-    size_t count = 0;
-    const BuildDiagnostic* diags = build_diagnostics_get(&count);
-    int y = firstY;
-    for (size_t i = 0; i < count; ++i) {
-        int rows = 2;
-        if (diags[i].notes[0]) rows += 1;
-        int blockTop = y;
-        int blockBottom = y + rows * lineHeight;
-        if (my >= blockTop && my < blockBottom) {
-            return (int)i;
-        }
-        y = blockBottom;
-    }
-    return -1;
+typedef struct {
+    PaneScrollState scroll;
+    bool scroll_init;
+    SDL_Rect scroll_track;
+    SDL_Rect scroll_thumb;
+    bool selected[1024];
+    UIFlatListDragState drag_state;
+    UIDoubleClickTracker double_click_tracker;
+} BuildOutputInteractionState;
+
+static BuildOutputInteractionState g_buildOutputBootstrapState = {0};
+static bool g_buildOutputBootstrapInitialized = false;
+
+static void build_output_interaction_init(void* ptr) {
+    BuildOutputInteractionState* state = (BuildOutputInteractionState*)ptr;
+    if (!state) return;
+    memset(state, 0, sizeof(*state));
+    state->drag_state.active = false;
+    state->drag_state.anchor = -1;
 }
 
-static bool selected[1024];
-static bool dragging = false;
-static int dragAnchor = -1;
+static void build_output_interaction_destroy(void* ptr) {
+    BuildOutputInteractionState* state = (BuildOutputInteractionState*)ptr;
+    if (!state) return;
+    free(state);
+}
+
+static BuildOutputInteractionState* build_output_interaction_state(void) {
+    return (BuildOutputInteractionState*)tool_panel_resolve_state_slot(
+        TOOL_PANEL_STATE_SLOT_BUILD_OUTPUT_UI,
+        sizeof(BuildOutputInteractionState),
+        build_output_interaction_init,
+        build_output_interaction_destroy,
+        &g_buildOutputBootstrapState,
+        &g_buildOutputBootstrapInitialized
+    );
+}
+
+static int build_output_rows_for_diag(const BuildDiagnostic* d) {
+    if (!d) return 0;
+    return d->notes[0] ? 3 : 2;
+}
+
+typedef struct {
+    const BuildDiagnostic* diags;
+    int lineHeight;
+} BuildOutputHitTestContext;
+
+typedef struct {
+    int hit_index;
+} BuildOutputRowActivationState;
+
+PaneScrollState* build_output_get_scroll_state(void) {
+    BuildOutputInteractionState* state = build_output_interaction_state();
+    if (!state->scroll_init) {
+        scroll_state_init(&state->scroll, NULL);
+        state->scroll_init = true;
+    }
+    return &state->scroll;
+}
+
+SDL_Rect build_output_get_scroll_track_rect(void) {
+    return build_output_interaction_state()->scroll_track;
+}
+
+SDL_Rect build_output_get_scroll_thumb_rect(void) {
+    return build_output_interaction_state()->scroll_thumb;
+}
+
+void build_output_set_scroll_rects(SDL_Rect track, SDL_Rect thumb) {
+    BuildOutputInteractionState* state = build_output_interaction_state();
+    state->scroll_track = track;
+    state->scroll_thumb = thumb;
+}
+
+int build_output_content_top(const UIPane* pane) {
+    if (!pane) return 0;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    return pane->y + d.controls_top + 8;
+}
+
+int build_output_first_row_y(const UIPane* pane) {
+    return build_output_content_top(pane) + tool_panel_content_inset_default();
+}
+
+static int build_output_row_height_for_index(int rowIndex, void* context) {
+    BuildOutputHitTestContext* ctx = (BuildOutputHitTestContext*)context;
+    if (!ctx || !ctx->diags || rowIndex < 0) return 0;
+    return build_output_rows_for_diag(&ctx->diags[rowIndex]) * ctx->lineHeight;
+}
+
+static int hit_test_diag(int my, int lineHeight, int firstY, float offset) {
+    size_t count = 0;
+    const BuildDiagnostic* diags = build_diagnostics_get(&count);
+    BuildOutputHitTestContext ctx = {
+        .diags = diags,
+        .lineHeight = lineHeight
+    };
+    return ui_flat_list_hit_test_variable(my,
+                                          firstY,
+                                          offset,
+                                          (int)count,
+                                          build_output_row_height_for_index,
+                                          &ctx);
+}
+
+static void clear_selection(void);
+static void select_range(int a, int b);
+static void jump_to_diag(const BuildDiagnostic* d);
+static void toggle_selection(int idx, bool additive);
+
+static void build_output_clear_selection_cb(void* context) {
+    (void)context;
+    clear_selection();
+}
+
+static void build_output_select_range_cb(int anchorIndex, int hitIndex, void* context) {
+    (void)context;
+    select_range(anchorIndex, hitIndex);
+}
+
+static void build_output_select_single_cb(void* context) {
+    BuildOutputRowActivationState* state = (BuildOutputRowActivationState*)context;
+    if (!state || state->hit_index < 0) return;
+    toggle_selection(state->hit_index, false);
+}
+
+static void build_output_select_additive_cb(void* context) {
+    BuildOutputRowActivationState* state = (BuildOutputRowActivationState*)context;
+    if (!state || state->hit_index < 0) return;
+    toggle_selection(state->hit_index, true);
+}
+
+static void build_output_activate_cb(void* context) {
+    BuildOutputRowActivationState* state = (BuildOutputRowActivationState*)context;
+    if (!state || state->hit_index < 0) return;
+    size_t count = 0;
+    const BuildDiagnostic* diags = build_diagnostics_get(&count);
+    if (state->hit_index >= (int)count) return;
+    jump_to_diag(&diags[state->hit_index]);
+}
+
+static void build_output_drag_start_cb(void* context) {
+    BuildOutputRowActivationState* state = (BuildOutputRowActivationState*)context;
+    if (!state || state->hit_index < 0) return;
+    ui_flat_list_drag_state_begin(&build_output_interaction_state()->drag_state, state->hit_index);
+}
 
 static void clear_selection(void) {
-    memset(selected, 0, sizeof(selected));
+    BuildOutputInteractionState* state = build_output_interaction_state();
+    ui_flat_list_selection_clear(state->selected, (int)(sizeof(state->selected) / sizeof(state->selected[0])));
     setSelectedBuildDiag(-1);
 }
 
 static void toggle_selection(int idx, bool additive) {
-    if (idx < 0 || idx >= (int)(sizeof(selected) / sizeof(selected[0]))) return;
-    if (!additive) {
-        clear_selection();
+    BuildOutputInteractionState* state = build_output_interaction_state();
+    if (!ui_flat_list_selection_toggle(state->selected,
+                                       (int)(sizeof(state->selected) / sizeof(state->selected[0])),
+                                       0,
+                                       idx,
+                                       additive)) {
+        return;
     }
-    selected[idx] = !selected[idx];
     setSelectedBuildDiag(idx);
 }
 
 static bool is_selected(int idx) {
-    if (idx < 0 || idx >= (int)(sizeof(selected) / sizeof(selected[0]))) return false;
-    return selected[idx];
+    BuildOutputInteractionState* state = build_output_interaction_state();
+    return ui_flat_list_selection_contains(state->selected,
+                                           (int)(sizeof(state->selected) / sizeof(state->selected[0])),
+                                           idx);
 }
 
 static void select_range(int a, int b) {
-    if (a < 0 || b < 0) return;
-    clear_selection();
-    if (a > b) {
-        int tmp = a; a = b; b = tmp;
-    }
-    for (int i = a; i <= b && i < (int)(sizeof(selected) / sizeof(selected[0])); ++i) {
-        selected[i] = true;
+    BuildOutputInteractionState* state = build_output_interaction_state();
+    if (!ui_flat_list_selection_select_range(state->selected,
+                                             (int)(sizeof(state->selected) / sizeof(state->selected[0])),
+                                             0,
+                                             a,
+                                             b)) {
+        return;
     }
     setSelectedBuildDiag(b);
 }
@@ -131,101 +269,82 @@ bool build_output_copy_selection_to_clipboard(void) {
 }
 
 void build_output_select_all_visible(void) {
+    BuildOutputInteractionState* state = build_output_interaction_state();
     size_t count = 0;
     (void)build_diagnostics_get(&count);
-    memset(selected, 0, sizeof(selected));
-    int maxSel = (int)(sizeof(selected) / sizeof(selected[0]));
-    for (size_t i = 0; i < count && (int)i < maxSel; ++i) {
-        selected[i] = true;
-    }
-    if (count > 0) {
-        int idx = (count - 1) < (size_t)maxSel ? (int)(count - 1) : (maxSel - 1);
+    int idx = ui_flat_list_selection_select_all(state->selected,
+                                                (int)(sizeof(state->selected) / sizeof(state->selected[0])),
+                                                (int)count);
+    if (idx >= 0) {
         setSelectedBuildDiag(idx);
     }
 }
 
 static void jump_to_diag(const BuildDiagnostic* d) {
     if (!d) return;
-    IDECoreState* core = getCoreState();
-    if (!core || !core->activeEditorView) return;
-    EditorView* view = core->activeEditorView;
-    char fullPath[1024];
-    if (d->path[0] == '/') {
-        snprintf(fullPath, sizeof(fullPath), "%s", d->path);
-    } else {
-        snprintf(fullPath, sizeof(fullPath), "%s/%s", projectPath, d->path);
-    }
-    OpenFile* file = openFileInView(view, fullPath);
-    if (!file || !file->buffer) return;
-    int targetRow = d->line > 0 ? d->line - 1 : 0;
-    if (targetRow >= file->buffer->lineCount) targetRow = file->buffer->lineCount - 1;
-    if (targetRow < 0) targetRow = 0;
-    int lineLen = file->buffer->lines && file->buffer->lines[targetRow]
-                      ? (int)strlen(file->buffer->lines[targetRow])
-                      : 0;
-    int targetCol = d->col > 0 ? d->col - 1 : 0;
-    if (targetCol > lineLen) targetCol = lineLen;
-    file->state.cursorRow = targetRow;
-    file->state.cursorCol = targetCol;
-    file->state.viewTopRow = (targetRow > 2) ? targetRow - 2 : 0;
-    file->state.selecting = false;
-    file->state.draggingWithMouse = false;
-    setActiveEditorView(view);
+    (void)ui_open_path_at_location_in_active_editor(d->path, d->line, d->col);
 }
 
 
 void handleBuildOutputEvent(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
-    const int lineHeight = 20;
-    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
-    const int firstY = pane->y + d.controls_top + 8 + tool_panel_content_inset_default();
-    static Uint32 lastClickTicks = 0;
-    static int lastClickIndex = -1;
-    const Uint32 doubleClickMs = 400;
+    const int lineHeight = BUILD_OUTPUT_LINE_HEIGHT;
+    const int firstY = build_output_first_row_y(pane);
+    PaneScrollState* scroll = build_output_get_scroll_state();
+    SDL_Rect track = build_output_get_scroll_track_rect();
+    SDL_Rect thumb = build_output_get_scroll_thumb_rect();
+    if (ui_scroll_input_consume(scroll, event, &track, &thumb)) {
+        build_output_set_scroll_rects(track, thumb);
+        return;
+    }
 
+    float offset = scroll ? scroll_state_get_offset(scroll) : 0.0f;
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
-        int hit = hit_test_diag(pane, event->button.x, event->button.y, lineHeight, firstY);
-        if (hit >= 0) {
-            Uint32 now = SDL_GetTicks();
-            bool dbl = (hit == lastClickIndex) && (now - lastClickTicks < doubleClickMs);
-            lastClickTicks = now;
-            lastClickIndex = hit;
-            Uint16 mod = SDL_GetModState();
-            bool additive = (mod & KMOD_CTRL) || (mod & KMOD_GUI) || (mod & KMOD_SHIFT);
-            toggle_selection(hit, additive);
-            dragging = true;
-            dragAnchor = hit;
-            if (dbl) {
-                size_t count = 0;
-                const BuildDiagnostic* diags = build_diagnostics_get(&count);
-                if (hit >= 0 && hit < (int)count) jump_to_diag(&diags[hit]);
-            }
-        } else {
-            clear_selection();
-            dragging = false;
-            dragAnchor = -1;
+        int hit = hit_test_diag(event->button.y, lineHeight, firstY, offset);
+        BuildOutputInteractionState* state = build_output_interaction_state();
+        if (!ui_flat_list_drag_state_prepare_hit(&state->drag_state,
+                                                 hit,
+                                                 build_output_clear_selection_cb,
+                                                 NULL)) {
+            return;
         }
-    } else if (event->type == SDL_MOUSEMOTION && dragging) {
-        int hit = hit_test_diag(pane, event->motion.x, event->motion.y, lineHeight, firstY);
-        if (hit >= 0 && dragAnchor >= 0) {
-            select_range(dragAnchor, hit);
-        }
+
+        BuildOutputRowActivationState activation = {
+            .hit_index = hit
+        };
+        (void)ui_row_activation_handle_primary(
+            &(UIRowActivationContext){
+                .double_click_tracker = &state->double_click_tracker,
+                .row_identity = (uintptr_t)(uint32_t)(hit + 1),
+                .double_click_ms = UI_DOUBLE_CLICK_MS_DEFAULT,
+                .clicked_prefix = false,
+                .additive_modifier = ui_input_is_additive_selection(SDL_GetModState()),
+                .range_modifier = false,
+                .wants_drag_start = true,
+                .on_select_single = build_output_select_single_cb,
+                .on_select_additive = build_output_select_additive_cb,
+                .on_activate = build_output_activate_cb,
+                .on_drag_start = build_output_drag_start_cb,
+                .user_data = &activation
+            });
+    } else if (event->type == SDL_MOUSEMOTION && build_output_interaction_state()->drag_state.active) {
+        int hit = hit_test_diag(event->motion.y, lineHeight, firstY, offset);
+        (void)ui_flat_list_drag_state_apply_range(&build_output_interaction_state()->drag_state,
+                                                  hit,
+                                                  build_output_select_range_cb,
+                                                  NULL);
     } else if (event->type == SDL_MOUSEBUTTONUP && event->button.button == SDL_BUTTON_LEFT) {
-        dragging = false;
-        dragAnchor = -1;
+        ui_flat_list_drag_state_reset(&build_output_interaction_state()->drag_state);
     } else if (event->type == SDL_KEYDOWN) {
         SDL_Keycode key = event->key.keysym.sym;
         Uint16 mod = event->key.keysym.mod;
-        bool ctrl = (mod & KMOD_CTRL) != 0;
-        bool gui = (mod & KMOD_GUI) != 0;
-        if ((ctrl || gui) && key == SDLK_a) {
+        if (ui_input_has_primary_accel(mod) && key == SDLK_a) {
             build_output_select_all_visible();
             return;
         }
-        if ((ctrl || gui) && key == SDLK_c) {
+        if (ui_input_has_primary_accel(mod) && key == SDLK_c) {
             build_output_copy_selection_to_clipboard();
             return;
         }
     }
 }
-#include "app/GlobalInfo/project.h"

@@ -1,5 +1,6 @@
 #include "input_tool_errors.h"
 #include "ide/Panes/ToolPanels/Errors/tool_errors.h"
+#include "ide/UI/scroll_input_adapter.h"
 #include "ide/UI/scroll_manager.h"
 
 void handleErrorsKeyboardInput(UIPane* pane, SDL_Event* event) {
@@ -11,7 +12,8 @@ void handleErrorsMouseInput(UIPane* pane, SDL_Event* event) {
     PaneScrollState* scroll = errors_get_scroll_state();
     SDL_Rect track = errors_get_scroll_track_rect();
     SDL_Rect thumb = errors_get_scroll_thumb_rect();
-    if (scroll_state_handle_mouse_drag(scroll, event, &track, &thumb)) {
+    if (ui_scroll_input_consume(scroll, event, &track, &thumb)) {
+        errors_set_scroll_rects(track, thumb);
         return;
     }
 
@@ -21,10 +23,12 @@ void handleErrorsMouseInput(UIPane* pane, SDL_Event* event) {
 void handleErrorsScrollInput(UIPane* pane, SDL_Event* event) {
     (void)pane;
     PaneScrollState* scroll = errors_get_scroll_state();
-    if (scroll_state_handle_mouse_wheel(scroll, event)) {
+    SDL_Rect track = errors_get_scroll_track_rect();
+    SDL_Rect thumb = errors_get_scroll_thumb_rect();
+    if (ui_scroll_input_consume(scroll, event, &track, &thumb)) {
+        errors_set_scroll_rects(track, thumb);
         return;
     }
-    // Fall back to general handler for any other scroll-related events.
     handleErrorsEvent(pane, event);
 }
 

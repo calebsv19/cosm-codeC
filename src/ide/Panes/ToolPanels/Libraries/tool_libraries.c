@@ -1,9 +1,14 @@
 #include "tool_libraries.h"
+#include "ide/Panes/ToolPanels/tool_panel_adapter.h"
 #include "engine/Render/render_text_helpers.h"
 #include "app/GlobalInfo/project.h"
 #include "app/GlobalInfo/core_state.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/analysis_status.h"
+#include "ide/UI/editor_navigation.h"
+#include "ide/UI/flat_list_selection.h"
+#include "ide/UI/input_modifiers.h"
+#include "ide/UI/row_activation.h"
 #include "ide/UI/scroll_manager.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/Panes/Editor/editor_view.h"
@@ -12,7 +17,24 @@
 #include <string.h>
 #include <stdlib.h>
 
-LibraryPanelState g_libraryPanelState = {0};
+static LibraryPanelState g_libraryPanelBootstrapState = {0};
+static bool g_libraryPanelBootstrapInitialized = false;
+
+static void libraries_panel_init_state(void* ptr);
+static void libraries_panel_destroy_state(void* ptr);
+static void toggle_bucket(int bucketIndex);
+static void toggle_header(int bucketIndex, int headerIndex);
+
+LibraryPanelState* libraries_panel_state(void) {
+    return (LibraryPanelState*)tool_panel_resolve_state_slot(
+        TOOL_PANEL_STATE_SLOT_LIBRARIES,
+        sizeof(LibraryPanelState),
+        libraries_panel_init_state,
+        libraries_panel_destroy_state,
+        &g_libraryPanelBootstrapState,
+        &g_libraryPanelBootstrapInitialized
+    );
+}
 
 static void clear_flat_rows(LibraryPanelState* st) {
     if (!st || !st->flatRows) return;
@@ -30,16 +52,17 @@ static char* dup_label(const char* text) {
 }
 
 static int ensure_header_expand_capacity(int bucketIndex, size_t count) {
+    LibraryPanelState* st = libraries_panel_state();
     if (bucketIndex < 0 || bucketIndex >= LIB_BUCKET_COUNT) return 0;
-    size_t cur = g_libraryPanelState.headerExpandedCount[bucketIndex];
+    size_t cur = st->headerExpandedCount[bucketIndex];
     if (cur >= count) return 1;
     size_t newCount = count;
-    bool* tmp = realloc(g_libraryPanelState.headerExpanded[bucketIndex], newCount * sizeof(bool));
+    bool* tmp = realloc(st->headerExpanded[bucketIndex], newCount * sizeof(bool));
     if (!tmp) return 0;
     // Initialize new slots to false
     for (size_t i = cur; i < newCount; ++i) tmp[i] = false;
-    g_libraryPanelState.headerExpanded[bucketIndex] = tmp;
-    g_libraryPanelState.headerExpandedCount[bucketIndex] = newCount;
+    st->headerExpanded[bucketIndex] = tmp;
+    st->headerExpandedCount[bucketIndex] = newCount;
     return 1;
 }
 
@@ -54,36 +77,29 @@ static const char* bucket_label_local(LibraryBucketKind kind) {
 }
 
 static void select_range(int a, int b) {
-    LibraryPanelState* st = &g_libraryPanelState;
-    if (!st->selected || st->selectedCapacity <= 0) return;
-    if (a < 0 || b < 0) return;
-    if (a >= st->flatCount || b >= st->flatCount) return;
-    if (a > b) { int tmp = a; a = b; b = tmp; }
-    memset(st->selected, 0, (size_t)st->selectedCapacity * sizeof(bool));
-    for (int i = a; i <= b && i < st->selectedCapacity; ++i) {
-        st->selected[i] = true;
-    }
+    LibraryPanelState* st = libraries_panel_state();
+    (void)ui_flat_list_selection_select_range(st->selected,
+                                              st->selectedCapacity,
+                                              st->flatCount,
+                                              a,
+                                              b);
 }
 
 bool library_row_is_selected(int idx) {
-    LibraryPanelState* st = &g_libraryPanelState;
+    LibraryPanelState* st = libraries_panel_state();
     if (!st->selected || idx < 0 || idx >= st->selectedCapacity) return false;
     return st->selected[idx];
 }
 
 void select_all_library_rows(void) {
-    LibraryPanelState* st = &g_libraryPanelState;
-    if (!st->selected || st->selectedCapacity <= 0 || st->flatCount <= 0) return;
-    memset(st->selected, 0, (size_t)st->selectedCapacity * sizeof(bool));
-    int cap = st->selectedCapacity < st->flatCount ? st->selectedCapacity : st->flatCount;
-    for (int i = 0; i < cap; ++i) {
-        st->selected[i] = true;
-    }
-    st->selectedRow = cap > 0 ? cap - 1 : -1;
+    LibraryPanelState* st = libraries_panel_state();
+    st->selectedRow = ui_flat_list_selection_select_all(st->selected,
+                                                        st->selectedCapacity,
+                                                        st->flatCount);
 }
 
 void rebuildLibraryFlatRows(void) {
-    LibraryPanelState* st = &g_libraryPanelState;
+    LibraryPanelState* st = libraries_panel_state();
     clear_flat_rows(st);
     st->flatCount = 0;
 
@@ -91,7 +107,7 @@ void rebuildLibraryFlatRows(void) {
     int estimated = 0;
     library_index_lock();
     for (size_t b = 0; b < library_index_bucket_count(); ++b) {
-        if (!g_libraryPanelState.includeSystemHeaders &&
+        if (!st->includeSystemHeaders &&
             (int)b == LIB_BUCKET_SYSTEM) {
             continue;
         }
@@ -125,7 +141,7 @@ void rebuildLibraryFlatRows(void) {
 
     // Populate rows
     for (size_t b = 0; b < library_index_bucket_count(); ++b) {
-        if (!g_libraryPanelState.includeSystemHeaders &&
+        if (!st->includeSystemHeaders &&
             (int)b == LIB_BUCKET_SYSTEM) {
             continue;
         }
@@ -194,23 +210,60 @@ void rebuildLibraryFlatRows(void) {
     scroll_state_clamp(&st->scroll);
 }
 
-void initLibrariesPanel() {
-    memset(&g_libraryPanelState, 0, sizeof(g_libraryPanelState));
-    g_libraryPanelState.selectedRow = -1;
-    g_libraryPanelState.hoveredRow = -1;
-    g_libraryPanelState.dragAnchorRow = -1;
-    g_libraryPanelState.selecting = false;
-    scroll_state_init(&g_libraryPanelState.scroll, NULL);
-    // Buckets default to expanded to show contents.
+static void libraries_panel_init_state(void* ptr) {
+    LibraryPanelState* st = (LibraryPanelState*)ptr;
+    if (!st) return;
+
+    memset(st, 0, sizeof(*st));
+    st->selectedRow = -1;
+    st->hoveredRow = -1;
+    st->dragAnchorRow = -1;
+    st->selecting = false;
+    scroll_state_init(&st->scroll, NULL);
     for (int i = 0; i < LIB_BUCKET_COUNT; ++i) {
-        g_libraryPanelState.bucketExpanded[i] = true;
-        g_libraryPanelState.headerExpanded[i] = NULL;
-        g_libraryPanelState.headerExpandedCount[i] = 0;
+        st->bucketExpanded[i] = true;
+        st->headerExpanded[i] = NULL;
+        st->headerExpandedCount[i] = 0;
     }
-    g_libraryPanelState.includeSystemHeaders = true;
-    g_libraryPanelState.systemToggleRect = (SDL_Rect){0};
-    g_libraryPanelState.logsToggleRect = (SDL_Rect){0};
+    st->includeSystemHeaders = true;
+    st->control_hits.items = st->control_hit_storage;
+    st->control_hits.capacity =
+        (int)(sizeof(st->control_hit_storage) / sizeof(st->control_hit_storage[0]));
+}
+
+static void libraries_panel_release_dynamic_state(LibraryPanelState* st) {
+    if (!st) return;
+    clear_flat_rows(st);
+    free(st->flatRows);
+    st->flatRows = NULL;
+    st->flatCount = 0;
+    st->flatCapacity = 0;
+    free(st->selected);
+    st->selected = NULL;
+    st->selectedCapacity = 0;
+    for (int i = 0; i < LIB_BUCKET_COUNT; ++i) {
+        free(st->headerExpanded[i]);
+        st->headerExpanded[i] = NULL;
+        st->headerExpandedCount[i] = 0;
+    }
+}
+
+static void libraries_panel_destroy_state(void* ptr) {
+    LibraryPanelState* st = (LibraryPanelState*)ptr;
+    if (!st) return;
+    libraries_panel_release_dynamic_state(st);
+    free(st);
+}
+
+void initLibrariesPanel() {
+    LibraryPanelState* st = libraries_panel_state();
+    libraries_panel_release_dynamic_state(st);
+    libraries_panel_init_state(st);
     rebuildLibraryFlatRows();
+}
+
+UIPanelTaggedRectList* libraries_control_hits(void) {
+    return &libraries_panel_state()->control_hits;
 }
 
 void updateHoveredLibraryMousePosition(int x, int y) {
@@ -222,61 +275,103 @@ void updateHoveredLibraryMousePosition(int x, int y) {
 static bool row_is_prefix_hit(const LibraryFlatRow* row, UIPane* pane, int clickX) {
     if (!row) return false;
     int indent = row->depth * 20;
-    int drawX = pane->x + 12 + indent;
+    ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    int drawX = pane->x + (d.pad_left - 1) + indent;
     int prefixWidth = getTextWidth("[-] ");
     return (clickX >= drawX && clickX <= drawX + prefixWidth);
 }
 
 static void toggle_bucket(int bucketIndex) {
+    LibraryPanelState* st = libraries_panel_state();
     if (bucketIndex < 0 || bucketIndex >= LIB_BUCKET_COUNT) return;
-    g_libraryPanelState.bucketExpanded[bucketIndex] = !g_libraryPanelState.bucketExpanded[bucketIndex];
+    st->bucketExpanded[bucketIndex] = !st->bucketExpanded[bucketIndex];
     rebuildLibraryFlatRows();
 }
 
 static void toggle_header(int bucketIndex, int headerIndex) {
+    LibraryPanelState* st = libraries_panel_state();
     if (bucketIndex < 0 || bucketIndex >= LIB_BUCKET_COUNT) return;
     ensure_header_expand_capacity(bucketIndex, (size_t)headerIndex + 1);
-    g_libraryPanelState.headerExpanded[bucketIndex][headerIndex] =
-        !g_libraryPanelState.headerExpanded[bucketIndex][headerIndex];
+    st->headerExpanded[bucketIndex][headerIndex] =
+        !st->headerExpanded[bucketIndex][headerIndex];
     rebuildLibraryFlatRows();
 }
 
 static void open_usage(const LibraryFlatRow* row) {
     if (!row || row->type != LIB_NODE_USAGE) return;
     if (!row->labelPrimary) return;
+    (void)ui_open_path_at_location_in_active_editor(row->labelPrimary,
+                                                    row->usageLine,
+                                                    row->usageColumn);
+}
 
-    IDECoreState* core = getCoreState();
-    if (!core || !core->activeEditorView) return;
+typedef struct LibraryRowActivationState {
+    LibraryPanelState* panel_state;
+    LibraryFlatRow* row;
+    int row_index;
+} LibraryRowActivationState;
 
-    // Build full path if the stored path is relative.
-    char fullPath[1024];
-    if (row->labelPrimary[0] == '/') {
-        snprintf(fullPath, sizeof(fullPath), "%s", row->labelPrimary);
-    } else {
-        snprintf(fullPath, sizeof(fullPath), "%s/%s", projectPath, row->labelPrimary);
+static void library_row_select_single(void* user_data) {
+    LibraryRowActivationState* state = (LibraryRowActivationState*)user_data;
+    if (!state || !state->panel_state) return;
+
+    state->panel_state->selectedRow = state->row_index;
+    state->panel_state->dragAnchorRow = state->row_index;
+    state->panel_state->selecting = true;
+    (void)ui_flat_list_selection_select_single(state->panel_state->selected,
+                                               state->panel_state->selectedCapacity,
+                                               state->panel_state->flatCount,
+                                               state->row_index);
+}
+
+static void library_row_select_additive(void* user_data) {
+    LibraryRowActivationState* state = (LibraryRowActivationState*)user_data;
+    if (!state || !state->panel_state) return;
+
+    state->panel_state->selectedRow = state->row_index;
+    state->panel_state->dragAnchorRow = state->row_index;
+    state->panel_state->selecting = true;
+    (void)ui_flat_list_selection_toggle(state->panel_state->selected,
+                                        state->panel_state->selectedCapacity,
+                                        state->panel_state->flatCount,
+                                        state->row_index,
+                                        true);
+}
+
+static void library_row_select_range_action(void* user_data) {
+    LibraryRowActivationState* state = (LibraryRowActivationState*)user_data;
+    if (!state || !state->panel_state) return;
+
+    if (state->panel_state->dragAnchorRow < 0) {
+        state->panel_state->dragAnchorRow =
+            state->panel_state->selectedRow >= 0 ? state->panel_state->selectedRow : state->row_index;
     }
-    OpenFile* file = openFileInView(core->activeEditorView, fullPath);
-    if (!file || !file->buffer) return;
+    state->panel_state->selectedRow = state->row_index;
+    state->panel_state->selecting = true;
+    select_range(state->panel_state->dragAnchorRow, state->row_index);
+}
 
-    int targetRow = row->usageLine > 0 ? row->usageLine - 1 : 0;
-    if (targetRow >= file->buffer->lineCount) targetRow = file->buffer->lineCount - 1;
-    if (targetRow < 0) targetRow = 0;
-    int lineLen = file->buffer->lines && file->buffer->lines[targetRow]
-                      ? (int)strlen(file->buffer->lines[targetRow])
-                      : 0;
-    int targetCol = row->usageColumn > 0 ? row->usageColumn - 1 : 0;
-    if (targetCol > lineLen) targetCol = lineLen;
+static void library_row_prefix_action(void* user_data) {
+    LibraryRowActivationState* state = (LibraryRowActivationState*)user_data;
+    if (!state || !state->row) return;
 
-    file->state.cursorRow = targetRow;
-    file->state.cursorCol = targetCol;
-    file->state.viewTopRow = (targetRow > 2) ? targetRow - 2 : 0;
-    file->state.selecting = false;
-    file->state.draggingWithMouse = false;
-    setActiveEditorView(core->activeEditorView);
+    if (state->row->type == LIB_NODE_BUCKET) {
+        toggle_bucket(state->row->bucketIndex);
+    } else if (state->row->type == LIB_NODE_HEADER) {
+        toggle_header(state->row->bucketIndex, state->row->headerIndex);
+    }
+}
+
+static void library_row_activate(void* user_data) {
+    LibraryRowActivationState* state = (LibraryRowActivationState*)user_data;
+    if (!state || !state->row) return;
+    if (state->row->type == LIB_NODE_USAGE) {
+        open_usage(state->row);
+    }
 }
 
 void copy_selected_rows(void) {
-    LibraryPanelState* st = &g_libraryPanelState;
+    LibraryPanelState* st = libraries_panel_state();
     if (!st->selected || !st->flatRows || st->flatCount <= 0) return;
 
     size_t cap = 2048;
@@ -322,78 +417,73 @@ void copy_selected_rows(void) {
 }
 
 static int row_index_from_position(UIPane* pane, int mouseY) {
+    LibraryPanelState* st = libraries_panel_state();
     int contentY = tool_panel_single_row_content_top(pane);
-    float offset = scroll_state_get_offset(&g_libraryPanelState.scroll);
+    float offset = scroll_state_get_offset(&st->scroll);
     int localY = mouseY - contentY + (int)offset;
     if (localY < 0) return -1;
     int idx = localY / LIBRARY_ROW_HEIGHT;
-    return (idx >= 0 && idx < g_libraryPanelState.flatCount) ? idx : -1;
+    return (idx >= 0 && idx < st->flatCount) ? idx : -1;
 }
 
 bool handleLibraryHeaderClick(UIPane* pane, int clickX, int clickY) {
     (void)pane;
-    LibraryPanelState* st = &g_libraryPanelState;
-    SDL_Rect sys = st->systemToggleRect;
-    if (sys.w > 0 && sys.h > 0) {
-        bool sysHit = (clickX >= sys.x && clickX <= sys.x + sys.w &&
-                       clickY >= sys.y && clickY <= sys.y + sys.h);
-        if (sysHit) {
+    LibraryPanelState* st = libraries_panel_state();
+    switch ((LibraryTopControlId)ui_panel_tagged_rect_list_hit_test(&st->control_hits, clickX, clickY)) {
+        case LIB_TOP_CONTROL_SYSTEM_TOGGLE:
             st->includeSystemHeaders = !st->includeSystemHeaders;
             rebuildLibraryFlatRows();
             return true;
-        }
-    }
-
-    SDL_Rect logs = st->logsToggleRect;
-    if (logs.w > 0 && logs.h > 0) {
-        bool logsHit = (clickX >= logs.x && clickX <= logs.x + logs.w &&
-                        clickY >= logs.y && clickY <= logs.y + logs.h);
-        if (logsHit) {
+        case LIB_TOP_CONTROL_LOGS_TOGGLE:
             analysis_toggle_frontend_logs_enabled();
             printf("[Analysis] Frontend logs: %s\n",
                    analysis_frontend_logs_enabled() ? "ON" : "OFF");
             return true;
-        }
+        case LIB_TOP_CONTROL_NONE:
+        default:
+            break;
     }
 
     return false;
 }
 
-void handleLibraryEntryClick(UIPane* pane, int clickX, int clickY) {
-    LibraryPanelState* st = &g_libraryPanelState;
+void handleLibraryEntryClick(UIPane* pane, int clickX, int clickY, Uint16 modifiers) {
+    LibraryPanelState* st = libraries_panel_state();
     int rowIndex = row_index_from_position(pane, clickY);
     if (rowIndex < 0 || rowIndex >= st->flatCount) return;
 
     LibraryFlatRow* row = &st->flatRows[rowIndex];
-    Uint32 now = SDL_GetTicks();
-    bool isDoubleClick = (st->hoveredRow == st->lastClickedRow) &&
-                         (now - st->lastClickTicks < 400);
-    st->lastClickedRow = st->hoveredRow;
-    st->lastClickTicks = now;
-
-    st->selectedRow = rowIndex;
-    st->dragAnchorRow = rowIndex;
-    st->selecting = true;
-    if (st->selected && st->selectedCapacity > rowIndex) {
-        memset(st->selected, 0, (size_t)st->selectedCapacity * sizeof(bool));
-        st->selected[rowIndex] = true;
-    }
-
     bool clickedPrefix = row_is_prefix_hit(row, pane, clickX);
+    bool rangeModifier = ui_input_has_shift(modifiers);
+    bool additiveModifier = ui_input_is_additive_selection(modifiers) && !rangeModifier;
+    LibraryRowActivationState activation = {
+        .panel_state = st,
+        .row = row,
+        .row_index = rowIndex
+    };
 
-    if (row->type == LIB_NODE_BUCKET) {
-        if (clickedPrefix || isDoubleClick) toggle_bucket(row->bucketIndex);
-    } else if (row->type == LIB_NODE_HEADER) {
-        if (clickedPrefix || isDoubleClick) toggle_header(row->bucketIndex, row->headerIndex);
-    } else if (row->type == LIB_NODE_USAGE && isDoubleClick) {
-        open_usage(row);
-    }
+    (void)ui_row_activation_handle_primary(
+        &(UIRowActivationContext){
+            .double_click_tracker = &st->doubleClickTracker,
+            .row_identity = (uintptr_t)(uint32_t)rowIndex,
+            .double_click_ms = UI_DOUBLE_CLICK_MS_DEFAULT,
+            .clicked_prefix = clickedPrefix,
+            .additive_modifier = additiveModifier,
+            .range_modifier = rangeModifier,
+            .wants_drag_start = false,
+            .on_select_single = library_row_select_single,
+            .on_select_additive = library_row_select_additive,
+            .on_select_range = library_row_select_range_action,
+            .on_prefix = library_row_prefix_action,
+            .on_activate = library_row_activate,
+            .user_data = &activation
+        });
 
     // Stop selection drag on click release handled elsewhere; for now, this is the anchor set.
 }
 
 void updateLibraryDragSelection(UIPane* pane, int mouseY) {
-    LibraryPanelState* st = &g_libraryPanelState;
+    LibraryPanelState* st = libraries_panel_state();
     if (!st->selecting) return;
     int rowIndex = row_index_from_position(pane, mouseY);
     if (rowIndex < 0 || rowIndex >= st->flatCount) return;
@@ -402,5 +492,6 @@ void updateLibraryDragSelection(UIPane* pane, int mouseY) {
 }
 
 void endLibrarySelectionDrag(void) {
-    g_libraryPanelState.selecting = false;
+    LibraryPanelState* st = libraries_panel_state();
+    st->selecting = false;
 }

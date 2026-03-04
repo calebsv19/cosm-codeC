@@ -16,6 +16,7 @@
 #include "ide/Panes/IconBar/command_icon_bar.h"
 #include "ide/Panes/Terminal/command_terminal.h"
 #include "ide/Panes/ControlPanel/command_control_panel.h"
+#include "ide/Panes/ControlPanel/control_panel.h"
 #include "ide/Panes/Popup/command_popup.h"
 #include "ide/Panes/ToolPanels/command_tool_panel.h"
 #include "core/CommandBus/command_metadata.h"
@@ -28,6 +29,7 @@
 #include "ide/Panes/IconBar/input_icon_bar.h"
 
 #include "ide/Panes/ToolPanels/input_tool_panel.h"
+#include "ide/Panes/ToolPanels/tool_panel_adapter.h"
 #include "ide/Panes/ToolPanels/Tasks/tool_tasks.h"
 
 #include "ide/Panes/MenuBar/menu_buttons.h"        
@@ -120,6 +122,8 @@ UIPane* createEmptyPane(UIPaneRole role) {
 
     pane->render = NULL;
     pane->editorView = NULL;
+    pane->controllerState = NULL;
+    pane->destroyControllerState = NULL;
     pane->handleCommand = NULL;
     pane->inputHandler = NULL;
     pane->scrollState = NULL;
@@ -175,6 +179,7 @@ static void initToolPanelPane(UIPane* pane) {
     pane->inputHandler = &toolPanelInputHandler;
     initToolPanelCommandHandler(pane);
     pane->title = "Tool Panel";
+    tool_panel_attach_controller(pane);
     initTaskPanel();
 }
 
@@ -190,6 +195,7 @@ static void initControlPanelPane(UIPane* pane) {
     pane->inputHandler = &controlPanelInputHandler;
     initControlPanelCommandHandler(pane);
     pane->title = "Control";
+    control_panel_attach_controller(pane);
 }
 
 static void initPopupPane(UIPane* pane) {
@@ -333,10 +339,13 @@ void destroyPane(UIPane* pane) {
         destroyEditorView(pane->editorView);
     }
 
+    if (pane->destroyControllerState && pane->controllerState) {
+        pane->destroyControllerState(pane->controllerState);
+        pane->controllerState = NULL;
+        pane->destroyControllerState = NULL;
+    }
+
     paneReleaseCache(pane);
     free(pane);
 }
-
-
-
 

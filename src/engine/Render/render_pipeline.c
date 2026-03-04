@@ -10,6 +10,7 @@
 
 #include "ide/Panes/IconBar/render_icon_bar.h"
 #include "ide/Panes/ToolPanels/render_tool_panel.h"
+#include "ide/Panes/ControlPanel/control_panel_adapter.h"
 #include "ide/Panes/ControlPanel/render_control_panel.h"
 #include "ide/Panes/Popup/render_popup.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
@@ -215,7 +216,7 @@ void renderTerminal(UIPane* pane, bool hovered, IDECoreState* core) {
 
 void renderControlPanel(UIPane* pane, bool hovered, IDECoreState* core) {
     renderUIPane(pane,hovered);
-    renderControlPanelContents(pane, hovered, core);
+    renderControlPanelViaAdapter(pane, hovered, core);
 }
 
 void renderPopupQueue(UIPane* pane, bool hovered, IDECoreState* core) {

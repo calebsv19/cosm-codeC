@@ -4,6 +4,8 @@
 #include "core/CommandBus/command_bus.h"
 #include "ide/Panes/ToolPanels/Tasks/input_tool_tasks.h"
 #include "core/InputManager/input_macros.h"
+#include "ide/UI/input_modifiers.h"
+#include "ide/UI/scroll_input_adapter.h"
 
 void handleTasksKeyboardInput(UIPane* pane, SDL_Event* event) {
     if (!pane || event->type != SDL_KEYDOWN) return;
@@ -11,7 +13,7 @@ void handleTasksKeyboardInput(UIPane* pane, SDL_Event* event) {
     SDL_Keycode key = event->key.keysym.sym;
     Uint16 mod = event->key.keysym.mod;
 
-    if (mod & KMOD_CTRL) {
+    if (ui_input_has_primary_accel(mod)) {
         switch (key) {
             case SDLK_n: CMD(COMMAND_ADD_TASK); return;
             case SDLK_r: CMD(COMMAND_RENAME_TASK); return;
@@ -32,7 +34,16 @@ void handleTasksKeyboardInput(UIPane* pane, SDL_Event* event) {
 
 
 void handleTasksMouseInput(UIPane* pane, SDL_Event* event) {
-    if (!event || event->type != SDL_MOUSEBUTTONDOWN) return;
+    if (!pane || !event) return;
+
+    PaneScrollState* scroll = task_panel_scroll_state();
+    SDL_Rect track = task_panel_scroll_track_rect();
+    SDL_Rect thumb = task_panel_scroll_thumb_rect();
+    if (ui_scroll_input_consume(scroll, event, &track, &thumb)) {
+        return;
+    }
+
+    if (event->type != SDL_MOUSEBUTTONDOWN) return;
 
     if (event->button.button == SDL_BUTTON_LEFT) {
         handleTaskLeftClick(pane, event);
@@ -43,22 +54,13 @@ void handleTasksMouseInput(UIPane* pane, SDL_Event* event) {
 }
 
 void handleTasksScrollInput(UIPane* pane, SDL_Event* event) {
-    // Tasks panel currently has no scroll behavior
-    (void)pane;
-    (void)event;
+    if (!pane || !event) return;
+    scroll_state_handle_mouse_wheel(task_panel_scroll_state(), event);
 }
 
 
 
 void handleTasksHoverInput(UIPane* pane, int x, int y) {
-    // mimic MOUSEMOTION event to reuse existing logic
-    SDL_Event fakeMotion = {0};
-    fakeMotion.type = SDL_MOUSEMOTION;
-    fakeMotion.motion.x = x;
-    fakeMotion.motion.y = y;
-
-    handleTaskMouseMotion(pane, &fakeMotion);
+    handleTaskHoverAt(pane, x, y);
 }
-
-
 

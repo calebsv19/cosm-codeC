@@ -1,31 +1,87 @@
 #include "tool_tasks.h"
+#include "ide/Panes/ToolPanels/tool_panel_adapter.h"
 #include "engine/Render/render_pipeline.h"
 #include "engine/Render/render_text_helpers.h"
 #include "core/InputManager/UserInput/rename_flow.h"
+#include "ide/UI/row_surface.h"
+#include "ide/UI/row_activation.h"
 
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 
-// Main task tree structure
-TaskNode** taskRoots = NULL;
-int taskRootCount = 0;
+typedef struct {
+    TaskNode** task_roots;
+    int task_root_count;
+    TaskNode* selected_task;
+    TaskNode* hovered_task;
+    bool include_nest_label;
+    TaskNode* editing_task;
+    char task_editing_buffer[128];
+    PaneScrollState scroll;
+    bool scroll_init;
+    SDL_Rect scroll_track;
+    SDL_Rect scroll_thumb;
+    UIPanelTaggedRect control_hit_storage[2];
+    UIPanelTaggedRectList control_hits;
+} TaskPanelState;
 
-// Current interaction state
-TaskNode* selectedTask = NULL;
-TaskNode* hoveredTask = NULL;
+static TaskPanelState g_taskPanelBootstrapState = {0};
+static bool g_taskPanelBootstrapInitialized = false;
 
-// Internal mouse tracking
+static void task_panel_init_state(void* ptr) {
+    TaskPanelState* state = (TaskPanelState*)ptr;
+    if (!state) return;
+    memset(state, 0, sizeof(*state));
+    state->control_hits.items = state->control_hit_storage;
+    state->control_hits.capacity =
+        (int)(sizeof(state->control_hit_storage) / sizeof(state->control_hit_storage[0]));
+}
 
+void freeTaskTree(TaskNode* node);
 
+static void task_panel_destroy_state(void* ptr) {
+    TaskPanelState* state = (TaskPanelState*)ptr;
+    if (!state) return;
+    for (int i = 0; i < state->task_root_count; ++i) {
+        if (state->task_roots && state->task_roots[i]) {
+            freeTaskTree(state->task_roots[i]);
+        }
+    }
+    free(state->task_roots);
+    free(state);
+}
+
+static TaskPanelState* task_panel_state(void) {
+    return (TaskPanelState*)tool_panel_resolve_state_slot(
+        TOOL_PANEL_STATE_SLOT_TASKS,
+        sizeof(TaskPanelState),
+        task_panel_init_state,
+        task_panel_destroy_state,
+        &g_taskPanelBootstrapState,
+        &g_taskPanelBootstrapInitialized
+    );
+}
+
+TaskNode*** task_panel_roots_ptr(void) { return &task_panel_state()->task_roots; }
+int* task_panel_root_count_ptr(void) { return &task_panel_state()->task_root_count; }
+TaskNode** task_panel_selected_ptr(void) { return &task_panel_state()->selected_task; }
+TaskNode** task_panel_hovered_ptr(void) { return &task_panel_state()->hovered_task; }
+TaskNode** task_panel_editing_task_ptr(void) { return &task_panel_state()->editing_task; }
+char* task_panel_editing_buffer(void) { return task_panel_state()->task_editing_buffer; }
+bool* task_panel_include_nest_label_ptr(void) { return &task_panel_state()->include_nest_label; }
+PaneScrollState* task_panel_scroll_state(void) { return &task_panel_state()->scroll; }
+bool* task_panel_scroll_initialized_ptr(void) { return &task_panel_state()->scroll_init; }
+SDL_Rect task_panel_scroll_track_rect(void) { return task_panel_state()->scroll_track; }
+SDL_Rect task_panel_scroll_thumb_rect(void) { return task_panel_state()->scroll_thumb; }
+void task_panel_set_scroll_rects(SDL_Rect track, SDL_Rect thumb) {
+    task_panel_state()->scroll_track = track;
+    task_panel_state()->scroll_thumb = thumb;
+}
+UIPanelTaggedRectList* task_panel_control_hits(void) { return &task_panel_state()->control_hits; }
 
 // Used during recursive traversal
 static int currentY = 0;
-bool includeNestLabel = false;
-
-
-TaskNode* editingTask = NULL;
-char taskEditingBuffer[128] = "";
 
 
 
@@ -86,18 +142,10 @@ static void toggleTaskCompletion(TaskNode* node);
 static void handleCommandAddTask(void);
 static void handleCommandRemoveSelectedTask(void);
 
-static int getTaskTreeStartY(UIPane* pane);
-static void updateTaskTreeHover(int x, int startY, int mx, int my);
 static void clearTaskNodeUIState(TaskNode* node, bool clearSelection);
 
 
 
-
-
-static bool pointInRect(int px, int py, SDL_Rect rect) {
-    return (px >= rect.x && px <= rect.x + rect.w &&
-            py >= rect.y && py <= rect.y + rect.h);
-}
 
 
 static void clearTaskNodeUIState(TaskNode* node, bool clearSelection) {
@@ -223,145 +271,45 @@ static void removeSelectedTaskAndReselect() {
 
 
 
-static void handleTaskTreeHover(TaskNode* node, int x, int mx, int my) {
-    if (!node) {
-        fprintf(stderr, "[Hover] NULL task node encountered, skipping...\n");
-        return;
-    }
+void task_build_row_layout(const TaskNode* node,
+                           const UIPane* pane,
+                           int panelStartX,
+                           int rowY,
+                           UITaskRowLayout* outLayout) {
+    if (!node || !outLayout) return;
 
-
-    const int lineHeight = TASK_LINE_HEIGHT;
-    const int expandWidth = 28;
-    const int checkboxWidth = 28;
-    const int spacing = 6;
-
-    int indent = node->depth * TASK_INDENT_WIDTH;
-    int drawX = x + indent;
-    int drawY = currentY;
-
-    bool isLineHovered = (my >= drawY && my < drawY + lineHeight);
-    bool isXHovered = false;
-
-    if (isLineHovered) {
-        if (strlen(node->label) == 0) {
-            isXHovered = true;  // highlight whole line
-        } else {
-            bool hasExpandIcon = (node->isGroup || node->childCount > 0);
-            int usedExpandWidth = (hasExpandIcon && includeNestLabel) ? expandWidth : 0;
-            int labelWidth = getTextWidth(node->label);
-            int totalWidth = usedExpandWidth + checkboxWidth + labelWidth + spacing * 2;
-            int boxX = drawX + expandWidth - usedExpandWidth - spacing;
-
-            SDL_Rect labelBox = { boxX, drawY - 1, totalWidth, lineHeight };
-            isXHovered = pointInRect(mx, my, labelBox);
-        }
-
-        if (isXHovered) {
-            node->isHovered = true;
-        } else {
-            node->isHovered = false;
-        }
-    } else {
-        node->isHovered = false;
-    }
-
-    currentY += lineHeight;
-
-    if (node->isExpanded) {
-        for (int i = 0; i < node->childCount; i++) {
-            handleTaskTreeHover(node->children[i], x, mx, my);
-        }
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-static bool handleCommandClickTaskNode(TaskNode* node, int panelStartX, int mouseX, int mouseY, UIPane* pane) {
-    const int lineHeight = TASK_LINE_HEIGHT;
-    const int expandWidth = 28;
-    const int checkboxWidth = 20;
-    const int spacing = 6;
+    memset(outLayout, 0, sizeof(*outLayout));
 
     int indent = node->depth * TASK_INDENT_WIDTH;
     int drawX = panelStartX + indent;
-    int drawY = currentY;
-
-    bool wasClicked = false;
-
+    int drawY = rowY;
     bool hasExpandIcon = (node->isGroup || node->childCount > 0);
-    int usedExpandWidth = (hasExpandIcon && includeNestLabel) ? expandWidth : 0;
-
+    int usedExpandWidth = (hasExpandIcon && includeNestLabel) ? TASK_EXPAND_WIDTH : 0;
     int labelWidth = getTextWidth(node->label);
-    int totalWidth = usedExpandWidth + checkboxWidth + labelWidth + spacing * 2;
-    int boxX = drawX + expandWidth - usedExpandWidth - spacing;
+    int totalWidth = usedExpandWidth + TASK_CHECKBOX_WIDTH + labelWidth + TASK_ROW_SPACING * 2;
+    int boxX = drawX + TASK_EXPAND_WIDTH - usedExpandWidth - TASK_ROW_SPACING;
 
-    // === Define clickable regions ===
-    SDL_Rect expandBox  = { drawX - 7, drawY - 1, expandWidth, lineHeight };
-    SDL_Rect checkBox   = { drawX + expandWidth - 5, drawY - 1, checkboxWidth, lineHeight };
-    
-    SDL_Rect labelBox;
-    if (strlen(node->label) == 0) {
-        // Wide clickable zone across pane
-        labelBox.x = panelStartX;
-        labelBox.y = drawY - 1;
-        labelBox.w = pane->w;  // You may replace this with pane->w if needed
-        labelBox.h = lineHeight;
+    UIRowSurfaceLayout rowSurface = ui_row_surface_layout_from_content(boxX,
+                                                                       drawY,
+                                                                       totalWidth,
+                                                                       TASK_LINE_HEIGHT,
+                                                                       TASK_ROW_BOX_PAD_X,
+                                                                       TASK_ROW_BOX_PAD_Y);
+
+    outLayout->drawX = drawX;
+    outLayout->drawY = drawY;
+    outLayout->labelX = drawX + TASK_EXPAND_WIDTH + TASK_CHECKBOX_WIDTH;
+    outLayout->hasExpandIcon = hasExpandIcon;
+    outLayout->expandRect = (SDL_Rect){ drawX - 7, drawY - 1, TASK_EXPAND_WIDTH, TASK_LINE_HEIGHT };
+    outLayout->checkRect = (SDL_Rect){ drawX + TASK_EXPAND_WIDTH - 5, drawY - 1, TASK_CHECKBOX_WIDTH, TASK_LINE_HEIGHT };
+    outLayout->fullRowRect = rowSurface.bounds;
+
+    if (node->label[0] == '\0') {
+        outLayout->labelRect = (SDL_Rect){ panelStartX, drawY - 1, pane ? pane->w : totalWidth, TASK_LINE_HEIGHT };
     } else {
-        labelBox.x = boxX;
-        labelBox.y = drawY - 1;
-        labelBox.w = totalWidth;
-        labelBox.h = lineHeight;
+        outLayout->labelRect = rowSurface.bounds;
     }
-
-    // === Check hits ===
-    bool inLabelBox  = pointInRect(mouseX, mouseY, labelBox);
-    bool inExpandBox = hasExpandIcon && pointInRect(mouseX, mouseY, expandBox);
-    bool inCheckBox  = pointInRect(mouseX, mouseY, checkBox);
-
-    // === Click handling ===
-    if (inLabelBox || inExpandBox || inCheckBox) {
-        hoveredTask = node;
-
-        if (SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_LEFT)) {
-            clearAllTaskSelections();
-            selectedTask = node;
-            node->isSelected = true;
-            wasClicked = true;
-
-            if (inExpandBox && nodeHasChildren(node)) {
-                toggleTaskExpansion(node);
-            } else if (inCheckBox) {
-                toggleTaskCompletion(node);
-            }
-        }
-    }
-
-    currentY += lineHeight;
-
-    if (node->isExpanded) {
-        for (int i = 0; i < node->childCount; i++) {
-            if (handleCommandClickTaskNode(node->children[i], panelStartX, mouseX, mouseY, pane)) {
-                wasClicked = true;
-            }
-        }
-    }
-
-    return wasClicked;
 }
-
-
-
-
-
 
 static void clearAllTaskSelections(void) {
     for (int i = 0; i < taskRootCount; i++) {
@@ -391,6 +339,109 @@ static void toggleTaskCompletion(TaskNode* node) {
     node->completed = !node->completed;
 }
 
+typedef struct UITaskHitResult {
+    TaskNode* node;
+    UITaskRowLayout row;
+} UITaskHitResult;
+
+typedef struct TaskRowActivationState {
+    TaskNode* node;
+} TaskRowActivationState;
+
+static bool task_find_hit_node_recursive(TaskNode* node,
+                                         const UIPane* pane,
+                                         int panelStartX,
+                                         int mouseX,
+                                         int mouseY,
+                                         UITaskHitResult* outHit) {
+    if (!node) return false;
+
+    UITaskRowLayout row = {0};
+    task_build_row_layout(node, pane, panelStartX, currentY, &row);
+    bool hit = ui_panel_rect_contains(&row.labelRect, mouseX, mouseY) ||
+               (row.hasExpandIcon && ui_panel_rect_contains(&row.expandRect, mouseX, mouseY)) ||
+               ui_panel_rect_contains(&row.checkRect, mouseX, mouseY);
+
+    currentY += TASK_LINE_HEIGHT;
+
+    if (hit) {
+        if (outHit) {
+            outHit->node = node;
+            outHit->row = row;
+        }
+        return true;
+    }
+
+    if (node->isExpanded) {
+        for (int i = 0; i < node->childCount; i++) {
+            if (task_find_hit_node_recursive(node->children[i], pane, panelStartX, mouseX, mouseY, outHit)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static bool task_find_hit_node(const UIPane* pane, int mouseX, int mouseY, UITaskHitResult* outHit) {
+    if (!pane) return false;
+    int treeX = pane->x + TASK_PANEL_LEFT_PADDING;
+    currentY = getTaskTreeStartY((UIPane*)pane);
+
+    for (int i = 0; i < taskRootCount; i++) {
+        if (taskRoots[i] &&
+            task_find_hit_node_recursive(taskRoots[i], pane, treeX, mouseX, mouseY, outHit)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void task_row_select_single(void* user_data) {
+    TaskRowActivationState* state = (TaskRowActivationState*)user_data;
+    if (!state || !state->node) return;
+    clearAllTaskSelections();
+    selectedTask = state->node;
+    state->node->isSelected = true;
+}
+
+static void task_row_prefix_action(void* user_data) {
+    TaskRowActivationState* state = (TaskRowActivationState*)user_data;
+    if (!state || !state->node) return;
+    if (nodeHasChildren(state->node)) {
+        toggleTaskExpansion(state->node);
+    }
+}
+
+static bool task_activate_hit_row(const UITaskHitResult* hit, int mouseX, int mouseY) {
+    if (!hit || !hit->node) return false;
+
+    TaskRowActivationState activation = { .node = hit->node };
+    bool inExpandBox = hit->row.hasExpandIcon && ui_panel_rect_contains(&hit->row.expandRect, mouseX, mouseY);
+    bool inCheckBox = ui_panel_rect_contains(&hit->row.checkRect, mouseX, mouseY);
+
+    if (inCheckBox) {
+        task_row_select_single(&activation);
+        toggleTaskCompletion(hit->node);
+        return true;
+    }
+
+    (void)ui_row_activation_handle_primary(
+        &(UIRowActivationContext){
+            .double_click_tracker = NULL,
+            .row_identity = (uintptr_t)hit->node,
+            .double_click_ms = UI_DOUBLE_CLICK_MS_DEFAULT,
+            .clicked_prefix = inExpandBox,
+            .additive_modifier = false,
+            .range_modifier = false,
+            .wants_drag_start = false,
+            .on_select_single = task_row_select_single,
+            .on_prefix = task_row_prefix_action,
+            .user_data = &activation
+        });
+    return true;
+}
+
 
 
 
@@ -398,65 +449,48 @@ static void toggleTaskCompletion(TaskNode* node) {
 
  
 
-static bool tryClickAddTaskButton(int x, int y, int mx, int my) {
-    SDL_Rect rect = { x, y, TASK_BUTTON_HEIGHT, TASK_BUTTON_HEIGHT };
-//    printf("[Tasks] Add Btn Rect = { x=%d, y=%d, w=%d, h=%d }, Mouse = { x=%d, y=%d }\n",
-//           rect.x, rect.y, rect.w, rect.h, mx, my);
-
-    if (!pointInRect(mx, my, rect)) return false;
-
-    handleCommandAddTask();
-    return true;
+int getTaskTreeStartY(UIPane* pane) {
+    int baseY = pane->y + TASK_PANEL_TOP_PADDING +
+                2 * (TASK_BUTTON_HEIGHT + TASK_BUTTON_SPACING) +
+                TASK_TREE_TOP_GAP;
+    return baseY - (int)scroll_state_get_offset(task_panel_scroll_state());
 }
-
-
-static bool tryClickRemoveTaskButton(int x, int y, int mx, int my) {
-    SDL_Rect rect = { x, y, TASK_BUTTON_HEIGHT, TASK_BUTTON_HEIGHT };
-//    printf("[Tasks] Remove Btn Rect = { x=%d, y=%d, w=%d, h=%d }, Mouse = { x=%d, y=%d }\n",
-//           rect.x, rect.y, rect.w, rect.h, mx, my);
-
-    if (!pointInRect(mx, my, rect)) return false;
-
-    if (selectedTask) {
-        handleCommandRemoveSelectedTask();   
-    }
-    return true;
-}
-
-
-
-static int getTaskTreeStartY(UIPane* pane) {
-    return pane->y + TASK_PANEL_TOP_PADDING +
-           2 * (TASK_BUTTON_HEIGHT + TASK_BUTTON_SPACING) +
-           TASK_TREE_TOP_GAP;
-}
-
-
-static void updateTaskTreeHover(int x, int startY, int mx, int my) {
-    currentY = startY;
-    for (int i = 0; i < taskRootCount; i++) {
-	    if (!taskRoots[i]) {
-	        fprintf(stderr, "[Hover] taskRoots[%d] is NULL during hover!\n", i);
-	    } else {
-	        handleTaskTreeHover(taskRoots[i], x, mx, my);
-	    }
-    }
-
-}
-
-
-
 
 
 void handleTaskMouseMotion(UIPane* pane, SDL_Event* event) {
     int mx = event->motion.x;
     int my = event->motion.y;
 
-    int treeX = pane->x + TASK_PANEL_LEFT_PADDING;
-    int treeY = getTaskTreeStartY(pane);
+    handleTaskHoverAt(pane, mx, my);
+}
+
+void handleTaskHoverAt(UIPane* pane, int mx, int my) {
+    if (!pane) return;
 
     clearAllTaskHoverStates();
-    updateTaskTreeHover(treeX, treeY, mx, my);
+    hoveredTask = NULL;
+
+    UITaskHitResult hit = {0};
+    if (task_find_hit_node(pane, mx, my, &hit)) {
+        hoveredTask = hit.node;
+        hit.node->isHovered = true;
+    }
+}
+
+static bool task_handle_top_control_click(int mx, int my) {
+    switch ((TaskTopControlId)ui_panel_tagged_rect_list_hit_test(task_panel_control_hits(), mx, my)) {
+        case TASK_TOP_CONTROL_ADD:
+            handleCommandAddTask();
+            return true;
+        case TASK_TOP_CONTROL_REMOVE:
+            if (selectedTask) {
+                handleCommandRemoveSelectedTask();
+            }
+            return true;
+        case TASK_TOP_CONTROL_NONE:
+        default:
+            return false;
+    }
 }
 
 
@@ -496,29 +530,18 @@ void handleTaskLeftClick(UIPane* pane, SDL_Event* event) {
     int mx = event->button.x;
     int my = event->button.y;
 
-    int x = pane->x + TASK_PANEL_LEFT_PADDING;
-    int y = pane->y + TASK_PANEL_TOP_PADDING;
+    if (task_handle_top_control_click(mx, my)) return;
 
-    if (tryClickAddTaskButton(x, y, mx, my)) return;
-    y += TASK_BUTTON_HEIGHT + TASK_BUTTON_SPACING;
-
-    if (tryClickRemoveTaskButton(x, y, mx, my)) return;
-    y += TASK_BUTTON_HEIGHT + TASK_BUTTON_SPACING;
-    y += TASK_TREE_TOP_GAP;
-
-    currentY = y;
-    bool clickedNode = false;
-
-    for (int i = 0; i < taskRootCount; i++) {
-        if (handleCommandClickTaskNode(taskRoots[i], x, mx, my, pane)) {
-            clickedNode = true;
-        }
-    }
-
-    if (!clickedNode) {
+    UITaskHitResult hit = {0};
+    if (!task_find_hit_node(pane, mx, my, &hit)) {
         clearAllTaskSelections();
         selectedTask = NULL;
+        hoveredTask = NULL;
+        return;
     }
+
+    hoveredTask = hit.node;
+    (void)task_activate_hit_row(&hit, mx, my);
 }
 
 
