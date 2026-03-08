@@ -161,7 +161,23 @@ static void ensureIdeFilesDir(const char* root) {
 }
 
 static const char* getDefaultWorkspacePath(void) {
-    return "/Users/calebsv16/Desktop/Project";
+    static char fallbackPath[1024];
+    const char* overridePath = getenv("IDE_DEFAULT_WORKSPACE");
+    if (overridePath && overridePath[0]) {
+        return overridePath;
+    }
+
+    const char* home = getenv("HOME");
+    if (home && home[0]) {
+        snprintf(fallbackPath, sizeof(fallbackPath), "%s/Desktop/CodeWork", home);
+        return fallbackPath;
+    }
+
+    if (getcwd(fallbackPath, sizeof(fallbackPath)) != NULL) {
+        return fallbackPath;
+    }
+
+    return ".";
 }
 
 static void loadInitialWorkspace(void) {

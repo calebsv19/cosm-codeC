@@ -49,28 +49,43 @@ You can still build and run to explore the UI!
 
 ### Build Requirements
 
-- SDL2  
-- SDL2_ttf  
-- Vulkan SDK/loader (optional; required when building with Vulkan enabled)
-- A C compiler (e.g., gcc or clang)
+- macOS or Linux
+- C compiler (`clang` or `gcc`)
+- `make`
+- `json-c`
+- `SDL2`, `SDL2_ttf`, `SDL2_image` (and optional `SDL2_mixer`)
+- Vulkan loader (`-lvulkan`) when Vulkan mode is enabled
+
+### Workspace Layout Requirement
+
+This project expects sibling shared modules from this ecosystem:
+
+```text
+CodeWork/
+  ide/
+  shared/
+  fisiCs/
+```
+
+The top-level `makefile` references these sibling paths directly.
 
 ### Build & Run
 
 ```bash
-git clone https://github.com/yourusername/custom-c-ide.git
-cd custom-c-ide
-make
+cd ide
+make debug
 ./ide
 ```
 
-Vulkan is enabled by default. If you don't have Vulkan installed, set
-`USE_VULKAN` to `0` in `src/build_config.h` and remove `-lvulkan` from the
-top-level `makefile` (or set `VULKAN_LIBS=` when invoking `make`).
+Useful run presets:
 
---- or ---
+```bash
+make run-ide-theme
+make run-ide-theme-log
+make run-ide-theme-hud
+```
 
-If you're not using make, here's the manual build line:
-gcc -g -Wall -I./src $(find src -type f -name '*.c' ! -path 'src/Libraries/*' ! -path 'src/Project/*') -o ide -lSDL2 -lSDL2_ttf
+Optional: set `IDE_DEFAULT_WORKSPACE=/path/to/project` to choose the default workspace directory on first launch.
 
 
 
@@ -84,6 +99,13 @@ gcc -g -Wall -I./src $(find src -type f -name '*.c' ! -path 'src/Libraries/*' ! 
 - **Errors panel:** grouped per file, scrollable, multi-select/copy; double-click to jump to file/line.
 - **Git:** view changes + log; entries are selectable (actions TBD).
 - **Assets:** grouped by type; text-like assets open in the editor; others are stubbed for future preview.
+
+---
+
+## Stability + Security Notes
+
+- Known alpha limitations and workarounds: `KNOWN_ISSUES.md`
+- Security model and safe usage notes: `SECURITY.md`
 
 ---
 
@@ -103,15 +125,13 @@ gcc -g -Wall -I./src $(find src -type f -name '*.c' ! -path 'src/Libraries/*' ! 
 This is a solo hobby project for now — but feedback, suggestions, or contributions are welcome.
 
 - Open an issue  
-- Fork and PR  
-- Email: `your.email@example.com`  
-- Discord: `@yourhandle` (optional)
+- Fork and PR
 
 ---
 
 ## License
 
-No license yet – ask before using or modifying. License will be added as the project matures.
+This repository currently includes the GNU LGPL v2.1 license (see `LICENSE`).
 
 ---
 

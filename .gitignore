@@ -1,11 +1,23 @@
-# Ignore compiled output
-build/
+# Build outputs
+/build/
+/ide
+/idebridge
 *.o
 *.d
 *.log
+*.dSYM/
 
+# Generated runtime artifacts
+/ide_files/
+/timing.json
+/timerhud/ide/timing.json
+/vk_frame.ppm
 
-# Ignore system files
+# OS/editor noise
 .DS_Store
+**/.DS_Store
+*.swp
+*.swo
 
+# Local-only source sandbox
 src/Project/

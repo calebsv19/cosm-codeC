@@ -21,14 +21,35 @@ static bool project_loader_debug_enabled(void) {
     return (env && env[0] == '1');
 }
 
+static void resolveDefaultWorkspacePath(char* out, size_t out_cap) {
+    if (!out || out_cap == 0) return;
+    out[0] = '\0';
+
+    const char* overridePath = getenv("IDE_DEFAULT_WORKSPACE");
+    if (overridePath && overridePath[0]) {
+        snprintf(out, out_cap, "%s", overridePath);
+        return;
+    }
+
+    const char* home = getenv("HOME");
+    if (home && home[0]) {
+        snprintf(out, out_cap, "%s/Desktop/CodeWork", home);
+        return;
+    }
+
+    if (getcwd(out, out_cap) == NULL) {
+        snprintf(out, out_cap, ".");
+    }
+}
+
 
 void initProjectPaths(void) {
     // Set project root (IDE directory) to current working directory
     getcwd(projectRootPath, sizeof(projectRootPath));
 
 
-    // Set test project to ~/Desktop/Project
-    const char* defaultProjectPath = "/Users/calebsv16/Desktop/Project";
+    char defaultProjectPath[1024];
+    resolveDefaultWorkspacePath(defaultProjectPath, sizeof(defaultProjectPath));
     const char* persistedPath = loadWorkspacePreference();
     if (persistedPath && persistedPath[0] != '\0') {
         setWorkspacePath(persistedPath);
