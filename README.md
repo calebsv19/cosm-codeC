@@ -58,16 +58,19 @@ You can still build and run to explore the UI!
 
 ### Workspace Layout Requirement
 
-This project expects sibling shared modules from this ecosystem:
+This project currently expects:
 
 ```text
 CodeWork/
   ide/
-  shared/
   fisiCs/
 ```
 
-The top-level `makefile` references these sibling paths directly.
+Shared modules are vendored inside this repo at:
+
+```text
+ide/third_party/codework_shared/
+```
 
 ### Build & Run
 
@@ -86,6 +89,19 @@ make run-ide-theme-hud
 ```
 
 Optional: set `IDE_DEFAULT_WORKSPACE=/path/to/project` to choose the default workspace directory on first launch.
+
+### Shared Subtree Update Workflow
+
+```bash
+git -C ide fetch shared-upstream main
+git -C ide subtree pull --prefix=third_party/codework_shared shared-upstream main --squash
+```
+
+Rebuild check after updating shared:
+
+```bash
+make -C ide clean && make -C ide
+```
 
 
 

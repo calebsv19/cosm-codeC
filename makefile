@@ -3,22 +3,23 @@
 
   # Detect Homebrew prefix (works on Intel and Apple Silicon)
   BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
+  SHARED_ROOT ?= third_party/codework_shared
 
   # Shared include/lib search paths
-  VK_RENDERER_DIR := ../shared/vk_renderer
-  CORE_BASE_DIR := ../shared/core/core_base
-  CORE_IO_DIR := ../shared/core/core_io
-  CORE_DATA_DIR := ../shared/core/core_data
-  CORE_PACK_DIR := ../shared/core/core_pack
-  CORE_THEME_DIR := ../shared/core/core_theme
-  CORE_FONT_DIR := ../shared/core/core_font
-  CORE_TIME_DIR := ../shared/core/core_time
-  CORE_QUEUE_DIR := ../shared/core/core_queue
-  CORE_SCHED_DIR := ../shared/core/core_sched
-  CORE_JOBS_DIR := ../shared/core/core_jobs
-  CORE_WORKERS_DIR := ../shared/core/core_workers
-  CORE_WAKE_DIR := ../shared/core/core_wake
-  CORE_KERNEL_DIR := ../shared/core/core_kernel
+  VK_RENDERER_DIR := $(SHARED_ROOT)/vk_renderer
+  CORE_BASE_DIR := $(SHARED_ROOT)/core/core_base
+  CORE_IO_DIR := $(SHARED_ROOT)/core/core_io
+  CORE_DATA_DIR := $(SHARED_ROOT)/core/core_data
+  CORE_PACK_DIR := $(SHARED_ROOT)/core/core_pack
+  CORE_THEME_DIR := $(SHARED_ROOT)/core/core_theme
+  CORE_FONT_DIR := $(SHARED_ROOT)/core/core_font
+  CORE_TIME_DIR := $(SHARED_ROOT)/core/core_time
+  CORE_QUEUE_DIR := $(SHARED_ROOT)/core/core_queue
+  CORE_SCHED_DIR := $(SHARED_ROOT)/core/core_sched
+  CORE_JOBS_DIR := $(SHARED_ROOT)/core/core_jobs
+  CORE_WORKERS_DIR := $(SHARED_ROOT)/core/core_workers
+  CORE_WAKE_DIR := $(SHARED_ROOT)/core/core_wake
+  CORE_KERNEL_DIR := $(SHARED_ROOT)/core/core_kernel
   INC_DIRS := -I./src -I./include -I$(VK_RENDERER_DIR)/include -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_DATA_DIR)/include -I$(CORE_PACK_DIR)/include -I$(CORE_THEME_DIR)/include -I$(CORE_FONT_DIR)/include -I$(CORE_TIME_DIR)/include -I$(CORE_QUEUE_DIR)/include -I$(CORE_SCHED_DIR)/include -I$(CORE_JOBS_DIR)/include -I$(CORE_WORKERS_DIR)/include -I$(CORE_WAKE_DIR)/include -I$(CORE_KERNEL_DIR)/include
   LIB_DIRS :=
 
@@ -86,7 +87,7 @@
   $(warning llvm-config not found; Fisics frontend linking may fail.)
   endif
 
-  TIMER_HUD_DIR := ../shared/timer_hud
+  TIMER_HUD_DIR := $(SHARED_ROOT)/timer_hud
   TIMER_HUD_INC := -I$(TIMER_HUD_DIR)/include -I$(TIMER_HUD_DIR)/external
 
   BASE_CFLAGS = -Wall -std=c99 -MMD -MP $(INC_DIRS) -I$(FISICS_INC) $(LLVM_CFLAGS) -DVK_RENDERER_SHADER_ROOT=\"$(ABS_VK_SHADER_ROOT)\" $(TIMER_HUD_INC)
