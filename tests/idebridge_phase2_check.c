@@ -208,6 +208,12 @@ int main(void) {
         ide_ipc_stop();
         return 1;
     }
+    const char* auth_token = ide_ipc_auth_token();
+    if (!auth_token || !*auth_token) {
+        fprintf(stderr, "missing auth token\n");
+        ide_ipc_stop();
+        return 1;
+    }
 
     char response[32768];
 
@@ -266,7 +272,10 @@ int main(void) {
 
     // open success: requires pump on main thread
     s_open_called = false;
-    const char* open_req = "{\"id\":\"o1\",\"proto\":1,\"cmd\":\"open\",\"args\":{\"path\":\"src/a.c\",\"line\":7,\"col\":2}}";
+    char open_req[2048];
+    snprintf(open_req, sizeof(open_req),
+             "{\"id\":\"o1\",\"proto\":1,\"cmd\":\"open\",\"auth_token\":\"%s\",\"args\":{\"path\":\"src/a.c\",\"line\":7,\"col\":2}}",
+             auth_token);
     int fd = connect_socket(socket_path);
     if (fd < 0) {
         fprintf(stderr, "open connect failed\n");
@@ -291,7 +300,10 @@ int main(void) {
 
     // open failure
     s_open_called = false;
-    const char* open_fail_req = "{\"id\":\"o2\",\"proto\":1,\"cmd\":\"open\",\"args\":{\"path\":\"missing.c\",\"line\":1,\"col\":1}}";
+    char open_fail_req[2048];
+    snprintf(open_fail_req, sizeof(open_fail_req),
+             "{\"id\":\"o2\",\"proto\":1,\"cmd\":\"open\",\"auth_token\":\"%s\",\"args\":{\"path\":\"missing.c\",\"line\":1,\"col\":1}}",
+             auth_token);
     fd = connect_socket(socket_path);
     if (fd < 0) {
         fprintf(stderr, "open fail connect failed\n");

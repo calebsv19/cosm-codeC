@@ -181,10 +181,17 @@ int main(void) {
         ide_ipc_stop();
         return 1;
     }
+    const char* auth_token = ide_ipc_auth_token();
+    if (!auth_token || !*auth_token) {
+        fprintf(stderr, "auth token missing\n");
+        ide_ipc_stop();
+        return 1;
+    }
 
     char req_ok[8192];
     snprintf(req_ok, sizeof(req_ok),
-             "{\"id\":\"e1\",\"proto\":1,\"cmd\":\"edit\",\"args\":{\"op\":\"apply\",\"diff\":\"%s\",\"check_hash\":true,\"hashes\":{\"src/a.c\":\"%s\"}}}",
+             "{\"id\":\"e1\",\"proto\":1,\"cmd\":\"edit\",\"auth_token\":\"%s\",\"args\":{\"op\":\"apply\",\"diff\":\"%s\",\"check_hash\":true,\"hashes\":{\"src/a.c\":\"%s\"}}}",
+             auth_token,
              "--- a/src/a.c\\n+++ b/src/a.c\\n@@ -1,1 +1,1 @@\\n-int x = 1;\\n+int x = 2;\\n",
              hash);
 
@@ -206,7 +213,8 @@ int main(void) {
 
     char req_bad_hash[8192];
     snprintf(req_bad_hash, sizeof(req_bad_hash),
-             "{\"id\":\"e2\",\"proto\":1,\"cmd\":\"edit\",\"args\":{\"op\":\"apply\",\"diff\":\"%s\",\"check_hash\":true,\"hashes\":{\"src/a.c\":\"deadbeefdeadbeef\"}}}",
+             "{\"id\":\"e2\",\"proto\":1,\"cmd\":\"edit\",\"auth_token\":\"%s\",\"args\":{\"op\":\"apply\",\"diff\":\"%s\",\"check_hash\":true,\"hashes\":{\"src/a.c\":\"deadbeefdeadbeef\"}}}",
+             auth_token,
              "--- a/src/a.c\\n+++ b/src/a.c\\n@@ -1,1 +1,1 @@\\n-int x = 1;\\n+int x = 2;\\n");
 
     if (send_then_pump_recv(socket_path, req_bad_hash, response, sizeof(response)) != 0) {
@@ -219,8 +227,10 @@ int main(void) {
         return 1;
     }
 
-    const char* req_no_hash =
-        "{\"id\":\"e3\",\"proto\":1,\"cmd\":\"edit\",\"args\":{\"op\":\"apply\",\"diff\":\"--- a/src/a.c\\n+++ b/src/a.c\\n@@ -1,1 +1,1 @@\\n-int x = 1;\\n+int x = 3;\\n\",\"check_hash\":false,\"hashes\":{}}}";
+    char req_no_hash[8192];
+    snprintf(req_no_hash, sizeof(req_no_hash),
+             "{\"id\":\"e3\",\"proto\":1,\"cmd\":\"edit\",\"auth_token\":\"%s\",\"args\":{\"op\":\"apply\",\"diff\":\"--- a/src/a.c\\n+++ b/src/a.c\\n@@ -1,1 +1,1 @@\\n-int x = 1;\\n+int x = 3;\\n\",\"check_hash\":false,\"hashes\":{}}}",
+             auth_token);
     if (send_then_pump_recv(socket_path, req_no_hash, response, sizeof(response)) != 0) {
         ide_ipc_stop();
         return 1;
@@ -231,8 +241,10 @@ int main(void) {
         return 1;
     }
 
-    const char* req_bad_diff =
-        "{\"id\":\"e4\",\"proto\":1,\"cmd\":\"edit\",\"args\":{\"op\":\"apply\",\"diff\":\"not a unified diff\",\"check_hash\":false,\"hashes\":{}}}";
+    char req_bad_diff[4096];
+    snprintf(req_bad_diff, sizeof(req_bad_diff),
+             "{\"id\":\"e4\",\"proto\":1,\"cmd\":\"edit\",\"auth_token\":\"%s\",\"args\":{\"op\":\"apply\",\"diff\":\"not a unified diff\",\"check_hash\":false,\"hashes\":{}}}",
+             auth_token);
     if (send_then_pump_recv(socket_path, req_bad_diff, response, sizeof(response)) != 0) {
         ide_ipc_stop();
         return 1;

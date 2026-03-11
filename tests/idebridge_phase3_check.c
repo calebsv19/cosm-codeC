@@ -121,6 +121,12 @@ int main(void) {
         ide_ipc_stop();
         return 1;
     }
+    const char* auth_token = ide_ipc_auth_token();
+    if (!auth_token || !*auth_token) {
+        fprintf(stderr, "auth token missing\n");
+        ide_ipc_stop();
+        return 1;
+    }
 
     char response[65536];
 
@@ -176,7 +182,10 @@ int main(void) {
     }
     json_object_put(root);
 
-    const char* build_req_ok = "{\"id\":\"b1\",\"proto\":1,\"cmd\":\"build\",\"args\":{\"profile\":\"debug\"}}";
+    char build_req_ok[2048];
+    snprintf(build_req_ok, sizeof(build_req_ok),
+             "{\"id\":\"b1\",\"proto\":1,\"cmd\":\"build\",\"auth_token\":\"%s\",\"args\":{\"profile\":\"debug\"}}",
+             auth_token);
     if (send_and_recv(socket_path, build_req_ok, response, sizeof(response)) != 0) {
         fprintf(stderr, "build request failed\n");
         ide_ipc_stop();
@@ -202,7 +211,10 @@ int main(void) {
         return 1;
     }
 
-    const char* build_req_fail = "{\"id\":\"b2\",\"proto\":1,\"cmd\":\"build\",\"args\":{}}";
+    char build_req_fail[2048];
+    snprintf(build_req_fail, sizeof(build_req_fail),
+             "{\"id\":\"b2\",\"proto\":1,\"cmd\":\"build\",\"auth_token\":\"%s\",\"args\":{}}",
+             auth_token);
     if (send_and_recv(socket_path, build_req_fail, response, sizeof(response)) != 0) {
         fprintf(stderr, "build fail request failed\n");
         ide_ipc_stop();

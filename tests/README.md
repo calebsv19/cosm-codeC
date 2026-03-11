@@ -20,3 +20,10 @@ of the rendering stack and other subsystems outside the main IDE loop.
 
 As additional automated coverage is added, place new suites in this directory
 and extend this document so future contributors can spot gaps quickly.
+
+## Auth Contract Note
+
+Mutating IPC commands (`open`, `build`, `edit`) in phase-2 through phase-6
+tests include the session `auth_token` returned by the running IPC server.
+This matches production IDE behavior and prevents false failures in integration
+checks when auth enforcement tightens.
