@@ -92,9 +92,12 @@ typedef struct {
 typedef struct {
     char* cached_file_path;
     uint64_t cached_stamp;
+    uint64_t pending_symbols_stamp;
+    bool pending_symbols_update;
     bool cached_show_auto_params;
     bool cached_show_macros;
     size_t cached_project_file_count;
+    bool cached_project_file_count_valid;
     const DirEntry* cached_project_root;
 } ControlPanelCacheState;
 
@@ -219,9 +222,12 @@ static ControlPanelControllerState* control_panel_state(void) {
 
 #define cachedFilePath (control_panel_state()->cache.cached_file_path)
 #define cachedStamp (control_panel_state()->cache.cached_stamp)
+#define pendingSymbolsStamp (control_panel_state()->cache.pending_symbols_stamp)
+#define pendingSymbolsUpdate (control_panel_state()->cache.pending_symbols_update)
 #define cachedShowAutoParams (control_panel_state()->cache.cached_show_auto_params)
 #define cachedShowMacros (control_panel_state()->cache.cached_show_macros)
 #define cachedProjectFileCount (control_panel_state()->cache.cached_project_file_count)
+#define cachedProjectFileCountValid (control_panel_state()->cache.cached_project_file_count_valid)
 #define cachedProjectRoot (control_panel_state()->cache.cached_project_root)
 
 enum { CONTROL_PANEL_TREE_VIEWPORT_TOP_INSET = 30 };
@@ -503,6 +509,13 @@ static void free_cached_path(void) {
 
 static uint64_t compute_store_stamp(void) {
     return analysis_symbols_store_combined_stamp();
+}
+
+void control_panel_note_symbol_store_updated(const char* project_root,
+                                             uint64_t symbols_stamp) {
+    (void)project_root;
+    pendingSymbolsStamp = symbols_stamp;
+    pendingSymbolsUpdate = true;
 }
 
 static size_t count_project_files(const DirEntry* entry, int depth) {
@@ -978,9 +991,12 @@ void control_panel_reset_symbol_tree(void) {
     control_reset_match_button_order();
     selectedMatchButton = CONTROL_FILTER_BTN_NONE;
     cachedStamp = 0;
+    pendingSymbolsStamp = 0;
+    pendingSymbolsUpdate = false;
     cachedShowAutoParams = showAutoParamNames;
     cachedShowMacros = showMacros;
     cachedProjectFileCount = 0;
+    cachedProjectFileCountValid = false;
     cachedProjectRoot = NULL;
     symbolSelectionAllVisible = false;
     visibleTreeDirty = true;
@@ -1036,15 +1052,28 @@ bool control_panel_point_in_symbol_tree_content(const UIPane* pane, int x, int y
 
 void control_panel_refresh_symbol_tree(const DirEntry* projectRoot,
                                        const char* filePath) {
-    uint64_t stamp = compute_store_stamp();
-    size_t projectFileCount = count_project_files(projectRoot, 0);
+    bool hasSymbolsUpdate = pendingSymbolsUpdate;
+    uint64_t stamp = cachedStamp;
+    if (hasSymbolsUpdate) {
+        stamp = pendingSymbolsStamp;
+    } else if (!baseSymbolTree || cachedStamp == 0) {
+        // Bootstrap path for initial render/session restore.
+        stamp = compute_store_stamp();
+        hasSymbolsUpdate = true;
+    }
+    bool projectRootChanged = (projectRoot != cachedProjectRoot);
+    size_t projectFileCount = cachedProjectFileCount;
+    if (hasSymbolsUpdate || projectRootChanged || !cachedProjectFileCountValid) {
+        projectFileCount = count_project_files(projectRoot, 0);
+    }
     bool fileChanged = ((filePath == NULL) != (cachedFilePath == NULL)) ||
                        (filePath && (!cachedFilePath || strcmp(filePath, cachedFilePath) != 0));
-    bool analysisChanged = (stamp != cachedStamp) ||
+    bool analysisChanged = hasSymbolsUpdate ||
+                           (stamp != cachedStamp) ||
                            (cachedShowAutoParams != showAutoParamNames) ||
                            (cachedShowMacros != showMacros) ||
                            (projectFileCount != cachedProjectFileCount) ||
-                           (projectRoot != cachedProjectRoot);
+                           projectRootChanged;
     bool needsRebuild = fileChanged ||
                         analysisChanged;
     if (!needsRebuild) return;
@@ -1072,9 +1101,11 @@ void control_panel_refresh_symbol_tree(const DirEntry* projectRoot,
         control_panel_mark_visible_tree_dirty();
     }
     cachedStamp = stamp;
+    pendingSymbolsUpdate = false;
     cachedShowAutoParams = showAutoParamNames;
     cachedShowMacros = showMacros;
     cachedProjectFileCount = projectFileCount;
+    cachedProjectFileCountValid = true;
     cachedProjectRoot = projectRoot;
 
     free_cached_path();

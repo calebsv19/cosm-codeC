@@ -10,6 +10,7 @@ static AnalysisFileDiagnostics* g_files = NULL;
 static size_t g_file_count = 0;
 static size_t g_file_cap = 0;
 static uint64_t g_stamp_counter = 0;
+static uint64_t g_published_stamp = 0;
 static pthread_mutex_t g_analysis_store_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void analysis_store_lock(void) {
@@ -42,6 +43,7 @@ static void analysis_store_clear_locked(void) {
     g_file_count = 0;
     g_file_cap = 0;
     g_stamp_counter = 0;
+    g_published_stamp = 0;
 }
 
 void analysis_store_clear(void) {
@@ -143,6 +145,9 @@ void analysis_store_remove(const char* filePath) {
             g_files[j - 1] = g_files[j];
         }
         g_file_count--;
+        // Removal is a state change and must advance the stamp so stale guards
+        // can differentiate deletion-only updates from prior snapshots.
+        g_stamp_counter++;
     }
     analysis_store_unlock();
 }
@@ -154,6 +159,26 @@ size_t analysis_store_file_count(void) {
 const AnalysisFileDiagnostics* analysis_store_file_at(size_t idx) {
     if (idx >= g_file_count) return NULL;
     return &g_files[idx];
+}
+
+uint64_t analysis_store_combined_stamp(void) {
+    analysis_store_lock();
+    uint64_t stamp = g_stamp_counter;
+    analysis_store_unlock();
+    return stamp;
+}
+
+uint64_t analysis_store_published_stamp(void) {
+    analysis_store_lock();
+    uint64_t stamp = g_published_stamp;
+    analysis_store_unlock();
+    return stamp;
+}
+
+void analysis_store_mark_published(uint64_t stamp) {
+    analysis_store_lock();
+    g_published_stamp = stamp;
+    analysis_store_unlock();
 }
 
 static void analysis_store_flatten_to_engine_locked(void) {

@@ -16,7 +16,8 @@ isolation.
 | [`Ipc/`](Ipc/README.md) | Local Unix socket protocol for editor automation, patch application, and guarded workspace file access. |
 | [`LoopJobs/`](LoopJobs/README.md) | Main-thread job queue for work that must re-enter the UI thread safely. |
 | [`LoopKernel/`](LoopKernel/README.md) | Frame-loop coordination for queued work, timers, messages, and render requests. |
-| [`LoopMessages/`](LoopMessages/README.md) | Worker-to-main-thread message queue for analysis progress and git snapshots. |
+| [`LoopEvents/`](LoopEvents/README.md) | Main-thread runtime event queue for bounded, deterministic event-driven updates. |
+| [`LoopResults/`](LoopResults/README.md) | Per-subsystem completed result queues used by workers to hand results to the deterministic main-thread apply path. |
 | [`LoopTime/`](LoopTime/README.md) | Monotonic timing helpers shared by loop subsystems. |
 | [`LoopTimer/`](LoopTimer/README.md) | Main-thread timer scheduler used for delayed and repeating callbacks. |
 | [`LoopWake/`](LoopWake/README.md) | SDL wake-event bridge so worker threads can nudge the frame loop. |

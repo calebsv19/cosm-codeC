@@ -32,6 +32,9 @@ size_t analysis_store_file_count(void);
 
 // Access a file entry by index (recency-ordered: 0 = newest). Returns NULL if out of range.
 const AnalysisFileDiagnostics* analysis_store_file_at(size_t idx);
+uint64_t analysis_store_combined_stamp(void);
+uint64_t analysis_store_published_stamp(void);
+void analysis_store_mark_published(uint64_t stamp);
 
 // Flatten current store into the legacy diagnostics_engine (recency-ordered).
 void analysis_store_flatten_to_engine(void);

@@ -10,6 +10,7 @@ metadata that powers diagnostics, symbols, tokens, and the Libraries panel.
 | `analysis_snapshot.*` | Captures workspace file fingerprints so incremental runs can decide what actually changed. |
 | `analysis_cache.*` | Saves and validates cache metadata, including build-args hashes, frontend fingerprints, and cached artifact files. |
 | `analysis_status.*` | Exposes current analysis status, progress, cache presence, and last-error state to the rest of the IDE. |
+| `analysis_runtime_events.*` | Emits deterministic runtime events for analysis store hydration/update handoff into the event-driven UI pipeline. |
 | `analysis_store.*` | Stores per-file diagnostics and persists them to disk. |
 | `analysis_symbols_store.*` | Stores extracted symbol data and persists it across sessions. |
 | `analysis_token_store.*` | Stores token spans used by UI surfaces that need lexical data. |

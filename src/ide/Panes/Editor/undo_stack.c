@@ -155,6 +155,7 @@ bool performUndo(OpenFile* file) {
     stack->typedWordLen = 0;
     stack->typedWordCap = 0;
 
+    markFileAsModified(file);
 
     return true;
 }
@@ -201,6 +202,8 @@ bool performRedo(OpenFile* file) {
     stack->typedWord = NULL;
     stack->typedWordLen = 0;
     stack->typedWordCap = 0;
+
+    markFileAsModified(file);
 
     return true;
 }

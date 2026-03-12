@@ -14,6 +14,7 @@
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/Analysis/include_path_resolver.h"
+#include "core/LoopEvents/event_queue.h"
 #include "app/GlobalInfo/project.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 
@@ -202,6 +203,8 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
                                   inc->column);
     }
     analysis_store_flatten_to_engine();
+    loop_events_emit_symbol_tree_updated(projectPath, 0u, analysis_symbols_store_combined_stamp());
+    loop_events_emit_diagnostics_updated(projectPath, 0u, analysis_store_combined_stamp());
 
     cache_tokens(filePath, result.tokens, result.token_count);
     cache_symbols(filePath, result.symbols, result.symbol_count);

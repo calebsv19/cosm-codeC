@@ -31,6 +31,7 @@
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/analysis_cache.h"
 #include "core/Analysis/analysis_snapshot.h"
+#include "core/Analysis/analysis_runtime_events.h"
 #include "core/Analysis/include_path_resolver.h"
 #include "core/Analysis/include_graph.h"
 #include "core/Analysis/analysis_status.h"
@@ -38,7 +39,8 @@
 #include "core/Analysis/analysis_job.h"
 #include "core/LoopWake/mainthread_wake.h"
 #include "core/LoopTimer/mainthread_timer_scheduler.h"
-#include "core/LoopMessages/mainthread_message_queue.h"
+#include "core/LoopResults/completed_results_queue.h"
+#include "core/LoopEvents/event_queue.h"
 #include "core/LoopJobs/mainthread_jobs.h"
 #include "core/LoopKernel/mainthread_kernel.h"
 #include "core/Ipc/ide_ipc_server.h"
@@ -384,7 +386,9 @@ bool initializeSystem() {
     analysis_job_system_init();
     analysis_scheduler_init();
     mainthread_timer_scheduler_init();
-    mainthread_message_queue_init();
+    editor_edit_transaction_reset();
+    completed_results_queue_init();
+    loop_events_init();
     mainthread_jobs_init();
     mainthread_kernel_init();
 
@@ -425,6 +429,7 @@ bool initializeSystem() {
     }
     include_graph_load(projectPath);
     analysis_status_set_has_cache(loadedCache || loadedSymbols || loadedTokens);
+    (void)analysis_emit_store_hydrated_events(projectPath);
     // Session state can restore search/projection before symbols are loaded.
     // Force a sync after caches/stores are available so projection rows rebuild
     // against the latest symbol metadata.
@@ -540,8 +545,10 @@ void shutdownSystem(UIPane** panes, int paneCount) {
     mainthread_wake_shutdown();
     analysis_job_system_shutdown();
     mainthread_kernel_shutdown();
+    editor_edit_transaction_reset();
     mainthread_timer_scheduler_shutdown();
-    mainthread_message_queue_shutdown();
+    completed_results_queue_shutdown();
+    loop_events_shutdown();
     mainthread_jobs_shutdown();
     SDL_Quit();
 }

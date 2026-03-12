@@ -7,6 +7,7 @@
 #include "ide/Panes/Editor/editor_state.h"
 #include "ide/Panes/Editor/editor_view_state.h"
 #include "ide/Panes/Editor/editor_buffer.h"
+#include "ide/Panes/Editor/editor_edit_transaction_core.h"
 
 #include "ide/Panes/Editor/Input/input_editor.h" // for &editorInputHandler
 
@@ -76,11 +77,10 @@ typedef struct OpenFile{
     bool pendingTextEdit;
 
     uint64_t bufferVersion;
+    uint64_t documentRevision;
     EditorRenderSource renderSource;
     SearchProjection projection;
 } OpenFile;
-
-
 
 typedef enum {
     VIEW_LEAF,    // Normal editor with tabs
@@ -252,6 +252,12 @@ void switchTab(EditorView* view, int direction); // -1 = left, +1 = right
 // File state management
 const char* getFileName(const char* path);
 void markFileAsModified(OpenFile* file);
+uint64_t open_file_document_revision(const OpenFile* file);
+bool editor_find_open_file_revision_by_path(const char* filePath, uint64_t* out_revision);
+void editor_edit_transaction_note_document_edit(OpenFile* file);
+void editor_edit_transaction_update_active_context(void);
+void editor_edit_transaction_reset(void);
+void editor_edit_transaction_snapshot(EditorEditTransactionSnapshot* out);
 
 // File lifecycle
 OpenFile* openFileInView(EditorView* view, const char* filePath);

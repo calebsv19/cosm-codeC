@@ -16,18 +16,21 @@
 #include "core/Analysis/include_path_resolver.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/project_scan.h"
-#include "core/LoopMessages/mainthread_message_queue.h"
+#include "core/LoopResults/completed_results_queue.h"
 #include "core/LoopWake/mainthread_wake.h"
 
 static SDL_Thread* g_thread = NULL;
 static bool g_thread_running = false;
 static bool g_force_full_refresh = false;
+static uint64_t g_analysis_run_id = 0;
 static char g_last_error[256];
 static char g_project_root[1024];
 static char g_build_args[1024];
 static SDL_atomic_t g_cancel_requested;
 static SDL_atomic_t g_slow_mode_next_run;
 static SDL_atomic_t g_slow_mode_active;
+static SDL_atomic_t g_last_progress_completed;
+static SDL_atomic_t g_last_progress_total;
 
 bool analysis_job_system_init(void) {
     return true;
@@ -38,17 +41,110 @@ void analysis_job_system_shutdown(void) {
 }
 
 static void analysis_queue_finished_message(bool cancelled, bool had_error) {
-    MainThreadMessage msg;
-    memset(&msg, 0, sizeof(msg));
-    msg.type = MAINTHREAD_MSG_ANALYSIS_FINISHED;
-    msg.payload.analysis_finished.cancelled = cancelled;
-    msg.payload.analysis_finished.had_error = had_error;
-    snprintf(msg.payload.analysis_finished.project_root,
-             sizeof(msg.payload.analysis_finished.project_root),
+    CompletedResult result;
+    memset(&result, 0, sizeof(result));
+    result.subsystem = COMPLETED_SUBSYSTEM_ANALYSIS;
+    result.kind = COMPLETED_RESULT_ANALYSIS_FINISHED;
+    result.payload.analysis_finished.analysis_run_id = g_analysis_run_id;
+    result.payload.analysis_finished.cancelled = cancelled;
+    result.payload.analysis_finished.had_error = had_error;
+    snprintf(result.payload.analysis_finished.project_root,
+             sizeof(result.payload.analysis_finished.project_root),
              "%s",
              g_project_root);
-    msg.payload.analysis_finished.project_root[sizeof(msg.payload.analysis_finished.project_root) - 1] = '\0';
-    mainthread_message_queue_push(&msg);
+    result.payload.analysis_finished.project_root[sizeof(result.payload.analysis_finished.project_root) - 1] = '\0';
+    completed_results_queue_push(&result);
+}
+
+static void analysis_queue_symbols_updated_message(uint64_t symbols_stamp) {
+    CompletedResult result;
+    memset(&result, 0, sizeof(result));
+    result.subsystem = COMPLETED_SUBSYSTEM_SYMBOLS;
+    result.kind = COMPLETED_RESULT_SYMBOLS_UPDATED;
+    result.payload.symbols_updated.analysis_run_id = g_analysis_run_id;
+    result.payload.symbols_updated.symbols_stamp = symbols_stamp;
+    snprintf(result.payload.symbols_updated.project_root,
+             sizeof(result.payload.symbols_updated.project_root),
+             "%s",
+             g_project_root);
+    result.payload.symbols_updated.project_root[sizeof(result.payload.symbols_updated.project_root) - 1] = '\0';
+    completed_results_queue_push(&result);
+}
+
+static void analysis_queue_diagnostics_updated_message(uint64_t diagnostics_stamp) {
+    CompletedResult result;
+    memset(&result, 0, sizeof(result));
+    result.subsystem = COMPLETED_SUBSYSTEM_DIAGNOSTICS;
+    result.kind = COMPLETED_RESULT_DIAGNOSTICS_UPDATED;
+    result.payload.diagnostics_updated.analysis_run_id = g_analysis_run_id;
+    result.payload.diagnostics_updated.diagnostics_stamp = diagnostics_stamp;
+    snprintf(result.payload.diagnostics_updated.project_root,
+             sizeof(result.payload.diagnostics_updated.project_root),
+             "%s",
+             g_project_root);
+    result.payload.diagnostics_updated.project_root[sizeof(result.payload.diagnostics_updated.project_root) - 1] = '\0';
+    completed_results_queue_push(&result);
+}
+
+void analysis_job_report_status_update(bool set_status,
+                                       int status_value,
+                                       bool set_has_cache,
+                                       bool has_cache,
+                                       bool set_last_error,
+                                       const char* last_error) {
+    CompletedResult result;
+    memset(&result, 0, sizeof(result));
+    result.subsystem = COMPLETED_SUBSYSTEM_ANALYSIS;
+    result.kind = COMPLETED_RESULT_ANALYSIS_STATUS_UPDATE;
+    result.payload.analysis_status_update.analysis_run_id = g_analysis_run_id;
+    result.payload.analysis_status_update.set_status = set_status;
+    result.payload.analysis_status_update.status_value = status_value;
+    result.payload.analysis_status_update.set_has_cache = set_has_cache;
+    result.payload.analysis_status_update.has_cache = has_cache;
+    result.payload.analysis_status_update.set_last_error = set_last_error;
+    if (set_last_error && last_error) {
+        snprintf(result.payload.analysis_status_update.last_error,
+                 sizeof(result.payload.analysis_status_update.last_error),
+                 "%s",
+                 last_error);
+        result.payload.analysis_status_update.last_error[sizeof(result.payload.analysis_status_update.last_error) - 1] = '\0';
+    } else {
+        result.payload.analysis_status_update.last_error[0] = '\0';
+    }
+    snprintf(result.payload.analysis_status_update.project_root,
+             sizeof(result.payload.analysis_status_update.project_root),
+             "%s",
+             g_project_root);
+    result.payload.analysis_status_update.project_root[sizeof(result.payload.analysis_status_update.project_root) - 1] = '\0';
+    completed_results_queue_push(&result);
+}
+
+void analysis_job_report_progress(int completed_files, int total_files) {
+    if (completed_files < 0) completed_files = 0;
+    if (total_files < 0) total_files = 0;
+    if (completed_files > total_files) completed_files = total_files;
+
+    int prev_completed = SDL_AtomicGet(&g_last_progress_completed);
+    int prev_total = SDL_AtomicGet(&g_last_progress_total);
+    if (prev_completed == completed_files && prev_total == total_files) {
+        return;
+    }
+    SDL_AtomicSet(&g_last_progress_completed, completed_files);
+    SDL_AtomicSet(&g_last_progress_total, total_files);
+
+    CompletedResult result;
+    memset(&result, 0, sizeof(result));
+    result.subsystem = COMPLETED_SUBSYSTEM_ANALYSIS;
+    result.kind = COMPLETED_RESULT_ANALYSIS_PROGRESS;
+    result.payload.analysis_progress.analysis_run_id = g_analysis_run_id;
+    result.payload.analysis_progress.completed_files = completed_files;
+    result.payload.analysis_progress.total_files = total_files;
+    snprintf(result.payload.analysis_progress.project_root,
+             sizeof(result.payload.analysis_progress.project_root),
+             "%s",
+             g_project_root);
+    result.payload.analysis_progress.project_root[sizeof(result.payload.analysis_progress.project_root) - 1] = '\0';
+    completed_results_queue_push(&result);
 }
 
 static bool library_index_has_entries(void) {
@@ -277,7 +373,12 @@ static int analysis_thread_fn(void* data) {
     SDL_AtomicSet(&g_slow_mode_next_run, 0);
     if (!g_project_root[0]) {
         snprintf(g_last_error, sizeof(g_last_error), "No project root provided");
-        analysis_status_set(ANALYSIS_STATUS_IDLE);
+        analysis_job_report_status_update(true,
+                                          ANALYSIS_STATUS_IDLE,
+                                          false,
+                                          false,
+                                          true,
+                                          g_last_error);
         analysis_refresh_set_running(false);
         SDL_AtomicSet(&g_slow_mode_active, 0);
         analysis_queue_finished_message(false, true);
@@ -289,8 +390,12 @@ static int analysis_thread_fn(void* data) {
 
     if (analysis_job_cancel_requested()) {
         free_build_flag_set(&flags);
-        analysis_status_set_last_error(NULL);
-        analysis_status_set(ANALYSIS_STATUS_IDLE);
+        analysis_job_report_status_update(true,
+                                          ANALYSIS_STATUS_IDLE,
+                                          false,
+                                          false,
+                                          true,
+                                          NULL);
         analysis_refresh_set_running(false);
         g_thread_running = false;
         g_thread = NULL;
@@ -325,16 +430,25 @@ static int analysis_thread_fn(void* data) {
         analysis_cache_save_metadata(g_project_root, g_build_args);
         analysis_cache_save_build_flags(&flags, g_project_root);
         library_index_save(g_project_root);
+        analysis_queue_symbols_updated_message(analysis_symbols_store_combined_stamp());
+        analysis_queue_diagnostics_updated_message(analysis_store_combined_stamp());
     }
 
     free_build_flag_set(&flags);
     if (!cancelled) {
-        analysis_status_set_has_cache(true);
-        analysis_status_set(ANALYSIS_STATUS_FRESH);
-        analysis_status_set_last_error(NULL);
+        analysis_job_report_status_update(true,
+                                          ANALYSIS_STATUS_FRESH,
+                                          true,
+                                          true,
+                                          true,
+                                          NULL);
     } else {
-        analysis_status_set_last_error(NULL);
-        analysis_status_set(ANALYSIS_STATUS_IDLE);
+        analysis_job_report_status_update(true,
+                                          ANALYSIS_STATUS_IDLE,
+                                          false,
+                                          false,
+                                          true,
+                                          NULL);
     }
     analysis_queue_finished_message(cancelled, false);
     analysis_refresh_set_running(false);
@@ -367,11 +481,14 @@ bool analysis_job_cancel_requested(void) {
     return SDL_AtomicGet(&g_cancel_requested) != 0;
 }
 
-void start_async_workspace_analysis(const char* project_root, const char* build_args) {
+void start_async_workspace_analysis(const char* project_root, const char* build_args, uint64_t run_id) {
     if (g_thread_running) return; // already running
     if (!project_root || !*project_root) return;
     SDL_AtomicSet(&g_cancel_requested, 0);
+    SDL_AtomicSet(&g_last_progress_completed, -1);
+    SDL_AtomicSet(&g_last_progress_total, -1);
     memset(g_last_error, 0, sizeof(g_last_error));
+    g_analysis_run_id = run_id;
     snprintf(g_project_root, sizeof(g_project_root), "%s", project_root);
     g_project_root[sizeof(g_project_root) - 1] = '\0';
     if (build_args) {
@@ -391,9 +508,19 @@ void start_async_workspace_analysis(const char* project_root, const char* build_
                                              NULL);
     if (!g_thread) {
         snprintf(g_last_error, sizeof(g_last_error), "Failed to create analysis thread: %s", SDL_GetError());
-        analysis_status_set_last_error(g_last_error);
+        analysis_job_report_status_update(false,
+                                          0,
+                                          false,
+                                          false,
+                                          true,
+                                          g_last_error);
         analysis_refresh_set_running(false);
-        analysis_status_set(ANALYSIS_STATUS_IDLE);
+        analysis_job_report_status_update(true,
+                                          ANALYSIS_STATUS_IDLE,
+                                          false,
+                                          false,
+                                          false,
+                                          NULL);
         g_thread_running = false;
         mainthread_wake_push();
         return;

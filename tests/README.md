@@ -17,6 +17,18 @@ of the rendering stack and other subsystems outside the main IDE loop.
 | `idebridge_phase6_check.c` | Integration regression check for request routing across critical commands (`ping`, `diag`, `symbols`, `includes`, `search`, `build`, `open`, `edit`) plus malformed JSON and unknown command failure contracts. |
 | `idebridge_diag_pack_export_check.c` | Runtime check for `core_pack` diagnostics snapshot export contract (`IDHD` summary chunk + `IDJS` payload chunk) used by `idebridge diag-pack`. |
 | `idebridge_diag_core_data_export_check.c` | Runtime check for `core_data` diagnostics snapshot contract (`ide_diagnostics_summary_v1`, `ide_diagnostics_rows_v1`) used by `idebridge diag-dataset`. |
+| `completed_results_queue_test.c` | Runtime check for LoopResults queue semantics: global-sequence `pop_any` ordering across subsystem lanes and owned payload release behavior on pop/reset paths. |
+| `analysis_scheduler_coalescing_test.c` | Runtime check for Phase 2 scheduler key coalescing semantics: latest-wins replacement per key, pending key tracking, and deterministic dequeue/start order across distinct keys. |
+| `editor_edit_transaction_debounce_test.c` | Synthetic timing test for Phase 2 edit-transaction debounce behavior: debounce timeout commit, cursor/focus/file-switch boundary commits, timer cancellation, and transaction counters. |
+| `loop_events_queue_test.c` | Runtime check for Phase 3 event queue core semantics: FIFO ordering, monotonic sequence IDs, bounded-capacity overflow accounting, and deferred counter tracking. |
+| `loop_events_emission_contract_test.c` | Runtime check for Phase 3 emitter helpers: document and analysis event payload mapping, sequence ordering, and queue insertion via typed emitter APIs. |
+| `loop_events_invalidation_policy_test.c` | Runtime check for Phase 3 event-driven invalidation routing policy: event type to target-pane set and invalidation/redraw intent mapping. |
+| `loop_events_dispatch_integration_test.c` | Runtime integration check for Phase 3 dispatch path: queued events drained through dispatch visitor mutate pane dirty flags/reasons and frame redraw invalidation state with expected target scope. |
+| `fisics_bridge_events_regression_test.c` | Phase 4.1 regression check that in-process `fisics_bridge` analysis updates emit `SymbolTreeUpdated` and `DiagnosticsUpdated` runtime events with stamps matching current symbol/diagnostics stores. |
+| `analysis_store_stamp_regression_test.c` | Phase 4.2 regression check that diagnostics store stamp advances on deletion (`analysis_store_remove`) so stale-result guards can detect deletion-only updates. |
+| `analysis_runtime_events_startup_regression_test.c` | Phase 4.2 regression check that startup store hydration emits deterministic runtime events (`DiagnosticsUpdated` then `SymbolTreeUpdated`) with payload stamps matching current diagnostics/symbol stores. |
+| `analysis_store_published_stamp_regression_test.c` | Phase 4.2 regression check that diagnostics published-stamp watermark only advances via explicit publish calls (event dispatch path), not raw worker/store mutations. |
+| `diagnostics_pipeline_integration_test.c` | Phase 4.2 closure integration check covering diagnostics completed-result apply, stale-drop rejection, runtime event emission, event-dispatch invalidation targets, and published-stamp update semantics. |
 
 As additional automated coverage is added, place new suites in this directory
 and extend this document so future contributors can spot gaps quickly.

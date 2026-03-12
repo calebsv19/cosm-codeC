@@ -303,7 +303,7 @@ static void analyze_file_with_active_flags(const char* file_path) {
     free(buf);
 
     g_analysis_progress_done++;
-    analysis_status_set_progress(g_analysis_progress_done, g_analysis_progress_total);
+    analysis_job_report_progress(g_analysis_progress_done, g_analysis_progress_total);
     if (should_print_file_progress()) {
         printf("[Analysis] [%d] %s : %s (diag:%zu sym:%zu inc:%zu)\n",
                g_analysis_progress_done,
@@ -377,7 +377,7 @@ void analysis_scan_workspace(const char* root) {
     analysis_store_clear();
     g_analysis_progress_total = count_scannable_files_in_dir(root);
     g_analysis_progress_done = 0;
-    analysis_status_set_progress(0, g_analysis_progress_total);
+    analysis_job_report_progress(0, g_analysis_progress_total);
     const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
     const char* flags = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
     gather_build_flags(root, flags, &g_buildFlags);
@@ -397,7 +397,7 @@ void analysis_scan_workspace_with_flags(const char* root, const BuildFlagSet* fl
     include_graph_clear();
     g_analysis_progress_total = count_scannable_files_in_dir(root);
     g_analysis_progress_done = 0;
-    analysis_status_set_progress(0, g_analysis_progress_total);
+    analysis_job_report_progress(0, g_analysis_progress_total);
     g_activeFlags = flags;
     g_activeWorkspaceRoot = root;
     g_update_library_index = false;
@@ -426,7 +426,7 @@ void analysis_scan_files_with_flags(const char* root,
     g_update_library_index = true;
     g_analysis_progress_total = count_scannable_files_in_list(files, file_count);
     g_analysis_progress_done = 0;
-    analysis_status_set_progress(0, g_analysis_progress_total);
+    analysis_job_report_progress(0, g_analysis_progress_total);
 
     for (size_t i = 0; i < file_count; ++i) {
         if (analysis_job_cancel_requested()) break;

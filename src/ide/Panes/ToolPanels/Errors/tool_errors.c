@@ -45,6 +45,8 @@ typedef struct {
     ErrorFileSnapshot* snapshot_files;
     int snapshot_count;
     int snapshot_cap;
+    uint64_t snapshot_store_stamp;
+    bool snapshot_store_stamp_valid;
 } ErrorPanelState;
 
 static ErrorPanelState g_errorPanelBootstrapState = {0};
@@ -210,6 +212,15 @@ static void snapshot_remove_at(int idx) {
 }
 
 static void errors_refresh_snapshot_from_store(void) {
+    // Refresh only from the diagnostics stamp that has been published by the
+    // main-thread event dispatch path (DiagnosticsUpdated), so UI does not
+    // chase worker-side intermediate mutations.
+    uint64_t store_stamp = analysis_store_published_stamp();
+    if (errors_panel_state()->snapshot_store_stamp_valid &&
+        errors_panel_state()->snapshot_store_stamp == store_stamp) {
+        return;
+    }
+
     for (int i = 0; i < g_snapshotCount; ++i) {
         g_snapshotFiles[i].seen = false;
     }
@@ -246,6 +257,8 @@ static void errors_refresh_snapshot_from_store(void) {
             snapshot_remove_at(i);
         }
     }
+    errors_panel_state()->snapshot_store_stamp = store_stamp;
+    errors_panel_state()->snapshot_store_stamp_valid = true;
 }
 
 void errors_refresh_snapshot(void) {

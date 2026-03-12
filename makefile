@@ -183,7 +183,7 @@
   TEST_IDEBRIDGE_STABLE_TARGETS := test-idebridge-phase1 test-idebridge-phase6
   TEST_IDEBRIDGE_LEGACY_TARGETS := test-idebridge-phase2 test-idebridge-phase3 test-idebridge-phase4 test-idebridge-phase5
   TEST_IDEBRIDGE_ALL_TARGETS := $(TEST_IDEBRIDGE_STABLE_TARGETS) $(TEST_IDEBRIDGE_LEGACY_TARGETS)
-  TEST_SMOKE_TARGETS := test-vk-macros test-shared-theme-font-adapter
+  TEST_SMOKE_TARGETS := test-vk-macros test-shared-theme-font-adapter test-completed-results-queue test-analysis-scheduler-coalescing test-editor-edit-transaction-debounce test-loop-events-queue test-loop-events-emission-contract test-loop-events-invalidation-policy test-loop-events-dispatch-integration test-fisics-bridge-events-regression test-analysis-store-stamp-regression test-analysis-runtime-events-startup-regression test-analysis-store-published-stamp-regression test-diagnostics-pipeline-integration
   TEST_EXTENDED_TARGETS := test-idebridge-diag-pack-export test-idebridge-diag-core-data-export
 # ===== RULES =====
 all: $(OUT) $(IDEBRIDGE_OUT)
@@ -359,6 +359,10 @@ test-list:
 	@echo "IDE bridge stable: $(TEST_IDEBRIDGE_STABLE_TARGETS)"
 	@echo "IDE bridge legacy: $(TEST_IDEBRIDGE_LEGACY_TARGETS)"
 	@echo "Extended tests:   $(TEST_EXTENDED_TARGETS)"
+	@echo "Phase 1 gate:     test-fast + test-idebridge-all + test-extended"
+	@echo "Phase 2 gate:     test-phase1 + test-fast"
+	@echo "Phase 3 gate:     test-phase2 + test-fast"
+	@echo "Phase 4 gate:     test-phase3 + test-fast"
 
 .PHONY: test-fast
 test-fast: $(TEST_SMOKE_TARGETS)
@@ -385,6 +389,22 @@ test: test-fast test-idebridge test-extended
 	@echo "Full test suite completed."
 
 check: test
+
+.PHONY: test-phase1
+test-phase1: test-fast test-idebridge-all test-extended
+	@echo "Phase 1 gate completed."
+
+.PHONY: test-phase2
+test-phase2: test-phase1 test-fast
+	@echo "Phase 2 gate completed."
+
+.PHONY: test-phase3
+test-phase3: test-phase2 test-fast
+	@echo "Phase 3 gate completed."
+
+.PHONY: test-phase4
+test-phase4: test-phase3 test-fast
+	@echo "Phase 4 gate completed."
 
 $(FISICS_LIB):
 	@echo "Building Fisics frontend library..."
@@ -470,6 +490,114 @@ test-shared-theme-font-adapter:
 	@echo "Running IDE shared theme/font adapter test..."
 	@$(TEST_BUILD_DIR)/shared_theme_font_adapter_test || (echo "shared theme/font adapter test failed."; exit 1)
 	@echo "IDE shared theme/font adapter test passed."
+
+.PHONY: test-completed-results-queue
+test-completed-results-queue:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling completed results queue test..."
+	@$(CC) $(CFLAGS) tests/completed_results_queue_test.c src/core/LoopResults/completed_results_queue.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/completed_results_queue_test $(LIB_DIRS) -lSDL2 || (echo "completed results queue test compile failed."; exit 1)
+	@echo "Running completed results queue test..."
+	@$(TEST_BUILD_DIR)/completed_results_queue_test || (echo "completed results queue test failed."; exit 1)
+	@echo "Completed results queue test passed."
+
+.PHONY: test-analysis-scheduler-coalescing
+test-analysis-scheduler-coalescing:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling analysis scheduler coalescing test..."
+	@$(CC) $(CFLAGS) tests/analysis_scheduler_coalescing_test.c src/core/Analysis/analysis_scheduler.c -o $(TEST_BUILD_DIR)/analysis_scheduler_coalescing_test $(LIB_DIRS) -lSDL2 || (echo "analysis scheduler coalescing test compile failed."; exit 1)
+	@echo "Running analysis scheduler coalescing test..."
+	@$(TEST_BUILD_DIR)/analysis_scheduler_coalescing_test || (echo "analysis scheduler coalescing test failed."; exit 1)
+	@echo "Analysis scheduler coalescing test passed."
+
+.PHONY: test-editor-edit-transaction-debounce
+test-editor-edit-transaction-debounce:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling editor edit transaction debounce test..."
+	@$(CC) $(CFLAGS) tests/editor_edit_transaction_debounce_test.c src/ide/Panes/Editor/editor_edit_transaction_core.c -o $(TEST_BUILD_DIR)/editor_edit_transaction_debounce_test $(LIB_DIRS) -lSDL2 || (echo "editor edit transaction debounce test compile failed."; exit 1)
+	@echo "Running editor edit transaction debounce test..."
+	@$(TEST_BUILD_DIR)/editor_edit_transaction_debounce_test || (echo "editor edit transaction debounce test failed."; exit 1)
+	@echo "Editor edit transaction debounce test passed."
+
+.PHONY: test-loop-events-queue
+test-loop-events-queue:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling loop events queue test..."
+	@$(CC) $(CFLAGS) tests/loop_events_queue_test.c src/core/LoopEvents/event_queue.c -o $(TEST_BUILD_DIR)/loop_events_queue_test $(LIB_DIRS) -lSDL2 || (echo "loop events queue test compile failed."; exit 1)
+	@echo "Running loop events queue test..."
+	@$(TEST_BUILD_DIR)/loop_events_queue_test || (echo "loop events queue test failed."; exit 1)
+	@echo "Loop events queue test passed."
+
+.PHONY: test-loop-events-emission-contract
+test-loop-events-emission-contract:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling loop events emission contract test..."
+	@$(CC) $(CFLAGS) tests/loop_events_emission_contract_test.c src/core/LoopEvents/event_queue.c -o $(TEST_BUILD_DIR)/loop_events_emission_contract_test $(LIB_DIRS) -lSDL2 || (echo "loop events emission contract test compile failed."; exit 1)
+	@echo "Running loop events emission contract test..."
+	@$(TEST_BUILD_DIR)/loop_events_emission_contract_test || (echo "loop events emission contract test failed."; exit 1)
+	@echo "Loop events emission contract test passed."
+
+.PHONY: test-loop-events-invalidation-policy
+test-loop-events-invalidation-policy:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling loop events invalidation policy test..."
+	@$(CC) $(CFLAGS) tests/loop_events_invalidation_policy_test.c tests/loop_events_invalidation_policy_test_stubs.c src/core/LoopEvents/event_invalidation_policy.c -o $(TEST_BUILD_DIR)/loop_events_invalidation_policy_test $(LIB_DIRS) -lSDL2 || (echo "loop events invalidation policy test compile failed."; exit 1)
+	@echo "Running loop events invalidation policy test..."
+	@$(TEST_BUILD_DIR)/loop_events_invalidation_policy_test || (echo "loop events invalidation policy test failed."; exit 1)
+	@echo "Loop events invalidation policy test passed."
+
+.PHONY: test-loop-events-dispatch-integration
+test-loop-events-dispatch-integration:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling loop events dispatch integration test..."
+	@$(CC) $(CFLAGS) tests/loop_events_dispatch_integration_test.c src/core/LoopEvents/event_queue.c src/core/LoopEvents/event_invalidation_policy.c -o $(TEST_BUILD_DIR)/loop_events_dispatch_integration_test $(LIB_DIRS) -lSDL2 || (echo "loop events dispatch integration test compile failed."; exit 1)
+	@echo "Running loop events dispatch integration test..."
+	@$(TEST_BUILD_DIR)/loop_events_dispatch_integration_test || (echo "loop events dispatch integration test failed."; exit 1)
+	@echo "Loop events dispatch integration test passed."
+
+.PHONY: test-fisics-bridge-events-regression
+test-fisics-bridge-events-regression:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling fisics bridge events regression test..."
+	@$(CC) $(CFLAGS) tests/fisics_bridge_events_regression_test.c src/core/Analysis/fisics_bridge.c src/core/LoopEvents/event_queue.c src/core/Analysis/analysis_store.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/analysis_token_store.c src/core/Diagnostics/diagnostics_engine.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/fisics_bridge_events_regression_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "fisics bridge events regression test compile failed."; exit 1)
+	@echo "Running fisics bridge events regression test..."
+	@$(TEST_BUILD_DIR)/fisics_bridge_events_regression_test || (echo "fisics bridge events regression test failed."; exit 1)
+	@echo "Fisics bridge events regression test passed."
+
+.PHONY: test-analysis-store-stamp-regression
+test-analysis-store-stamp-regression:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling analysis store stamp regression test..."
+	@$(CC) $(CFLAGS) tests/analysis_store_stamp_regression_test.c src/core/Analysis/analysis_store.c src/core/Diagnostics/diagnostics_engine.c -o $(TEST_BUILD_DIR)/analysis_store_stamp_regression_test $(LIB_DIRS) -ljson-c || (echo "analysis store stamp regression test compile failed."; exit 1)
+	@echo "Running analysis store stamp regression test..."
+	@$(TEST_BUILD_DIR)/analysis_store_stamp_regression_test || (echo "analysis store stamp regression test failed."; exit 1)
+	@echo "Analysis store stamp regression test passed."
+
+.PHONY: test-analysis-runtime-events-startup-regression
+test-analysis-runtime-events-startup-regression:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling analysis runtime-events startup regression test..."
+	@$(CC) $(CFLAGS) tests/analysis_runtime_events_startup_regression_test.c src/core/Analysis/analysis_runtime_events.c src/core/Analysis/analysis_store.c src/core/Analysis/analysis_symbols_store.c src/core/LoopEvents/event_queue.c src/core/Diagnostics/diagnostics_engine.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/analysis_runtime_events_startup_regression_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "analysis runtime-events startup regression test compile failed."; exit 1)
+	@echo "Running analysis runtime-events startup regression test..."
+	@$(TEST_BUILD_DIR)/analysis_runtime_events_startup_regression_test || (echo "analysis runtime-events startup regression test failed."; exit 1)
+	@echo "Analysis runtime-events startup regression test passed."
+
+.PHONY: test-analysis-store-published-stamp-regression
+test-analysis-store-published-stamp-regression:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling analysis store published-stamp regression test..."
+	@$(CC) $(CFLAGS) tests/analysis_store_published_stamp_regression_test.c src/core/Analysis/analysis_store.c src/core/Diagnostics/diagnostics_engine.c -o $(TEST_BUILD_DIR)/analysis_store_published_stamp_regression_test $(LIB_DIRS) -ljson-c || (echo "analysis store published-stamp regression test compile failed."; exit 1)
+	@echo "Running analysis store published-stamp regression test..."
+	@$(TEST_BUILD_DIR)/analysis_store_published_stamp_regression_test || (echo "analysis store published-stamp regression test failed."; exit 1)
+	@echo "Analysis store published-stamp regression test passed."
+
+.PHONY: test-diagnostics-pipeline-integration
+test-diagnostics-pipeline-integration:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling diagnostics pipeline integration test..."
+	@$(CC) $(CFLAGS) tests/diagnostics_pipeline_integration_test.c src/core/Analysis/analysis_store.c src/core/LoopResults/completed_results_queue.c src/core/LoopEvents/event_queue.c src/core/LoopEvents/event_invalidation_policy.c src/core/Diagnostics/diagnostics_engine.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/diagnostics_pipeline_integration_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "diagnostics pipeline integration test compile failed."; exit 1)
+	@echo "Running diagnostics pipeline integration test..."
+	@$(TEST_BUILD_DIR)/diagnostics_pipeline_integration_test || (echo "diagnostics pipeline integration test failed."; exit 1)
+	@echo "Diagnostics pipeline integration test passed."
 
 .PHONY: test-idebridge-diag-pack-export
 test-idebridge-diag-pack-export:

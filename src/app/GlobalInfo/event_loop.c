@@ -18,6 +18,8 @@
 #include "core/Watcher/file_watcher.h"
 #include "core/Analysis/project_scan.h"
 #include "core/Analysis/analysis_status.h"
+#include "core/Analysis/analysis_store.h"
+#include "core/Analysis/analysis_symbols_store.h"
 #include "core/InputManager/UserInput/rename_flow.h"
 #include "ide/Panes/Terminal/terminal.h"
 #include "ide/Panes/Terminal/input_terminal.h"
@@ -27,6 +29,7 @@
 #include "ide/Panes/ToolPanels/Git/render_tool_git.h"
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
+#include "ide/Panes/ControlPanel/control_panel.h"
 
 #include "ide/UI/layout.h"
 #include "ide/UI/layout_config.h"
@@ -40,7 +43,9 @@
 #include "core/Analysis/analysis_scheduler.h"
 #include "core/LoopWake/mainthread_wake.h"
 #include "core/LoopTimer/mainthread_timer_scheduler.h"
-#include "core/LoopMessages/mainthread_message_queue.h"
+#include "core/LoopResults/completed_results_queue.h"
+#include "core/LoopEvents/event_queue.h"
+#include "core/LoopEvents/event_invalidation_policy.h"
 #include "core/LoopJobs/mainthread_jobs.h"
 #include "core/LoopKernel/mainthread_kernel.h"
 #include "core/LoopTime/loop_time.h"
@@ -79,9 +84,12 @@ static bool s_force_full_redraw = false;
 static bool s_loop_timers_registered = false;
 static int s_file_watcher_timer_id = -1;
 static int s_git_watcher_timer_id = -1;
+static uint64_t s_latest_applied_analysis_run_id = 0;
 static bool s_loop_diag_initialized = false;
 static bool s_loop_diag_enabled = false;
 static int s_loop_max_wait_ms_override = -1;
+static bool s_event_budget_initialized = false;
+static int s_event_budget_per_frame = 128;
 
 typedef struct LoopRuntimeDiag {
     Uint32 periodStartMs;
@@ -93,8 +101,34 @@ typedef struct LoopRuntimeDiag {
     Uint64 timerFiredDelta;
     uint32_t queueDepthPeak;
     uint32_t queueDepthLast;
+    uint64_t jobsScheduledDelta;
+    uint64_t jobsCoalescedDelta;
+    uint64_t resultsAppliedDelta;
+    uint64_t resultsStaleDroppedDelta;
+    uint64_t editTxnStartsDelta;
+    uint64_t editTxnCommitsDelta;
+    uint64_t editTxnDebounceCommitsDelta;
+    uint64_t editTxnBoundaryCommitsDelta;
+    uint32_t eventQueueDepthPeak;
+    uint32_t eventQueueDepthLast;
+    uint64_t eventsEnqueuedDelta;
+    uint64_t eventsProcessedDelta;
+    uint64_t eventsDeferredDelta;
+    uint64_t eventsDroppedOverflowDelta;
     uint32_t lastWakeReceived;
     uint32_t lastTimerFired;
+    uint64_t lastJobsScheduled;
+    uint64_t lastJobsCoalesced;
+    uint64_t lastResultsApplied;
+    uint64_t lastResultsStaleDropped;
+    uint64_t lastEditTxnStarts;
+    uint64_t lastEditTxnCommits;
+    uint64_t lastEditTxnDebounceCommits;
+    uint64_t lastEditTxnBoundaryCommits;
+    uint64_t lastEventsEnqueued;
+    uint64_t lastEventsProcessed;
+    uint64_t lastEventsDeferred;
+    uint64_t lastEventsDroppedOverflow;
 } LoopRuntimeDiag;
 
 static LoopRuntimeDiag s_loop_diag = {0};
@@ -104,6 +138,11 @@ static void init_loop_diag_config(void) {
     const char* env = getenv("IDE_LOOP_DIAG_LOG");
     s_loop_diag_enabled = (env && env[0] &&
                            (strcmp(env, "1") == 0 || strcasecmp(env, "true") == 0));
+    const char* eventDiagEnv = getenv("IDE_EVENT_DIAG_LOG");
+    if (eventDiagEnv && eventDiagEnv[0] &&
+        (strcmp(eventDiagEnv, "1") == 0 || strcasecmp(eventDiagEnv, "true") == 0)) {
+        s_loop_diag_enabled = true;
+    }
     const char* waitEnv = getenv("IDE_LOOP_MAX_WAIT_MS");
     if (waitEnv && waitEnv[0]) {
         char* end = NULL;
@@ -113,6 +152,22 @@ static void init_loop_diag_config(void) {
         }
     }
     s_loop_diag_initialized = true;
+}
+
+static int event_budget_per_frame(void) {
+    if (s_event_budget_initialized) return s_event_budget_per_frame;
+    const char* env = getenv("IDE_EVENT_BUDGET_PER_FRAME");
+    if (env && env[0]) {
+        char* end = NULL;
+        long v = strtol(env, &end, 10);
+        if (end != env) {
+            if (v < 16) v = 16;
+            if (v > 2048) v = 2048;
+            s_event_budget_per_frame = (int)v;
+        }
+    }
+    s_event_budget_initialized = true;
+    return s_event_budget_per_frame;
 }
 
 static void loop_timer_file_watcher_cb(void* user_data) {
@@ -157,6 +212,26 @@ static void loop_diag_tick(uint64_t frameStartNs, uint64_t blockedNs, bool didWa
         MainThreadTimerSchedulerStats timerStats = {0};
         mainthread_timer_scheduler_snapshot(&timerStats);
         s_loop_diag.lastTimerFired = timerStats.fired_count;
+        AnalysisSchedulerCounters schedulerCounters = {0};
+        analysis_scheduler_counters_snapshot(&schedulerCounters);
+        s_loop_diag.lastJobsScheduled = schedulerCounters.jobs_scheduled;
+        s_loop_diag.lastJobsCoalesced = schedulerCounters.jobs_coalesced_replaced;
+        CompletedResultsQueueStats resultStats = {0};
+        completed_results_queue_snapshot(&resultStats);
+        s_loop_diag.lastResultsApplied = resultStats.results_applied;
+        s_loop_diag.lastResultsStaleDropped = resultStats.results_stale_dropped;
+        EditorEditTransactionSnapshot editTxn = {0};
+        editor_edit_transaction_snapshot(&editTxn);
+        s_loop_diag.lastEditTxnStarts = editTxn.starts;
+        s_loop_diag.lastEditTxnCommits = editTxn.commits;
+        s_loop_diag.lastEditTxnDebounceCommits = editTxn.debounce_commits;
+        s_loop_diag.lastEditTxnBoundaryCommits = editTxn.boundary_commits;
+        LoopEventsStats eventStats = {0};
+        loop_events_snapshot(&eventStats);
+        s_loop_diag.lastEventsEnqueued = eventStats.events_enqueued;
+        s_loop_diag.lastEventsProcessed = eventStats.events_processed;
+        s_loop_diag.lastEventsDeferred = eventStats.events_deferred;
+        s_loop_diag.lastEventsDroppedOverflow = eventStats.events_dropped_overflow;
     }
 
     uint64_t frameElapsedNs = loop_time_diff_ns(nowNs, frameStartNs);
@@ -183,12 +258,79 @@ static void loop_diag_tick(uint64_t frameStartNs, uint64_t blockedNs, bool didWa
     }
     s_loop_diag.lastTimerFired = timerStats.fired_count;
 
-    MainThreadMessageQueueStats msgStats = {0};
-    mainthread_message_queue_snapshot(&msgStats);
-    s_loop_diag.queueDepthLast = msgStats.depth;
-    if (msgStats.depth > s_loop_diag.queueDepthPeak) {
-        s_loop_diag.queueDepthPeak = msgStats.depth;
+    CompletedResultsQueueStats resultStats = {0};
+    completed_results_queue_snapshot(&resultStats);
+    s_loop_diag.queueDepthLast = resultStats.total_depth;
+    if (resultStats.total_depth > s_loop_diag.queueDepthPeak) {
+        s_loop_diag.queueDepthPeak = resultStats.total_depth;
     }
+    if (resultStats.results_applied >= s_loop_diag.lastResultsApplied) {
+        s_loop_diag.resultsAppliedDelta += (resultStats.results_applied - s_loop_diag.lastResultsApplied);
+    }
+    s_loop_diag.lastResultsApplied = resultStats.results_applied;
+    if (resultStats.results_stale_dropped >= s_loop_diag.lastResultsStaleDropped) {
+        s_loop_diag.resultsStaleDroppedDelta +=
+            (resultStats.results_stale_dropped - s_loop_diag.lastResultsStaleDropped);
+    }
+    s_loop_diag.lastResultsStaleDropped = resultStats.results_stale_dropped;
+
+    EditorEditTransactionSnapshot editTxn = {0};
+    editor_edit_transaction_snapshot(&editTxn);
+    if (editTxn.starts >= s_loop_diag.lastEditTxnStarts) {
+        s_loop_diag.editTxnStartsDelta += (editTxn.starts - s_loop_diag.lastEditTxnStarts);
+    }
+    s_loop_diag.lastEditTxnStarts = editTxn.starts;
+    if (editTxn.commits >= s_loop_diag.lastEditTxnCommits) {
+        s_loop_diag.editTxnCommitsDelta += (editTxn.commits - s_loop_diag.lastEditTxnCommits);
+    }
+    s_loop_diag.lastEditTxnCommits = editTxn.commits;
+    if (editTxn.debounce_commits >= s_loop_diag.lastEditTxnDebounceCommits) {
+        s_loop_diag.editTxnDebounceCommitsDelta +=
+            (editTxn.debounce_commits - s_loop_diag.lastEditTxnDebounceCommits);
+    }
+    s_loop_diag.lastEditTxnDebounceCommits = editTxn.debounce_commits;
+    if (editTxn.boundary_commits >= s_loop_diag.lastEditTxnBoundaryCommits) {
+        s_loop_diag.editTxnBoundaryCommitsDelta +=
+            (editTxn.boundary_commits - s_loop_diag.lastEditTxnBoundaryCommits);
+    }
+    s_loop_diag.lastEditTxnBoundaryCommits = editTxn.boundary_commits;
+
+    LoopEventsStats eventStats = {0};
+    loop_events_snapshot(&eventStats);
+    s_loop_diag.eventQueueDepthLast = eventStats.depth;
+    if (eventStats.depth > s_loop_diag.eventQueueDepthPeak) {
+        s_loop_diag.eventQueueDepthPeak = eventStats.depth;
+    }
+    if (eventStats.events_enqueued >= s_loop_diag.lastEventsEnqueued) {
+        s_loop_diag.eventsEnqueuedDelta += (eventStats.events_enqueued - s_loop_diag.lastEventsEnqueued);
+    }
+    s_loop_diag.lastEventsEnqueued = eventStats.events_enqueued;
+    if (eventStats.events_processed >= s_loop_diag.lastEventsProcessed) {
+        s_loop_diag.eventsProcessedDelta += (eventStats.events_processed - s_loop_diag.lastEventsProcessed);
+    }
+    s_loop_diag.lastEventsProcessed = eventStats.events_processed;
+    if (eventStats.events_deferred >= s_loop_diag.lastEventsDeferred) {
+        s_loop_diag.eventsDeferredDelta += (eventStats.events_deferred - s_loop_diag.lastEventsDeferred);
+    }
+    s_loop_diag.lastEventsDeferred = eventStats.events_deferred;
+    if (eventStats.events_dropped_overflow >= s_loop_diag.lastEventsDroppedOverflow) {
+        s_loop_diag.eventsDroppedOverflowDelta +=
+            (eventStats.events_dropped_overflow - s_loop_diag.lastEventsDroppedOverflow);
+    }
+    s_loop_diag.lastEventsDroppedOverflow = eventStats.events_dropped_overflow;
+
+    AnalysisSchedulerCounters schedulerCounters = {0};
+    analysis_scheduler_counters_snapshot(&schedulerCounters);
+    if (schedulerCounters.jobs_scheduled >= s_loop_diag.lastJobsScheduled) {
+        s_loop_diag.jobsScheduledDelta +=
+            (schedulerCounters.jobs_scheduled - s_loop_diag.lastJobsScheduled);
+    }
+    s_loop_diag.lastJobsScheduled = schedulerCounters.jobs_scheduled;
+    if (schedulerCounters.jobs_coalesced_replaced >= s_loop_diag.lastJobsCoalesced) {
+        s_loop_diag.jobsCoalescedDelta +=
+            (schedulerCounters.jobs_coalesced_replaced - s_loop_diag.lastJobsCoalesced);
+    }
+    s_loop_diag.lastJobsCoalesced = schedulerCounters.jobs_coalesced_replaced;
 
     Uint32 periodMs = nowMs - s_loop_diag.periodStartMs;
     if (periodMs < 1000) return;
@@ -196,7 +338,7 @@ static void loop_diag_tick(uint64_t frameStartNs, uint64_t blockedNs, bool didWa
     Uint64 totalMs = s_loop_diag.blockedMs + s_loop_diag.activeMs;
     double blockedPct = (totalMs > 0) ? (100.0 * (double)s_loop_diag.blockedMs / (double)totalMs) : 0.0;
     double activePct = (totalMs > 0) ? (100.0 * (double)s_loop_diag.activeMs / (double)totalMs) : 0.0;
-    printf("[LoopDiag] period=%ums frames=%llu waits=%llu blocked=%llums(%.1f%%) active=%llums(%.1f%%) wakes=%llu timers=%llu q_last=%u q_peak=%u\n",
+    printf("[LoopDiag] period=%ums frames=%llu waits=%llu blocked=%llums(%.1f%%) active=%llums(%.1f%%) wakes=%llu timers=%llu q_last=%u q_peak=%u jobs=%llu coalesced=%llu applied=%llu stale_dropped=%llu edit_txn_starts=%llu commits=%llu debounce_commits=%llu boundary_commits=%llu ev_q_last=%u ev_q_peak=%u ev_enq=%llu ev_proc=%llu ev_deferred=%llu ev_dropped=%llu\n",
            (unsigned int)periodMs,
            (unsigned long long)s_loop_diag.frames,
            (unsigned long long)s_loop_diag.waitCalls,
@@ -207,7 +349,21 @@ static void loop_diag_tick(uint64_t frameStartNs, uint64_t blockedNs, bool didWa
            (unsigned long long)s_loop_diag.wakeDelta,
            (unsigned long long)s_loop_diag.timerFiredDelta,
            s_loop_diag.queueDepthLast,
-           s_loop_diag.queueDepthPeak);
+           s_loop_diag.queueDepthPeak,
+           (unsigned long long)s_loop_diag.jobsScheduledDelta,
+           (unsigned long long)s_loop_diag.jobsCoalescedDelta,
+           (unsigned long long)s_loop_diag.resultsAppliedDelta,
+           (unsigned long long)s_loop_diag.resultsStaleDroppedDelta,
+           (unsigned long long)s_loop_diag.editTxnStartsDelta,
+           (unsigned long long)s_loop_diag.editTxnCommitsDelta,
+           (unsigned long long)s_loop_diag.editTxnDebounceCommitsDelta,
+           (unsigned long long)s_loop_diag.editTxnBoundaryCommitsDelta,
+           s_loop_diag.eventQueueDepthLast,
+           s_loop_diag.eventQueueDepthPeak,
+           (unsigned long long)s_loop_diag.eventsEnqueuedDelta,
+           (unsigned long long)s_loop_diag.eventsProcessedDelta,
+           (unsigned long long)s_loop_diag.eventsDeferredDelta,
+           (unsigned long long)s_loop_diag.eventsDroppedOverflowDelta);
 
     s_loop_diag.periodStartMs = nowMs;
     s_loop_diag.frames = 0;
@@ -217,14 +373,94 @@ static void loop_diag_tick(uint64_t frameStartNs, uint64_t blockedNs, bool didWa
     s_loop_diag.wakeDelta = 0;
     s_loop_diag.timerFiredDelta = 0;
     s_loop_diag.queueDepthPeak = 0;
+    s_loop_diag.jobsScheduledDelta = 0;
+    s_loop_diag.jobsCoalescedDelta = 0;
+    s_loop_diag.resultsAppliedDelta = 0;
+    s_loop_diag.resultsStaleDroppedDelta = 0;
+    s_loop_diag.editTxnStartsDelta = 0;
+    s_loop_diag.editTxnCommitsDelta = 0;
+    s_loop_diag.editTxnDebounceCommitsDelta = 0;
+    s_loop_diag.editTxnBoundaryCommitsDelta = 0;
+    s_loop_diag.eventQueueDepthPeak = 0;
+    s_loop_diag.eventsEnqueuedDelta = 0;
+    s_loop_diag.eventsProcessedDelta = 0;
+    s_loop_diag.eventsDeferredDelta = 0;
+    s_loop_diag.eventsDroppedOverflowDelta = 0;
 }
 
-static void apply_worker_message(FrameContext* ctx, const MainThreadMessage* msg) {
-    if (!ctx || !msg) return;
+static bool completed_result_is_stale(const CompletedResult* result) {
+    if (!result || !result->has_document_revision) return false;
+    if (!result->document_path[0]) return true;
+    uint64_t current_revision = 0;
+    if (!editor_find_open_file_revision_by_path(result->document_path, &current_revision)) {
+        return true;
+    }
+    return current_revision != result->document_revision;
+}
 
-    if (msg->type == MAINTHREAD_MSG_ANALYSIS_FINISHED) {
-        const MainThreadAnalysisFinishedPayload* p = &msg->payload.analysis_finished;
+static void apply_completed_result(FrameContext* ctx, const CompletedResult* result) {
+    if (!ctx || !result) return;
+
+    uint64_t result_run_id = 0;
+    if (result->kind == COMPLETED_RESULT_ANALYSIS_FINISHED) {
+        result_run_id = result->payload.analysis_finished.analysis_run_id;
+    } else if (result->kind == COMPLETED_RESULT_SYMBOLS_UPDATED) {
+        result_run_id = result->payload.symbols_updated.analysis_run_id;
+    } else if (result->kind == COMPLETED_RESULT_DIAGNOSTICS_UPDATED) {
+        result_run_id = result->payload.diagnostics_updated.analysis_run_id;
+    } else if (result->kind == COMPLETED_RESULT_ANALYSIS_PROGRESS) {
+        result_run_id = result->payload.analysis_progress.analysis_run_id;
+    } else if (result->kind == COMPLETED_RESULT_ANALYSIS_STATUS_UPDATE) {
+        result_run_id = result->payload.analysis_status_update.analysis_run_id;
+    }
+    if (result_run_id > 0 && result_run_id < s_latest_applied_analysis_run_id) {
+        completed_results_queue_note_stale_dropped();
+        return;
+    }
+
+    if (result->kind == COMPLETED_RESULT_SYMBOLS_UPDATED) {
+        const CompletedResultSymbolsUpdatedPayload* p = &result->payload.symbols_updated;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
+            completed_results_queue_note_stale_dropped();
+            return;
+        }
+        if (analysis_symbols_store_combined_stamp() != p->symbols_stamp) {
+            completed_results_queue_note_stale_dropped();
+            return;
+        }
+    } else if (result->kind == COMPLETED_RESULT_DIAGNOSTICS_UPDATED) {
+        const CompletedResultDiagnosticsUpdatedPayload* p = &result->payload.diagnostics_updated;
+        if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
+            completed_results_queue_note_stale_dropped();
+            return;
+        }
+        if (analysis_store_combined_stamp() != p->diagnostics_stamp) {
+            completed_results_queue_note_stale_dropped();
+            return;
+        }
+    } else if (result->kind == COMPLETED_RESULT_ANALYSIS_PROGRESS) {
+        const CompletedResultAnalysisProgressPayload* p = &result->payload.analysis_progress;
+        if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
+            completed_results_queue_note_stale_dropped();
+            return;
+        }
+    } else if (result->kind == COMPLETED_RESULT_ANALYSIS_STATUS_UPDATE) {
+        const CompletedResultAnalysisStatusUpdatePayload* p = &result->payload.analysis_status_update;
+        if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
+            completed_results_queue_note_stale_dropped();
+            return;
+        }
+    }
+
+    if (completed_result_is_stale(result)) {
+        completed_results_queue_note_stale_dropped();
+        return;
+    }
+
+    if (result->kind == COMPLETED_RESULT_ANALYSIS_FINISHED) {
+        const CompletedResultAnalysisFinishedPayload* p = &result->payload.analysis_finished;
+        if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
+            completed_results_queue_note_stale_dropped();
             return;
         }
 
@@ -242,19 +478,102 @@ static void apply_worker_message(FrameContext* ctx, const MainThreadMessage* msg
                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
         }
         requestFullRedraw(RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
+        completed_results_queue_note_applied();
+        if (result_run_id > s_latest_applied_analysis_run_id) {
+            s_latest_applied_analysis_run_id = result_run_id;
+        }
+    } else if (result->kind == COMPLETED_RESULT_SYMBOLS_UPDATED) {
+        const CompletedResultSymbolsUpdatedPayload* p = &result->payload.symbols_updated;
+        editor_sync_active_file_projection_mode();
+        completed_results_queue_note_applied();
+        loop_events_emit_symbol_tree_updated(p->project_root, p->analysis_run_id, p->symbols_stamp);
+        if (result_run_id > s_latest_applied_analysis_run_id) {
+            s_latest_applied_analysis_run_id = result_run_id;
+        }
+    } else if (result->kind == COMPLETED_RESULT_DIAGNOSTICS_UPDATED) {
+        const CompletedResultDiagnosticsUpdatedPayload* p = &result->payload.diagnostics_updated;
+        analysis_store_flatten_to_engine();
+        completed_results_queue_note_applied();
+        loop_events_emit_diagnostics_updated(p->project_root, p->analysis_run_id, p->diagnostics_stamp);
+        if (result_run_id > s_latest_applied_analysis_run_id) {
+            s_latest_applied_analysis_run_id = result_run_id;
+        }
+    } else if (result->kind == COMPLETED_RESULT_ANALYSIS_PROGRESS) {
+        const CompletedResultAnalysisProgressPayload* p = &result->payload.analysis_progress;
+        analysis_status_set_progress(p->completed_files, p->total_files);
+        UIState* ui = getUIState();
+        if (ui && ui->controlPanel) {
+            invalidatePane(ui->controlPanel,
+                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
+        }
+        completed_results_queue_note_applied();
+        if (result_run_id > s_latest_applied_analysis_run_id) {
+            s_latest_applied_analysis_run_id = result_run_id;
+        }
+    } else if (result->kind == COMPLETED_RESULT_ANALYSIS_STATUS_UPDATE) {
+        const CompletedResultAnalysisStatusUpdatePayload* p = &result->payload.analysis_status_update;
+        if (p->set_has_cache) {
+            analysis_status_set_has_cache(p->has_cache);
+        }
+        if (p->set_last_error) {
+            analysis_status_set_last_error(p->last_error[0] ? p->last_error : NULL);
+        }
+        if (p->set_status) {
+            analysis_status_set((AnalysisStatus)p->status_value);
+        }
+        UIState* ui = getUIState();
+        if (ui && ui->controlPanel) {
+            invalidatePane(ui->controlPanel,
+                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
+        }
+        completed_results_queue_note_applied();
+        if (result_run_id > s_latest_applied_analysis_run_id) {
+            s_latest_applied_analysis_run_id = result_run_id;
+        }
     }
 }
 
-static int drain_worker_messages(FrameContext* ctx) {
+static int drain_completed_results(FrameContext* ctx) {
     enum { kDrainBudget = 64 };
     int applied = 0;
-    MainThreadMessage msg;
-    while (applied < kDrainBudget && mainthread_message_queue_pop(&msg)) {
-        apply_worker_message(ctx, &msg);
-        mainthread_message_release(&msg);
+    CompletedResult result;
+    while (applied < kDrainBudget && completed_results_queue_pop_any(&result)) {
+        apply_completed_result(ctx, &result);
+        completed_results_queue_release(&result);
         applied++;
     }
+
     return applied;
+}
+
+static void invalidate_runtime_event_targets(const IDEEvent* event, FrameContext* ctx) {
+    if (!event || !ctx) return;
+    UIState* ui = getUIState();
+    LoopEventInvalidationDispatchTargets targets = {
+        .editor_pane = ui ? ui->editorPanel : NULL,
+        .control_pane = ui ? ui->controlPanel : NULL,
+        .tool_pane = ui ? ui->toolPanel : NULL,
+        .all_panes = ctx->panes,
+        .all_pane_count = ctx->paneCount ? *ctx->paneCount : 0
+    };
+    loop_events_dispatch_invalidation(event, &targets);
+}
+
+static void dispatch_runtime_event(const IDEEvent* event, void* user_data) {
+    if (event && event->type == IDE_EVENT_SYMBOL_TREE_UPDATED) {
+        control_panel_note_symbol_store_updated(event->payload.analysis.project_root,
+                                                event->payload.analysis.data_stamp);
+    } else if (event && event->type == IDE_EVENT_DIAGNOSTICS_UPDATED) {
+        analysis_store_mark_published(event->payload.analysis.data_stamp);
+    }
+    FrameContext* ctx = (FrameContext*)user_data;
+    invalidate_runtime_event_targets(event, ctx);
+}
+
+static int process_events_bounded(FrameContext* ctx) {
+    int budget = event_budget_per_frame();
+    if (budget < 0) budget = 0;
+    return (int)loop_events_drain_bounded((size_t)budget, dispatch_runtime_event, ctx);
 }
 
 static float getHeartbeatIntervalSeconds(void) {
@@ -497,9 +816,10 @@ static bool main_loop_has_immediate_work(void) {
     if (pendingProjectRefresh) return true;
     if (hasFrameInvalidation()) return true;
 
-    MainThreadMessageQueueStats msgStats = {0};
-    mainthread_message_queue_snapshot(&msgStats);
-    if (msgStats.depth > 0) return true;
+    CompletedResultsQueueStats resultStats = {0};
+    completed_results_queue_snapshot(&resultStats);
+    if (resultStats.total_depth > 0) return true;
+    if (loop_events_size() > 0u) return true;
     return false;
 }
 
@@ -645,6 +965,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
         }
     }
     if (timerHudActive) ts_stop_timer("Input");
+    editor_edit_transaction_update_active_context();
 
     if (forceFullRedrawEnabled()) {
         invalidateAll(ctx->panes, *ctx->paneCount,
@@ -654,7 +975,8 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
 
     if (timerHudActive) ts_start_timer("BackgroundTick");
     const bool terminalChanged = tickBackgroundSystems();
-    drain_worker_messages(ctx);
+    drain_completed_results(ctx);
+    process_events_bounded(ctx);
     if (terminalChanged) {
         UIState* ui = getUIState();
         if (ui && ui->terminalPanel && ui->terminalVisible) {

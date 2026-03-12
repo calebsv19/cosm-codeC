@@ -2,6 +2,7 @@
 #define CONTROL_PANEL_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <SDL2/SDL.h>
 
 #include "ide/Panes/ControlPanel/symbol_tree_adapter.h"
@@ -91,6 +92,8 @@ struct DirEntry;
 struct IDECoreState;
 void control_panel_attach_controller(struct UIPane* pane);
 void control_panel_prepare_for_render(struct IDECoreState* core);
+void control_panel_note_symbol_store_updated(const char* project_root,
+                                             uint64_t symbols_stamp);
 void control_panel_refresh_symbol_tree(const struct DirEntry* projectRoot,
                                        const char* filePath);
 void control_panel_refresh_visible_symbol_tree(void);

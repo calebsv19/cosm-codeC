@@ -13,6 +13,9 @@
 #include "ide/Panes/Editor/editor_state.h"
 #include "ide/Panes/Editor/editor_view_state.h"
 #include "app/GlobalInfo/project.h"
+#include "core/Analysis/analysis_scheduler.h"
+#include "core/LoopEvents/event_queue.h"
+#include "core/LoopTimer/mainthread_timer_scheduler.h"
 #include "editor.h"
 #include <stdlib.h>
 #include <string.h>
@@ -28,11 +31,119 @@
 
 static EditorState fallbackEditorState = {0};
 static bool g_projection_scope_all_open_files = true;
+static EditorEditTransactionCoreState g_edit_txn;
 
 static float clampf_local(float v, float lo, float hi) {
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
+}
+
+static uint32_t editor_edit_debounce_ms(void) {
+    const char* env = getenv("IDE_EDIT_DEBOUNCE_MS");
+    if (!env || !env[0]) return 300u;
+    char* end = NULL;
+    long v = strtol(env, &end, 10);
+    if (end == env || v < 100 || v > 1000) return 300u;
+    return (uint32_t)v;
+}
+
+static void editor_edit_txn_debounce_cb(void* user_data);
+
+static void editor_edit_txn_apply_commit(EditorEditCommitReason reason, OpenFile* committed_file) {
+    if (reason == EDIT_COMMIT_REASON_NONE) return;
+    // Current worker run updates symbols + diagnostics together; enqueue one edit lane key
+    // to avoid duplicated workspace scans while still deferring heavy work to commit boundaries.
+    if (committed_file && committed_file->filePath && committed_file->filePath[0]) {
+        analysis_scheduler_request_key(ANALYSIS_JOB_KEY_SYMBOLS,
+                                       ANALYSIS_REASON_EDITOR_EDIT_TRANSACTION,
+                                       false);
+    }
+}
+
+static int editor_edit_txn_schedule_once(uint32_t delay_ms, uint64_t token, void* user_data) {
+    (void)user_data;
+    return mainthread_timer_schedule_once(delay_ms,
+                                          editor_edit_txn_debounce_cb,
+                                          (void*)(uintptr_t)token,
+                                          "editor_edit_debounce");
+}
+
+static void editor_edit_txn_cancel_timer(int timer_id, void* user_data) {
+    (void)user_data;
+    if (timer_id > 0) {
+        mainthread_timer_cancel(timer_id);
+    }
+}
+
+static void editor_edit_txn_debounce_cb(void* user_data) {
+    uint64_t token = (uint64_t)(uintptr_t)user_data;
+    uintptr_t committed_file_token = 0;
+    EditorEditCommitReason reason = editor_edit_txn_core_on_timer(&g_edit_txn,
+                                                                  token,
+                                                                  &committed_file_token);
+    editor_edit_txn_apply_commit(reason, (OpenFile*)committed_file_token);
+}
+
+void editor_edit_transaction_reset(void) {
+    if (g_edit_txn.debounce_ms == 0u) {
+        editor_edit_txn_core_init(&g_edit_txn, editor_edit_debounce_ms());
+        return;
+    }
+    g_edit_txn.debounce_ms = editor_edit_debounce_ms();
+    editor_edit_txn_core_reset(&g_edit_txn, editor_edit_txn_cancel_timer, NULL);
+}
+
+void editor_edit_transaction_snapshot(EditorEditTransactionSnapshot* out) {
+    editor_edit_txn_core_snapshot(&g_edit_txn, out);
+}
+
+void editor_edit_transaction_note_document_edit(OpenFile* file) {
+    if (!file) return;
+    IDECoreState* core = getCoreState();
+    EditorView* active_view = core ? core->activeEditorView : NULL;
+    EditorEditTransactionCursor cursor = {
+        .cursor_row = file->state.cursorRow,
+        .cursor_col = file->state.cursorCol,
+        .selecting = file->state.selecting,
+        .sel_row = file->state.selStartRow,
+        .sel_col = file->state.selStartCol
+    };
+    g_edit_txn.debounce_ms = editor_edit_debounce_ms();
+    uintptr_t committed_file_token = 0;
+    EditorEditCommitReason reason = editor_edit_txn_core_note_edit(&g_edit_txn,
+                                                                    (uintptr_t)file,
+                                                                    (uintptr_t)active_view,
+                                                                    file->documentRevision,
+                                                                    &cursor,
+                                                                    editor_edit_txn_schedule_once,
+                                                                    editor_edit_txn_cancel_timer,
+                                                                    NULL,
+                                                                    &committed_file_token);
+    editor_edit_txn_apply_commit(reason, (OpenFile*)committed_file_token);
+}
+
+void editor_edit_transaction_update_active_context(void) {
+    IDECoreState* core = getCoreState();
+    EditorView* active_view = core ? core->activeEditorView : NULL;
+    OpenFile* active_file = getActiveOpenFile(active_view);
+    EditorEditTransactionCursor cursor = {0};
+    if (active_file) {
+        cursor.cursor_row = active_file->state.cursorRow;
+        cursor.cursor_col = active_file->state.cursorCol;
+        cursor.selecting = active_file->state.selecting;
+        cursor.sel_row = active_file->state.selStartRow;
+        cursor.sel_col = active_file->state.selStartCol;
+    }
+    uintptr_t committed_file_token = 0;
+    EditorEditCommitReason reason = editor_edit_txn_core_update_context(&g_edit_txn,
+                                                                         (uintptr_t)active_view,
+                                                                         (uintptr_t)active_file,
+                                                                         &cursor,
+                                                                         editor_edit_txn_cancel_timer,
+                                                                         NULL,
+                                                                         &committed_file_token);
+    editor_edit_txn_apply_commit(reason, (OpenFile*)committed_file_token);
 }
 
 static int compute_split_a_size(EditorView* split, int totalAxis, int minChildAxis) {
@@ -947,7 +1058,41 @@ void markFileAsModified(OpenFile* file) {
     if (!file) return;
     file->isModified = true;
     file->bufferVersion++;
+    file->documentRevision++;
+    loop_events_emit_document_edited(file->filePath, file->documentRevision);
     editor_invalidate_file_projection(file);
+    editor_edit_transaction_note_document_edit(file);
+}
+
+uint64_t open_file_document_revision(const OpenFile* file) {
+    return file ? file->documentRevision : 0u;
+}
+
+static bool find_file_revision_in_view(const EditorView* view,
+                                       const char* filePath,
+                                       uint64_t* out_revision) {
+    if (!view || !filePath || !filePath[0]) return false;
+    if (view->type == VIEW_SPLIT) {
+        if (find_file_revision_in_view(view->childA, filePath, out_revision)) return true;
+        return find_file_revision_in_view(view->childB, filePath, out_revision);
+    }
+    if (view->type != VIEW_LEAF || !view->openFiles || view->fileCount <= 0) return false;
+    for (int i = 0; i < view->fileCount; ++i) {
+        OpenFile* file = view->openFiles[i];
+        if (!file || !file->filePath) continue;
+        if (strcmp(file->filePath, filePath) == 0) {
+            if (out_revision) *out_revision = file->documentRevision;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool editor_find_open_file_revision_by_path(const char* filePath, uint64_t* out_revision) {
+    IDECoreState* core = getCoreState();
+    if (!core || !filePath || !filePath[0]) return false;
+    EditorView* root = core->persistentEditorView ? core->persistentEditorView : core->activeEditorView;
+    return find_file_revision_in_view(root, filePath, out_revision);
 }
 
 OpenFile* openFileInView(EditorView* view, const char* filePath) {
@@ -986,6 +1131,7 @@ OpenFile* openFileInView(EditorView* view, const char* filePath) {
     file->state.draggingReturnedToPane = true;
     file->isModified = false;
     file->bufferVersion = 1;
+    file->documentRevision = 1;
     file->renderSource = EDITOR_RENDER_REAL;
     editor_projection_reset(&file->projection);
     
@@ -1014,6 +1160,8 @@ void reloadOpenFileFromDisk(OpenFile* file) {
     freeEditorBuffer(file->buffer);
     file->buffer = newBuffer;
     file->bufferVersion++;
+    file->documentRevision++;
+    loop_events_emit_document_revision_changed(file->filePath, file->documentRevision);
     editor_invalidate_file_projection(file);
 
     // Optionally reset state or keep old scroll/cursor
