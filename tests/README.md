@@ -20,7 +20,7 @@ of the rendering stack and other subsystems outside the main IDE loop.
 | `completed_results_queue_test.c` | Runtime check for LoopResults queue semantics: global-sequence `pop_any` ordering across subsystem lanes and owned payload release behavior on pop/reset paths. |
 | `analysis_scheduler_coalescing_test.c` | Runtime check for Phase 2 scheduler key coalescing semantics: latest-wins replacement per key, pending key tracking, and deterministic dequeue/start order across distinct keys. |
 | `editor_edit_transaction_debounce_test.c` | Synthetic timing test for Phase 2 edit-transaction debounce behavior: debounce timeout commit, cursor/focus/file-switch boundary commits, timer cancellation, and transaction counters. |
-| `loop_events_queue_test.c` | Runtime check for Phase 3 event queue core semantics: FIFO ordering, monotonic sequence IDs, bounded-capacity overflow accounting, and deferred counter tracking. |
+| `loop_events_queue_test.c` | Runtime check for Phase 3/4 event queue semantics: FIFO ordering, monotonic sequence IDs, bounded-capacity overflow accounting, deferred counter tracking, and multi-frame bounded-drain fairness (backlog decreases and processed count advances without starvation). |
 | `loop_events_emission_contract_test.c` | Runtime check for Phase 3 emitter helpers: document and analysis event payload mapping, sequence ordering, and queue insertion via typed emitter APIs. |
 | `loop_events_invalidation_policy_test.c` | Runtime check for Phase 3 event-driven invalidation routing policy: event type to target-pane set and invalidation/redraw intent mapping. |
 | `loop_events_dispatch_integration_test.c` | Runtime integration check for Phase 3 dispatch path: queued events drained through dispatch visitor mutate pane dirty flags/reasons and frame redraw invalidation state with expected target scope. |
@@ -28,6 +28,8 @@ of the rendering stack and other subsystems outside the main IDE loop.
 | `analysis_store_stamp_regression_test.c` | Phase 4.2 regression check that diagnostics store stamp advances on deletion (`analysis_store_remove`) so stale-result guards can detect deletion-only updates. |
 | `analysis_runtime_events_startup_regression_test.c` | Phase 4.2 regression check that startup store hydration emits deterministic runtime events (`DiagnosticsUpdated` then `SymbolTreeUpdated`) with payload stamps matching current diagnostics/symbol stores. |
 | `analysis_store_published_stamp_regression_test.c` | Phase 4.2 regression check that diagnostics published-stamp watermark only advances via explicit publish calls (event dispatch path), not raw worker/store mutations. |
+| `library_index_stamp_regression_test.c` | Phase 4.3 regression check that library-index combined stamp advances only after finalized mutations and that published-stamp watermark follows event-dispatch publication semantics. |
+| `idle_efficiency_sanity_test.c` | Phase 4.4 idle-efficiency sanity lane: synthetic idle ticks with empty event/result queues must keep depth/counter snapshots stable (no background queue growth without input/work). |
 | `diagnostics_pipeline_integration_test.c` | Phase 4.2 closure integration check covering diagnostics completed-result apply, stale-drop rejection, runtime event emission, event-dispatch invalidation targets, and published-stamp update semantics. |
 
 As additional automated coverage is added, place new suites in this directory

@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "core/LoopKernel/mainthread_context.h"
+
 enum { LOOP_EVENTS_QUEUE_CAPACITY = 512 };
 
 static IDEEvent g_events[LOOP_EVENTS_QUEUE_CAPACITY];
@@ -43,6 +45,7 @@ void loop_events_shutdown(void) {
 }
 
 bool loop_events_push(const IDEEvent* event) {
+    mainthread_context_assert_owner("loop_events.push");
     if (!g_initialized || !event || event->type == IDE_EVENT_NONE) return false;
     if (g_count >= LOOP_EVENTS_QUEUE_CAPACITY) {
         g_events_dropped_overflow++;
@@ -166,5 +169,61 @@ bool loop_events_emit_diagnostics_updated(const char* project_root,
                     project_root);
     event.payload.analysis.analysis_run_id = analysis_run_id;
     event.payload.analysis.data_stamp = diagnostics_stamp;
+    return loop_events_push(&event);
+}
+
+bool loop_events_emit_analysis_progress_updated(const char* project_root,
+                                                uint64_t analysis_run_id,
+                                                uint64_t progress_stamp) {
+    IDEEvent event;
+    memset(&event, 0, sizeof(event));
+    event.type = IDE_EVENT_ANALYSIS_PROGRESS_UPDATED;
+    copy_text_field(event.payload.analysis.project_root,
+                    sizeof(event.payload.analysis.project_root),
+                    project_root);
+    event.payload.analysis.analysis_run_id = analysis_run_id;
+    event.payload.analysis.data_stamp = progress_stamp;
+    return loop_events_push(&event);
+}
+
+bool loop_events_emit_analysis_status_updated(const char* project_root,
+                                              uint64_t analysis_run_id,
+                                              uint64_t status_stamp) {
+    IDEEvent event;
+    memset(&event, 0, sizeof(event));
+    event.type = IDE_EVENT_ANALYSIS_STATUS_UPDATED;
+    copy_text_field(event.payload.analysis.project_root,
+                    sizeof(event.payload.analysis.project_root),
+                    project_root);
+    event.payload.analysis.analysis_run_id = analysis_run_id;
+    event.payload.analysis.data_stamp = status_stamp;
+    return loop_events_push(&event);
+}
+
+bool loop_events_emit_library_index_updated(const char* project_root,
+                                            uint64_t analysis_run_id,
+                                            uint64_t index_stamp) {
+    IDEEvent event;
+    memset(&event, 0, sizeof(event));
+    event.type = IDE_EVENT_LIBRARY_INDEX_UPDATED;
+    copy_text_field(event.payload.analysis.project_root,
+                    sizeof(event.payload.analysis.project_root),
+                    project_root);
+    event.payload.analysis.analysis_run_id = analysis_run_id;
+    event.payload.analysis.data_stamp = index_stamp;
+    return loop_events_push(&event);
+}
+
+bool loop_events_emit_analysis_run_finished(const char* project_root,
+                                            uint64_t analysis_run_id,
+                                            uint64_t index_stamp) {
+    IDEEvent event;
+    memset(&event, 0, sizeof(event));
+    event.type = IDE_EVENT_ANALYSIS_RUN_FINISHED;
+    copy_text_field(event.payload.analysis.project_root,
+                    sizeof(event.payload.analysis.project_root),
+                    project_root);
+    event.payload.analysis.analysis_run_id = analysis_run_id;
+    event.payload.analysis.data_stamp = index_stamp;
     return loop_events_push(&event);
 }

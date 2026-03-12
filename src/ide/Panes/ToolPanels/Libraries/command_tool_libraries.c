@@ -8,6 +8,7 @@
 #include "core/Analysis/analysis_status.h"
 #include "core/Analysis/analysis_cache.h"
 #include "core/Analysis/include_path_resolver.h"
+#include "core/LoopEvents/event_queue.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include <stdio.h>
@@ -15,6 +16,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <string.h>
+#include <SDL2/SDL.h>
 
 static void clear_analysis_cache(const char* root) {
     if (!root || !*root) return;
@@ -36,6 +38,8 @@ static void clear_analysis_cache(const char* root) {
     closedir(dir);
     analysis_status_set_has_cache(false);
     analysis_status_set_last_error(NULL);
+    loop_events_emit_analysis_status_updated(root, 0u, SDL_GetTicks64());
+    loop_events_emit_library_index_updated(root, 0u, library_index_combined_stamp());
 }
 
 void handleLibrariesCommand(UIPane* pane, InputCommandMetadata meta) {
@@ -43,13 +47,16 @@ void handleLibrariesCommand(UIPane* pane, InputCommandMetadata meta) {
         case COMMAND_REFRESH_LIBRARY:
         {
             printf("[LibraryPanelCommand] Refreshing library index async...\n");
-            analysis_scheduler_request(ANALYSIS_REASON_LIBRARY_PANEL_REFRESH, true);
+            analysis_scheduler_request_key(ANALYSIS_JOB_KEY_INDEX,
+                                           ANALYSIS_REASON_LIBRARY_PANEL_REFRESH,
+                                           true);
             break;
         }
         case COMMAND_CLEAR_ANALYSIS_CACHE:
             printf("[LibraryPanelCommand] Clearing analysis cache...\n");
             clear_analysis_cache(projectPath);
             analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
+            loop_events_emit_analysis_status_updated(projectPath, 0u, SDL_GetTicks64());
             analysis_scheduler_request(ANALYSIS_REASON_MANUAL_REFRESH, true);
             break;
 

@@ -24,6 +24,7 @@ typedef struct CompletedResultAnalysisFinishedPayload {
     uint64_t analysis_run_id;
     bool cancelled;
     bool had_error;
+    uint64_t library_index_stamp;
     char project_root[1024];
 } CompletedResultAnalysisFinishedPayload;
 

@@ -25,6 +25,18 @@ bool loop_events_build_invalidation_plan(const IDEEvent* event, LoopEventInvalid
             out->invalidate_intent = LOOP_EVENT_INVALIDATE_CONTENT_BACKGROUND;
             out->redraw_intent = LOOP_EVENT_INVALIDATE_CONTENT_BACKGROUND;
             return true;
+        case IDE_EVENT_ANALYSIS_PROGRESS_UPDATED:
+        case IDE_EVENT_ANALYSIS_STATUS_UPDATED:
+            out->targets = LOOP_EVENT_TARGET_CONTROL | LOOP_EVENT_TARGET_TOOL;
+            out->invalidate_intent = LOOP_EVENT_INVALIDATE_CONTENT_BACKGROUND;
+            out->redraw_intent = LOOP_EVENT_INVALIDATE_CONTENT_BACKGROUND;
+            return true;
+        case IDE_EVENT_LIBRARY_INDEX_UPDATED:
+        case IDE_EVENT_ANALYSIS_RUN_FINISHED:
+            out->targets = LOOP_EVENT_TARGET_TOOL | LOOP_EVENT_TARGET_CONTROL;
+            out->invalidate_intent = LOOP_EVENT_INVALIDATE_CONTENT_BACKGROUND;
+            out->redraw_intent = LOOP_EVENT_INVALIDATE_CONTENT_BACKGROUND;
+            return true;
         case IDE_EVENT_NONE:
         default:
             return false;

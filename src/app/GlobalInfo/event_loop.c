@@ -47,6 +47,7 @@
 #include "core/LoopEvents/event_queue.h"
 #include "core/LoopEvents/event_invalidation_policy.h"
 #include "core/LoopJobs/mainthread_jobs.h"
+#include "core/LoopKernel/mainthread_context.h"
 #include "core/LoopKernel/mainthread_kernel.h"
 #include "core/LoopTime/loop_time.h"
 #include "app/GlobalInfo/workspace_prefs.h"
@@ -85,6 +86,8 @@ static bool s_loop_timers_registered = false;
 static int s_file_watcher_timer_id = -1;
 static int s_git_watcher_timer_id = -1;
 static uint64_t s_latest_applied_analysis_run_id = 0;
+static uint64_t s_analysis_progress_stamp = 0;
+static uint64_t s_analysis_status_stamp = 0;
 static bool s_loop_diag_initialized = false;
 static bool s_loop_diag_enabled = false;
 static int s_loop_max_wait_ms_override = -1;
@@ -115,6 +118,23 @@ typedef struct LoopRuntimeDiag {
     uint64_t eventsProcessedDelta;
     uint64_t eventsDeferredDelta;
     uint64_t eventsDroppedOverflowDelta;
+    uint64_t eventsEmitSymbolsDelta;
+    uint64_t eventsEmitDiagnosticsDelta;
+    uint64_t eventsEmitAnalysisProgressDelta;
+    uint64_t eventsEmitAnalysisStatusDelta;
+    uint64_t eventsEmitLibraryIndexDelta;
+    uint64_t eventsEmitAnalysisFinishedDelta;
+    uint64_t eventsDispatchSymbolsDelta;
+    uint64_t eventsDispatchDiagnosticsDelta;
+    uint64_t eventsDispatchAnalysisProgressDelta;
+    uint64_t eventsDispatchAnalysisStatusDelta;
+    uint64_t eventsDispatchLibraryIndexDelta;
+    uint64_t eventsDispatchAnalysisFinishedDelta;
+    uint64_t staleDropsSymbolsDelta;
+    uint64_t staleDropsDiagnosticsDelta;
+    uint64_t staleDropsAnalysisProgressDelta;
+    uint64_t staleDropsAnalysisStatusDelta;
+    uint64_t staleDropsAnalysisFinishedDelta;
     uint32_t lastWakeReceived;
     uint32_t lastTimerFired;
     uint64_t lastJobsScheduled;
@@ -338,7 +358,7 @@ static void loop_diag_tick(uint64_t frameStartNs, uint64_t blockedNs, bool didWa
     Uint64 totalMs = s_loop_diag.blockedMs + s_loop_diag.activeMs;
     double blockedPct = (totalMs > 0) ? (100.0 * (double)s_loop_diag.blockedMs / (double)totalMs) : 0.0;
     double activePct = (totalMs > 0) ? (100.0 * (double)s_loop_diag.activeMs / (double)totalMs) : 0.0;
-    printf("[LoopDiag] period=%ums frames=%llu waits=%llu blocked=%llums(%.1f%%) active=%llums(%.1f%%) wakes=%llu timers=%llu q_last=%u q_peak=%u jobs=%llu coalesced=%llu applied=%llu stale_dropped=%llu edit_txn_starts=%llu commits=%llu debounce_commits=%llu boundary_commits=%llu ev_q_last=%u ev_q_peak=%u ev_enq=%llu ev_proc=%llu ev_deferred=%llu ev_dropped=%llu\n",
+    printf("[LoopDiag] period=%ums frames=%llu waits=%llu blocked=%llums(%.1f%%) active=%llums(%.1f%%) wakes=%llu timers=%llu q_last=%u q_peak=%u jobs=%llu coalesced=%llu applied=%llu stale_dropped=%llu edit_txn_starts=%llu commits=%llu debounce_commits=%llu boundary_commits=%llu ev_q_last=%u ev_q_peak=%u ev_enq=%llu ev_proc=%llu ev_deferred=%llu ev_dropped=%llu ev_emit[sym=%llu diag=%llu prog=%llu status=%llu idx=%llu fin=%llu] ev_dispatch[sym=%llu diag=%llu prog=%llu status=%llu idx=%llu fin=%llu] stale_by_kind[sym=%llu diag=%llu prog=%llu status=%llu fin=%llu]\n",
            (unsigned int)periodMs,
            (unsigned long long)s_loop_diag.frames,
            (unsigned long long)s_loop_diag.waitCalls,
@@ -363,7 +383,24 @@ static void loop_diag_tick(uint64_t frameStartNs, uint64_t blockedNs, bool didWa
            (unsigned long long)s_loop_diag.eventsEnqueuedDelta,
            (unsigned long long)s_loop_diag.eventsProcessedDelta,
            (unsigned long long)s_loop_diag.eventsDeferredDelta,
-           (unsigned long long)s_loop_diag.eventsDroppedOverflowDelta);
+           (unsigned long long)s_loop_diag.eventsDroppedOverflowDelta,
+           (unsigned long long)s_loop_diag.eventsEmitSymbolsDelta,
+           (unsigned long long)s_loop_diag.eventsEmitDiagnosticsDelta,
+           (unsigned long long)s_loop_diag.eventsEmitAnalysisProgressDelta,
+           (unsigned long long)s_loop_diag.eventsEmitAnalysisStatusDelta,
+           (unsigned long long)s_loop_diag.eventsEmitLibraryIndexDelta,
+           (unsigned long long)s_loop_diag.eventsEmitAnalysisFinishedDelta,
+           (unsigned long long)s_loop_diag.eventsDispatchSymbolsDelta,
+           (unsigned long long)s_loop_diag.eventsDispatchDiagnosticsDelta,
+           (unsigned long long)s_loop_diag.eventsDispatchAnalysisProgressDelta,
+           (unsigned long long)s_loop_diag.eventsDispatchAnalysisStatusDelta,
+           (unsigned long long)s_loop_diag.eventsDispatchLibraryIndexDelta,
+           (unsigned long long)s_loop_diag.eventsDispatchAnalysisFinishedDelta,
+           (unsigned long long)s_loop_diag.staleDropsSymbolsDelta,
+           (unsigned long long)s_loop_diag.staleDropsDiagnosticsDelta,
+           (unsigned long long)s_loop_diag.staleDropsAnalysisProgressDelta,
+           (unsigned long long)s_loop_diag.staleDropsAnalysisStatusDelta,
+           (unsigned long long)s_loop_diag.staleDropsAnalysisFinishedDelta);
 
     s_loop_diag.periodStartMs = nowMs;
     s_loop_diag.frames = 0;
@@ -386,6 +423,23 @@ static void loop_diag_tick(uint64_t frameStartNs, uint64_t blockedNs, bool didWa
     s_loop_diag.eventsProcessedDelta = 0;
     s_loop_diag.eventsDeferredDelta = 0;
     s_loop_diag.eventsDroppedOverflowDelta = 0;
+    s_loop_diag.eventsEmitSymbolsDelta = 0;
+    s_loop_diag.eventsEmitDiagnosticsDelta = 0;
+    s_loop_diag.eventsEmitAnalysisProgressDelta = 0;
+    s_loop_diag.eventsEmitAnalysisStatusDelta = 0;
+    s_loop_diag.eventsEmitLibraryIndexDelta = 0;
+    s_loop_diag.eventsEmitAnalysisFinishedDelta = 0;
+    s_loop_diag.eventsDispatchSymbolsDelta = 0;
+    s_loop_diag.eventsDispatchDiagnosticsDelta = 0;
+    s_loop_diag.eventsDispatchAnalysisProgressDelta = 0;
+    s_loop_diag.eventsDispatchAnalysisStatusDelta = 0;
+    s_loop_diag.eventsDispatchLibraryIndexDelta = 0;
+    s_loop_diag.eventsDispatchAnalysisFinishedDelta = 0;
+    s_loop_diag.staleDropsSymbolsDelta = 0;
+    s_loop_diag.staleDropsDiagnosticsDelta = 0;
+    s_loop_diag.staleDropsAnalysisProgressDelta = 0;
+    s_loop_diag.staleDropsAnalysisStatusDelta = 0;
+    s_loop_diag.staleDropsAnalysisFinishedDelta = 0;
 }
 
 static bool completed_result_is_stale(const CompletedResult* result) {
@@ -398,8 +452,90 @@ static bool completed_result_is_stale(const CompletedResult* result) {
     return current_revision != result->document_revision;
 }
 
+static void loop_diag_note_event_emitted(IDEEventType type) {
+    switch (type) {
+        case IDE_EVENT_SYMBOL_TREE_UPDATED:
+            s_loop_diag.eventsEmitSymbolsDelta++;
+            break;
+        case IDE_EVENT_DIAGNOSTICS_UPDATED:
+            s_loop_diag.eventsEmitDiagnosticsDelta++;
+            break;
+        case IDE_EVENT_ANALYSIS_PROGRESS_UPDATED:
+            s_loop_diag.eventsEmitAnalysisProgressDelta++;
+            break;
+        case IDE_EVENT_ANALYSIS_STATUS_UPDATED:
+            s_loop_diag.eventsEmitAnalysisStatusDelta++;
+            break;
+        case IDE_EVENT_LIBRARY_INDEX_UPDATED:
+            s_loop_diag.eventsEmitLibraryIndexDelta++;
+            break;
+        case IDE_EVENT_ANALYSIS_RUN_FINISHED:
+            s_loop_diag.eventsEmitAnalysisFinishedDelta++;
+            break;
+        case IDE_EVENT_NONE:
+        case IDE_EVENT_DOCUMENT_EDITED:
+        case IDE_EVENT_DOCUMENT_REVISION_CHANGED:
+        default:
+            break;
+    }
+}
+
+static void loop_diag_note_event_dispatched(IDEEventType type) {
+    switch (type) {
+        case IDE_EVENT_SYMBOL_TREE_UPDATED:
+            s_loop_diag.eventsDispatchSymbolsDelta++;
+            break;
+        case IDE_EVENT_DIAGNOSTICS_UPDATED:
+            s_loop_diag.eventsDispatchDiagnosticsDelta++;
+            break;
+        case IDE_EVENT_ANALYSIS_PROGRESS_UPDATED:
+            s_loop_diag.eventsDispatchAnalysisProgressDelta++;
+            break;
+        case IDE_EVENT_ANALYSIS_STATUS_UPDATED:
+            s_loop_diag.eventsDispatchAnalysisStatusDelta++;
+            break;
+        case IDE_EVENT_LIBRARY_INDEX_UPDATED:
+            s_loop_diag.eventsDispatchLibraryIndexDelta++;
+            break;
+        case IDE_EVENT_ANALYSIS_RUN_FINISHED:
+            s_loop_diag.eventsDispatchAnalysisFinishedDelta++;
+            break;
+        case IDE_EVENT_NONE:
+        case IDE_EVENT_DOCUMENT_EDITED:
+        case IDE_EVENT_DOCUMENT_REVISION_CHANGED:
+        default:
+            break;
+    }
+}
+
+static void note_stale_drop_kind(CompletedResultKind kind) {
+    completed_results_queue_note_stale_dropped();
+    switch (kind) {
+        case COMPLETED_RESULT_SYMBOLS_UPDATED:
+            s_loop_diag.staleDropsSymbolsDelta++;
+            break;
+        case COMPLETED_RESULT_DIAGNOSTICS_UPDATED:
+            s_loop_diag.staleDropsDiagnosticsDelta++;
+            break;
+        case COMPLETED_RESULT_ANALYSIS_PROGRESS:
+            s_loop_diag.staleDropsAnalysisProgressDelta++;
+            break;
+        case COMPLETED_RESULT_ANALYSIS_STATUS_UPDATE:
+            s_loop_diag.staleDropsAnalysisStatusDelta++;
+            break;
+        case COMPLETED_RESULT_ANALYSIS_FINISHED:
+            s_loop_diag.staleDropsAnalysisFinishedDelta++;
+            break;
+        case COMPLETED_RESULT_NONE:
+        default:
+            break;
+    }
+}
+
 static void apply_completed_result(FrameContext* ctx, const CompletedResult* result) {
     if (!ctx || !result) return;
+    (void)ctx;
+    mainthread_context_assert_owner("event_loop.apply_completed_result");
 
     uint64_t result_run_id = 0;
     if (result->kind == COMPLETED_RESULT_ANALYSIS_FINISHED) {
@@ -414,71 +550,76 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         result_run_id = result->payload.analysis_status_update.analysis_run_id;
     }
     if (result_run_id > 0 && result_run_id < s_latest_applied_analysis_run_id) {
-        completed_results_queue_note_stale_dropped();
+        note_stale_drop_kind(result->kind);
         return;
     }
 
     if (result->kind == COMPLETED_RESULT_SYMBOLS_UPDATED) {
         const CompletedResultSymbolsUpdatedPayload* p = &result->payload.symbols_updated;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
-            completed_results_queue_note_stale_dropped();
+            note_stale_drop_kind(result->kind);
             return;
         }
         if (analysis_symbols_store_combined_stamp() != p->symbols_stamp) {
-            completed_results_queue_note_stale_dropped();
+            note_stale_drop_kind(result->kind);
             return;
         }
     } else if (result->kind == COMPLETED_RESULT_DIAGNOSTICS_UPDATED) {
         const CompletedResultDiagnosticsUpdatedPayload* p = &result->payload.diagnostics_updated;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
-            completed_results_queue_note_stale_dropped();
+            note_stale_drop_kind(result->kind);
             return;
         }
         if (analysis_store_combined_stamp() != p->diagnostics_stamp) {
-            completed_results_queue_note_stale_dropped();
+            note_stale_drop_kind(result->kind);
             return;
         }
     } else if (result->kind == COMPLETED_RESULT_ANALYSIS_PROGRESS) {
         const CompletedResultAnalysisProgressPayload* p = &result->payload.analysis_progress;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
-            completed_results_queue_note_stale_dropped();
+            note_stale_drop_kind(result->kind);
             return;
         }
     } else if (result->kind == COMPLETED_RESULT_ANALYSIS_STATUS_UPDATE) {
         const CompletedResultAnalysisStatusUpdatePayload* p = &result->payload.analysis_status_update;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
-            completed_results_queue_note_stale_dropped();
+            note_stale_drop_kind(result->kind);
+            return;
+        }
+    } else if (result->kind == COMPLETED_RESULT_ANALYSIS_FINISHED) {
+        const CompletedResultAnalysisFinishedPayload* p = &result->payload.analysis_finished;
+        if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
+            note_stale_drop_kind(result->kind);
+            return;
+        }
+        if (library_index_combined_stamp() != p->library_index_stamp) {
+            note_stale_drop_kind(result->kind);
             return;
         }
     }
 
     if (completed_result_is_stale(result)) {
-        completed_results_queue_note_stale_dropped();
+        note_stale_drop_kind(result->kind);
         return;
     }
 
     if (result->kind == COMPLETED_RESULT_ANALYSIS_FINISHED) {
         const CompletedResultAnalysisFinishedPayload* p = &result->payload.analysis_finished;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
-            completed_results_queue_note_stale_dropped();
+            note_stale_drop_kind(result->kind);
             return;
         }
-
-        rebuildLibraryFlatRows();
-        UIState* ui = getUIState();
-        if (ui) {
-            invalidatePane(ui->toolPanel,
-                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
-            invalidatePane(ui->controlPanel,
-                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
-            invalidatePane(ui->editorPanel,
-                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
-        } else {
-            invalidateAll(ctx->panes, *ctx->paneCount,
-                          RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
-        }
-        requestFullRedraw(RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
         completed_results_queue_note_applied();
+        if (loop_events_emit_library_index_updated(p->project_root,
+                                                   p->analysis_run_id,
+                                                   p->library_index_stamp)) {
+            loop_diag_note_event_emitted(IDE_EVENT_LIBRARY_INDEX_UPDATED);
+        }
+        if (loop_events_emit_analysis_run_finished(p->project_root,
+                                                   p->analysis_run_id,
+                                                   p->library_index_stamp)) {
+            loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_RUN_FINISHED);
+        }
         if (result_run_id > s_latest_applied_analysis_run_id) {
             s_latest_applied_analysis_run_id = result_run_id;
         }
@@ -486,7 +627,9 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         const CompletedResultSymbolsUpdatedPayload* p = &result->payload.symbols_updated;
         editor_sync_active_file_projection_mode();
         completed_results_queue_note_applied();
-        loop_events_emit_symbol_tree_updated(p->project_root, p->analysis_run_id, p->symbols_stamp);
+        if (loop_events_emit_symbol_tree_updated(p->project_root, p->analysis_run_id, p->symbols_stamp)) {
+            loop_diag_note_event_emitted(IDE_EVENT_SYMBOL_TREE_UPDATED);
+        }
         if (result_run_id > s_latest_applied_analysis_run_id) {
             s_latest_applied_analysis_run_id = result_run_id;
         }
@@ -494,19 +637,22 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         const CompletedResultDiagnosticsUpdatedPayload* p = &result->payload.diagnostics_updated;
         analysis_store_flatten_to_engine();
         completed_results_queue_note_applied();
-        loop_events_emit_diagnostics_updated(p->project_root, p->analysis_run_id, p->diagnostics_stamp);
+        if (loop_events_emit_diagnostics_updated(p->project_root, p->analysis_run_id, p->diagnostics_stamp)) {
+            loop_diag_note_event_emitted(IDE_EVENT_DIAGNOSTICS_UPDATED);
+        }
         if (result_run_id > s_latest_applied_analysis_run_id) {
             s_latest_applied_analysis_run_id = result_run_id;
         }
     } else if (result->kind == COMPLETED_RESULT_ANALYSIS_PROGRESS) {
         const CompletedResultAnalysisProgressPayload* p = &result->payload.analysis_progress;
         analysis_status_set_progress(p->completed_files, p->total_files);
-        UIState* ui = getUIState();
-        if (ui && ui->controlPanel) {
-            invalidatePane(ui->controlPanel,
-                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
-        }
+        s_analysis_progress_stamp++;
         completed_results_queue_note_applied();
+        if (loop_events_emit_analysis_progress_updated(p->project_root,
+                                                       p->analysis_run_id,
+                                                       s_analysis_progress_stamp)) {
+            loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_PROGRESS_UPDATED);
+        }
         if (result_run_id > s_latest_applied_analysis_run_id) {
             s_latest_applied_analysis_run_id = result_run_id;
         }
@@ -521,12 +667,13 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         if (p->set_status) {
             analysis_status_set((AnalysisStatus)p->status_value);
         }
-        UIState* ui = getUIState();
-        if (ui && ui->controlPanel) {
-            invalidatePane(ui->controlPanel,
-                           RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
-        }
+        s_analysis_status_stamp++;
         completed_results_queue_note_applied();
+        if (loop_events_emit_analysis_status_updated(p->project_root,
+                                                     p->analysis_run_id,
+                                                     s_analysis_status_stamp)) {
+            loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_STATUS_UPDATED);
+        }
         if (result_run_id > s_latest_applied_analysis_run_id) {
             s_latest_applied_analysis_run_id = result_run_id;
         }
@@ -560,11 +707,18 @@ static void invalidate_runtime_event_targets(const IDEEvent* event, FrameContext
 }
 
 static void dispatch_runtime_event(const IDEEvent* event, void* user_data) {
+    mainthread_context_assert_owner("event_loop.dispatch_runtime_event");
+    if (event) {
+        loop_diag_note_event_dispatched(event->type);
+    }
     if (event && event->type == IDE_EVENT_SYMBOL_TREE_UPDATED) {
         control_panel_note_symbol_store_updated(event->payload.analysis.project_root,
                                                 event->payload.analysis.data_stamp);
     } else if (event && event->type == IDE_EVENT_DIAGNOSTICS_UPDATED) {
         analysis_store_mark_published(event->payload.analysis.data_stamp);
+    } else if (event && event->type == IDE_EVENT_LIBRARY_INDEX_UPDATED) {
+        library_index_mark_published(event->payload.analysis.data_stamp);
+        rebuildLibraryFlatRows();
     }
     FrameContext* ctx = (FrameContext*)user_data;
     invalidate_runtime_event_targets(event, ctx);
@@ -932,6 +1086,7 @@ static bool checkRenderFrame(FrameContext* ctx, Uint64 now) {
 
 
 void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
+    mainthread_context_assert_owner("event_loop.runFrameLoop");
     IDECoreState* core = getCoreState();
     const bool timerHudActive = core->timerHudEnabled;
     uint64_t frameStartNs = loop_time_now_ns();
@@ -1016,9 +1171,15 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
         }
         refreshProjectDirectory();
         analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
+        s_analysis_status_stamp++;
+        if (loop_events_emit_analysis_status_updated(projectPath, 0u, s_analysis_status_stamp)) {
+            loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_STATUS_UPDATED);
+        }
         analysis_job_set_slow_mode_next_run(slow_mode);
         analysis_scheduler_request((AnalysisRefreshReason)reason_mask, force_full);
-        rebuildLibraryFlatRows();
+        if (loop_events_emit_library_index_updated(projectPath, 0u, library_index_combined_stamp())) {
+            loop_diag_note_event_emitted(IDE_EVENT_LIBRARY_INDEX_UPDATED);
+        }
         initAssetManagerPanel();
         resetGitTree();
         pendingProjectRefresh = false;

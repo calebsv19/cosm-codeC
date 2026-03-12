@@ -48,6 +48,7 @@ static void analysis_queue_finished_message(bool cancelled, bool had_error) {
     result.payload.analysis_finished.analysis_run_id = g_analysis_run_id;
     result.payload.analysis_finished.cancelled = cancelled;
     result.payload.analysis_finished.had_error = had_error;
+    result.payload.analysis_finished.library_index_stamp = library_index_combined_stamp();
     snprintf(result.payload.analysis_finished.project_root,
              sizeof(result.payload.analysis_finished.project_root),
              "%s",

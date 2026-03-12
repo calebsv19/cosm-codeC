@@ -1,6 +1,6 @@
 # IDE Current Architecture Status
 
-Last updated: 2026-03-11
+Last updated: 2026-03-12
 Audience: public/stable readers
 
 ## Summary
@@ -26,7 +26,8 @@ This means:
 
 1. symbols lane migration: complete
 2. diagnostics lane migration: complete
-3. analysis/index residual lane migration (Phase 4.3+): pending
+3. analysis/index residual lane migration: complete
+4. Phase 4 hardening/guardrails and closure gate: complete
 
 ## Validation Baseline
 
@@ -36,6 +37,6 @@ Current baseline command lanes:
 2. `make -C ide test-phase3`
 3. `make -C ide test-phase4`
 
-These include event queue/dispatch tests, scheduler coalescing checks, idebridge runtime checks, and targeted regressions for bridge/startup diagnostics+symbols event emission behavior.
+These include event queue/dispatch tests, scheduler coalescing checks, idle-efficiency sanity coverage, idebridge runtime checks, and targeted regressions for bridge/startup diagnostics+symbols event emission behavior.
 
-Latest closure check: full `make -C ide test-phase4` reran green during the Phase 4.2 closure slice.
+Latest closure check: full `make -C ide test-phase4` reran green during Phase 4.5 closure on 2026-03-12.

@@ -111,6 +111,18 @@ static void test_event_queue_to_invalidation_dispatch(void) {
     assert(!control.dirty);
     assert(!tool.dirty);
 
+    // Analysis status updates should target control/tool and avoid editor.
+    reset_pane_dirty(&editor);
+    reset_pane_dirty(&control);
+    reset_pane_dirty(&tool);
+    reset_frame_state();
+    assert(loop_events_emit_analysis_status_updated("/tmp/project", 3u, 33u));
+    drained = loop_events_drain_bounded(64u, dispatch_visitor, &targets);
+    assert(drained == 1u);
+    assert(!editor.dirty);
+    assert(control.dirty);
+    assert(tool.dirty);
+
     loop_events_shutdown();
 }
 

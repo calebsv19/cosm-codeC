@@ -10,9 +10,14 @@
 
 #include <json-c/json.h>
 
+#include "core/LoopKernel/mainthread_context.h"
+
 static LibraryBucket g_buckets[LIB_BUCKET_COUNT];
 static char g_project_root[PATH_MAX];
 static pthread_mutex_t g_library_index_mutex = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t g_combined_stamp = 0;
+static uint64_t g_published_stamp = 0;
+static bool g_mutation_dirty = false;
 
 void library_index_lock(void) {
     pthread_mutex_lock(&g_library_index_mutex);
@@ -56,6 +61,13 @@ static void free_buckets_locked(void) {
 static void library_index_reset_locked(void) {
     free_buckets_locked();
     memset(g_project_root, 0, sizeof(g_project_root));
+    g_combined_stamp = 0;
+    g_published_stamp = 0;
+    g_mutation_dirty = false;
+}
+
+static void library_index_note_mutation_locked(void) {
+    g_mutation_dirty = true;
 }
 
 void library_index_reset(void) {
@@ -171,7 +183,9 @@ static void library_index_add_include_locked(const char* source_path,
     }
 
     if (!header) return;
-    add_usage_to_header(header, rel, line, column);
+    if (add_usage_to_header(header, rel, line, column)) {
+        library_index_note_mutation_locked();
+    }
 }
 
 void library_index_add_include(const char* source_path,
@@ -191,6 +205,7 @@ void library_index_remove_source(const char* source_path) {
     library_index_lock();
     const char* rel = skip_root_prefix(source_path);
     if (!rel || !*rel) rel = source_path;
+    bool removed_any = false;
 
     for (size_t b = 0; b < LIB_BUCKET_COUNT; ++b) {
         LibraryBucket* bucket = &g_buckets[b];
@@ -206,6 +221,7 @@ void library_index_remove_source(const char* source_path) {
                         header->usages[k - 1] = header->usages[k];
                     }
                     header->usage_count--;
+                    removed_any = true;
                     continue;
                 }
                 u++;
@@ -221,6 +237,9 @@ void library_index_remove_source(const char* source_path) {
             }
             h++;
         }
+    }
+    if (removed_any) {
+        library_index_note_mutation_locked();
     }
     library_index_unlock();
 }
@@ -261,11 +280,45 @@ static void library_index_finalize_locked(void) {
             }
         }
     }
+    if (g_mutation_dirty) {
+        g_combined_stamp++;
+        g_mutation_dirty = false;
+    }
 }
 
 void library_index_finalize(void) {
     library_index_lock();
     library_index_finalize_locked();
+    library_index_unlock();
+}
+
+uint64_t library_index_combined_stamp(void) {
+    uint64_t out = 0;
+    library_index_lock();
+    out = g_combined_stamp;
+    library_index_unlock();
+    return out;
+}
+
+uint64_t library_index_published_stamp(void) {
+    uint64_t out = 0;
+    library_index_lock();
+    out = g_published_stamp;
+    library_index_unlock();
+    return out;
+}
+
+void library_index_mark_published(uint64_t stamp) {
+    mainthread_context_assert_owner("library_index.mark_published");
+    library_index_lock();
+    if (stamp == 0) {
+        g_published_stamp = 0;
+    } else {
+        if (stamp > g_combined_stamp) {
+            stamp = g_combined_stamp;
+        }
+        g_published_stamp = stamp;
+    }
     library_index_unlock();
 }
 

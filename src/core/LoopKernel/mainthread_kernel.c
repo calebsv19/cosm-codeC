@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "core/LoopJobs/mainthread_jobs.h"
+#include "core/LoopKernel/mainthread_context.h"
 #include "core/LoopTimer/mainthread_timer_scheduler.h"
 #include "core/LoopWake/mainthread_wake.h"
 #include "core_kernel.h"
@@ -13,6 +14,7 @@ static bool g_initialized = false;
 
 bool mainthread_kernel_init(void) {
     if (g_initialized) return true;
+    mainthread_context_set_owner_current();
 
     CoreSched* sched = mainthread_timer_scheduler_get_core_sched();
     CoreJobs* jobs = mainthread_jobs_get_core_jobs();
@@ -39,6 +41,7 @@ void mainthread_kernel_shutdown(void) {
     if (!g_initialized) return;
     core_kernel_shutdown(&g_kernel);
     memset(&g_kernel, 0, sizeof(g_kernel));
+    mainthread_context_clear_owner();
     g_initialized = false;
 }
 

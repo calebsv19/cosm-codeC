@@ -57,6 +57,11 @@ static UIRowSurfaceRenderSpec library_row_surface_spec(bool is_selected,
 
 void renderLibrariesPanel(UIPane* pane) {
     LibraryPanelState* st = libraries_panel_state();
+    uint64_t published_index_stamp = library_index_published_stamp();
+    if (st->last_published_index_stamp != published_index_stamp) {
+        st->last_published_index_stamp = published_index_stamp;
+        rebuildLibraryFlatRows();
+    }
     static bool scrollInit = false;
     if (!scrollInit) {
         scroll_state_init(&st->scroll, NULL);

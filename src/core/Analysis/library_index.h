@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "core/Analysis/include_path_resolver.h"
 
@@ -64,6 +65,9 @@ void library_index_add_include(const char* source_path,
                                int line,
                                int column);
 void library_index_remove_source(const char* source_path);
+uint64_t library_index_combined_stamp(void);
+uint64_t library_index_published_stamp(void);
+void library_index_mark_published(uint64_t stamp);
 
 typedef struct {
     size_t files_seen;

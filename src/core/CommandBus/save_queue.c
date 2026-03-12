@@ -3,13 +3,14 @@
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/Analysis/analysis_scheduler.h"
 #include "core/Analysis/analysis_status.h"
+#include "core/LoopEvents/event_queue.h"
 #include "app/GlobalInfo/project.h"
-#include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <SDL2/SDL.h>
 
 static SaveQueueItem* head = NULL;
 static SaveQueueItem* tail = NULL;
@@ -86,8 +87,8 @@ void tickSaveQueue() {
 
         // Queue async analysis refresh; do not block the main thread on save.
         analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
+        loop_events_emit_analysis_status_updated(projectPath, 0u, SDL_GetTicks64());
         analysis_scheduler_request(ANALYSIS_REASON_PROJECT_MUTATION, false);
-        rebuildLibraryFlatRows();
         resetGitTree();
     } else {
         printf("[SaveQueue] FAILED to save: %s\n", item->filePath);

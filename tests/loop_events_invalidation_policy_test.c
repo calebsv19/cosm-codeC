@@ -38,6 +38,22 @@ static void test_symbol_diagnostics_mapping(void) {
     assert(plan.targets == (LOOP_EVENT_TARGET_CONTROL | LOOP_EVENT_TARGET_TOOL | LOOP_EVENT_TARGET_EDITOR));
     assert(plan.invalidate_intent == LOOP_EVENT_INVALIDATE_CONTENT_BACKGROUND);
     assert(plan.redraw_intent == LOOP_EVENT_INVALIDATE_CONTENT_BACKGROUND);
+
+    event = make_event(IDE_EVENT_ANALYSIS_PROGRESS_UPDATED);
+    assert(loop_events_build_invalidation_plan(&event, &plan));
+    assert(plan.targets == (LOOP_EVENT_TARGET_CONTROL | LOOP_EVENT_TARGET_TOOL));
+
+    event = make_event(IDE_EVENT_ANALYSIS_STATUS_UPDATED);
+    assert(loop_events_build_invalidation_plan(&event, &plan));
+    assert(plan.targets == (LOOP_EVENT_TARGET_CONTROL | LOOP_EVENT_TARGET_TOOL));
+
+    event = make_event(IDE_EVENT_LIBRARY_INDEX_UPDATED);
+    assert(loop_events_build_invalidation_plan(&event, &plan));
+    assert(plan.targets == (LOOP_EVENT_TARGET_CONTROL | LOOP_EVENT_TARGET_TOOL));
+
+    event = make_event(IDE_EVENT_ANALYSIS_RUN_FINISHED);
+    assert(loop_events_build_invalidation_plan(&event, &plan));
+    assert(plan.targets == (LOOP_EVENT_TARGET_CONTROL | LOOP_EVENT_TARGET_TOOL));
 }
 
 static void test_none_mapping(void) {

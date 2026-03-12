@@ -9,6 +9,7 @@
 #include "ide/UI/scroll_manager.h"
 #include <SDL2/SDL.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef enum {
     LIB_NODE_BUCKET = 0,
@@ -52,6 +53,7 @@ typedef struct {
     bool* selected;
     int selectedCapacity;
     bool includeSystemHeaders;
+    uint64_t last_published_index_stamp;
     UIPanelTaggedRect control_hit_storage[2];
     UIPanelTaggedRectList control_hits;
 } LibraryPanelState;

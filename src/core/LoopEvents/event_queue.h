@@ -10,7 +10,11 @@ typedef enum IDEEventType {
     IDE_EVENT_DOCUMENT_EDITED = 1,
     IDE_EVENT_DOCUMENT_REVISION_CHANGED = 2,
     IDE_EVENT_SYMBOL_TREE_UPDATED = 3,
-    IDE_EVENT_DIAGNOSTICS_UPDATED = 4
+    IDE_EVENT_DIAGNOSTICS_UPDATED = 4,
+    IDE_EVENT_ANALYSIS_PROGRESS_UPDATED = 5,
+    IDE_EVENT_ANALYSIS_STATUS_UPDATED = 6,
+    IDE_EVENT_LIBRARY_INDEX_UPDATED = 7,
+    IDE_EVENT_ANALYSIS_RUN_FINISHED = 8
 } IDEEventType;
 
 typedef struct IDEEventDocumentPayload {
@@ -67,5 +71,17 @@ bool loop_events_emit_symbol_tree_updated(const char* project_root,
 bool loop_events_emit_diagnostics_updated(const char* project_root,
                                           uint64_t analysis_run_id,
                                           uint64_t diagnostics_stamp);
+bool loop_events_emit_analysis_progress_updated(const char* project_root,
+                                                uint64_t analysis_run_id,
+                                                uint64_t progress_stamp);
+bool loop_events_emit_analysis_status_updated(const char* project_root,
+                                              uint64_t analysis_run_id,
+                                              uint64_t status_stamp);
+bool loop_events_emit_library_index_updated(const char* project_root,
+                                            uint64_t analysis_run_id,
+                                            uint64_t index_stamp);
+bool loop_events_emit_analysis_run_finished(const char* project_root,
+                                            uint64_t analysis_run_id,
+                                            uint64_t index_stamp);
 
 #endif // EVENT_QUEUE_H

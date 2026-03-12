@@ -134,10 +134,53 @@ static void test_drain_bounded_and_deferred(void) {
     loop_events_shutdown();
 }
 
+static void test_multi_frame_backlog_fairness(void) {
+    loop_events_init();
+
+    IDEEvent event = make_doc_event(IDE_EVENT_DOCUMENT_EDITED, "fairness.c", 1u);
+    for (int i = 0; i < 50; ++i) {
+        assert(loop_events_push(&event));
+    }
+
+    const size_t budget = 7u;
+    size_t previous_depth = loop_events_size();
+    uint64_t previous_processed = 0u;
+
+    for (int frame = 0; frame < 8; ++frame) {
+        DrainVisitState state;
+        memset(&state, 0, sizeof(state));
+        size_t drained = loop_events_drain_bounded(budget, visit_and_count, &state);
+        assert(drained > 0u);
+        assert(drained <= budget);
+        assert(state.visited == drained);
+
+        LoopEventsStats stats;
+        memset(&stats, 0, sizeof(stats));
+        loop_events_snapshot(&stats);
+
+        // Backlog must trend down each frame while budgeted drain is non-zero.
+        assert((size_t)stats.depth < previous_depth);
+        previous_depth = (size_t)stats.depth;
+
+        // Processed count must strictly advance each frame.
+        assert(stats.events_processed > previous_processed);
+        previous_processed = stats.events_processed;
+    }
+
+    // Drain to completion and verify queue can fully recover from burst.
+    DrainVisitState state;
+    memset(&state, 0, sizeof(state));
+    (void)loop_events_drain_bounded(1024u, visit_and_count, &state);
+    assert(loop_events_size() == 0u);
+
+    loop_events_shutdown();
+}
+
 int main(void) {
     test_fifo_and_sequence();
     test_overflow_and_deferred_counters();
     test_drain_bounded_and_deferred();
+    test_multi_frame_backlog_fairness();
     puts("loop_events_queue_test: success");
     return 0;
 }

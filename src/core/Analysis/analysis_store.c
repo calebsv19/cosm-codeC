@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
+#include "core/LoopKernel/mainthread_context.h"
+
 static AnalysisFileDiagnostics* g_files = NULL;
 static size_t g_file_count = 0;
 static size_t g_file_cap = 0;
@@ -176,6 +178,7 @@ uint64_t analysis_store_published_stamp(void) {
 }
 
 void analysis_store_mark_published(uint64_t stamp) {
+    mainthread_context_assert_owner("analysis_store.mark_published");
     analysis_store_lock();
     g_published_stamp = stamp;
     analysis_store_unlock();
@@ -196,6 +199,7 @@ static void analysis_store_flatten_to_engine_locked(void) {
 }
 
 void analysis_store_flatten_to_engine(void) {
+    mainthread_context_assert_owner("analysis_store.flatten_to_engine");
     analysis_store_lock();
     analysis_store_flatten_to_engine_locked();
     analysis_store_unlock();

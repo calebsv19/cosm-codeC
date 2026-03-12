@@ -183,7 +183,7 @@
   TEST_IDEBRIDGE_STABLE_TARGETS := test-idebridge-phase1 test-idebridge-phase6
   TEST_IDEBRIDGE_LEGACY_TARGETS := test-idebridge-phase2 test-idebridge-phase3 test-idebridge-phase4 test-idebridge-phase5
   TEST_IDEBRIDGE_ALL_TARGETS := $(TEST_IDEBRIDGE_STABLE_TARGETS) $(TEST_IDEBRIDGE_LEGACY_TARGETS)
-  TEST_SMOKE_TARGETS := test-vk-macros test-shared-theme-font-adapter test-completed-results-queue test-analysis-scheduler-coalescing test-editor-edit-transaction-debounce test-loop-events-queue test-loop-events-emission-contract test-loop-events-invalidation-policy test-loop-events-dispatch-integration test-fisics-bridge-events-regression test-analysis-store-stamp-regression test-analysis-runtime-events-startup-regression test-analysis-store-published-stamp-regression test-diagnostics-pipeline-integration
+  TEST_SMOKE_TARGETS := test-vk-macros test-shared-theme-font-adapter test-completed-results-queue test-analysis-scheduler-coalescing test-editor-edit-transaction-debounce test-loop-events-queue test-loop-events-emission-contract test-loop-events-invalidation-policy test-loop-events-dispatch-integration test-fisics-bridge-events-regression test-analysis-store-stamp-regression test-analysis-runtime-events-startup-regression test-analysis-store-published-stamp-regression test-library-index-stamp-regression test-idle-efficiency-sanity test-diagnostics-pipeline-integration
   TEST_EXTENDED_TARGETS := test-idebridge-diag-pack-export test-idebridge-diag-core-data-export
 # ===== RULES =====
 all: $(OUT) $(IDEBRIDGE_OUT)
@@ -421,7 +421,7 @@ test-vk-macros:
 test-idebridge-phase1: $(IDEBRIDGE_OUT)
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling idebridge phase-1 runtime check..."
-	@$(CC) $(CFLAGS) tests/idebridge_phase1_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE1_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-1 compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/idebridge_phase1_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/core/LoopKernel/mainthread_context.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE1_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-1 compile failed."; exit 1)
 	@echo "Running idebridge phase-1 runtime check..."
 	@$(IDEBRIDGE_PHASE1_TEST_OUT) || (echo "idebridge phase-1 runtime check failed."; exit 1)
 	@echo "idebridge phase-1 runtime check passed."
@@ -430,7 +430,7 @@ test-idebridge-phase1: $(IDEBRIDGE_OUT)
 test-idebridge-phase2:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling idebridge phase-2 runtime check..."
-	@$(CC) $(CFLAGS) tests/idebridge_phase2_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE2_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-2 compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/idebridge_phase2_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/core/LoopKernel/mainthread_context.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE2_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-2 compile failed."; exit 1)
 	@echo "Running idebridge phase-2 runtime check..."
 	@$(IDEBRIDGE_PHASE2_TEST_OUT) || (echo "idebridge phase-2 runtime check failed."; exit 1)
 	@echo "idebridge phase-2 runtime check passed."
@@ -439,7 +439,7 @@ test-idebridge-phase2:
 test-idebridge-phase3:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling idebridge phase-3 runtime check..."
-	@$(CC) $(CFLAGS) tests/idebridge_phase3_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE3_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-3 compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/idebridge_phase3_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/core/LoopKernel/mainthread_context.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE3_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-3 compile failed."; exit 1)
 	@echo "Running idebridge phase-3 runtime check..."
 	@$(IDEBRIDGE_PHASE3_TEST_OUT) || (echo "idebridge phase-3 runtime check failed."; exit 1)
 	@echo "idebridge phase-3 runtime check passed."
@@ -448,7 +448,7 @@ test-idebridge-phase3:
 test-idebridge-phase4:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling idebridge phase-4 runtime check..."
-	@$(CC) $(CFLAGS) tests/idebridge_phase4_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE4_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-4 compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/idebridge_phase4_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/core/LoopKernel/mainthread_context.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE4_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-4 compile failed."; exit 1)
 	@echo "Running idebridge phase-4 runtime check..."
 	@$(IDEBRIDGE_PHASE4_TEST_OUT) || (echo "idebridge phase-4 runtime check failed."; exit 1)
 	@echo "idebridge phase-4 runtime check passed."
@@ -457,7 +457,7 @@ test-idebridge-phase4:
 test-idebridge-phase5: $(IDEBRIDGE_OUT)
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling idebridge phase-5 runtime check..."
-	@$(CC) $(CFLAGS) tests/idebridge_phase5_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE5_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-5 compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/idebridge_phase5_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/core/LoopKernel/mainthread_context.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE5_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-5 compile failed."; exit 1)
 	@echo "Running idebridge phase-5 runtime check..."
 	@$(IDEBRIDGE_PHASE5_TEST_OUT) || (echo "idebridge phase-5 runtime check failed."; exit 1)
 	@echo "idebridge phase-5 runtime check passed."
@@ -466,7 +466,7 @@ test-idebridge-phase5: $(IDEBRIDGE_OUT)
 test-idebridge-phase6: $(IDEBRIDGE_OUT)
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling idebridge phase-6 runtime check..."
-	@$(CC) $(CFLAGS) tests/idebridge_phase6_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE6_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-6 compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/idebridge_phase6_check.c src/core/Ipc/ide_ipc_server.c src/core/Ipc/ide_ipc_path_guard.c src/core/Diagnostics/diagnostics_engine.c src/core/BuildSystem/build_diagnostics.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/library_index.c src/core/LoopKernel/mainthread_context.c src/app/GlobalInfo/workspace_prefs.c -o $(IDEBRIDGE_PHASE6_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-6 compile failed."; exit 1)
 	@echo "Running idebridge phase-6 runtime check..."
 	@$(IDEBRIDGE_PHASE6_TEST_OUT) || (echo "idebridge phase-6 runtime check failed."; exit 1)
 	@echo "idebridge phase-6 runtime check passed."
@@ -522,7 +522,7 @@ test-editor-edit-transaction-debounce:
 test-loop-events-queue:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling loop events queue test..."
-	@$(CC) $(CFLAGS) tests/loop_events_queue_test.c src/core/LoopEvents/event_queue.c -o $(TEST_BUILD_DIR)/loop_events_queue_test $(LIB_DIRS) -lSDL2 || (echo "loop events queue test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/loop_events_queue_test.c src/core/LoopEvents/event_queue.c src/core/LoopKernel/mainthread_context.c -o $(TEST_BUILD_DIR)/loop_events_queue_test $(LIB_DIRS) -lSDL2 || (echo "loop events queue test compile failed."; exit 1)
 	@echo "Running loop events queue test..."
 	@$(TEST_BUILD_DIR)/loop_events_queue_test || (echo "loop events queue test failed."; exit 1)
 	@echo "Loop events queue test passed."
@@ -531,7 +531,7 @@ test-loop-events-queue:
 test-loop-events-emission-contract:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling loop events emission contract test..."
-	@$(CC) $(CFLAGS) tests/loop_events_emission_contract_test.c src/core/LoopEvents/event_queue.c -o $(TEST_BUILD_DIR)/loop_events_emission_contract_test $(LIB_DIRS) -lSDL2 || (echo "loop events emission contract test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/loop_events_emission_contract_test.c src/core/LoopEvents/event_queue.c src/core/LoopKernel/mainthread_context.c -o $(TEST_BUILD_DIR)/loop_events_emission_contract_test $(LIB_DIRS) -lSDL2 || (echo "loop events emission contract test compile failed."; exit 1)
 	@echo "Running loop events emission contract test..."
 	@$(TEST_BUILD_DIR)/loop_events_emission_contract_test || (echo "loop events emission contract test failed."; exit 1)
 	@echo "Loop events emission contract test passed."
@@ -549,7 +549,7 @@ test-loop-events-invalidation-policy:
 test-loop-events-dispatch-integration:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling loop events dispatch integration test..."
-	@$(CC) $(CFLAGS) tests/loop_events_dispatch_integration_test.c src/core/LoopEvents/event_queue.c src/core/LoopEvents/event_invalidation_policy.c -o $(TEST_BUILD_DIR)/loop_events_dispatch_integration_test $(LIB_DIRS) -lSDL2 || (echo "loop events dispatch integration test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/loop_events_dispatch_integration_test.c src/core/LoopEvents/event_queue.c src/core/LoopEvents/event_invalidation_policy.c src/core/LoopKernel/mainthread_context.c -o $(TEST_BUILD_DIR)/loop_events_dispatch_integration_test $(LIB_DIRS) -lSDL2 || (echo "loop events dispatch integration test compile failed."; exit 1)
 	@echo "Running loop events dispatch integration test..."
 	@$(TEST_BUILD_DIR)/loop_events_dispatch_integration_test || (echo "loop events dispatch integration test failed."; exit 1)
 	@echo "Loop events dispatch integration test passed."
@@ -558,7 +558,7 @@ test-loop-events-dispatch-integration:
 test-fisics-bridge-events-regression:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling fisics bridge events regression test..."
-	@$(CC) $(CFLAGS) tests/fisics_bridge_events_regression_test.c src/core/Analysis/fisics_bridge.c src/core/LoopEvents/event_queue.c src/core/Analysis/analysis_store.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/analysis_token_store.c src/core/Diagnostics/diagnostics_engine.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/fisics_bridge_events_regression_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "fisics bridge events regression test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/fisics_bridge_events_regression_test.c src/core/Analysis/fisics_bridge.c src/core/LoopEvents/event_queue.c src/core/Analysis/analysis_store.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/analysis_token_store.c src/core/Diagnostics/diagnostics_engine.c src/core/LoopKernel/mainthread_context.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/fisics_bridge_events_regression_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "fisics bridge events regression test compile failed."; exit 1)
 	@echo "Running fisics bridge events regression test..."
 	@$(TEST_BUILD_DIR)/fisics_bridge_events_regression_test || (echo "fisics bridge events regression test failed."; exit 1)
 	@echo "Fisics bridge events regression test passed."
@@ -567,7 +567,7 @@ test-fisics-bridge-events-regression:
 test-analysis-store-stamp-regression:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling analysis store stamp regression test..."
-	@$(CC) $(CFLAGS) tests/analysis_store_stamp_regression_test.c src/core/Analysis/analysis_store.c src/core/Diagnostics/diagnostics_engine.c -o $(TEST_BUILD_DIR)/analysis_store_stamp_regression_test $(LIB_DIRS) -ljson-c || (echo "analysis store stamp regression test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/analysis_store_stamp_regression_test.c src/core/Analysis/analysis_store.c src/core/Diagnostics/diagnostics_engine.c src/core/LoopKernel/mainthread_context.c -o $(TEST_BUILD_DIR)/analysis_store_stamp_regression_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "analysis store stamp regression test compile failed."; exit 1)
 	@echo "Running analysis store stamp regression test..."
 	@$(TEST_BUILD_DIR)/analysis_store_stamp_regression_test || (echo "analysis store stamp regression test failed."; exit 1)
 	@echo "Analysis store stamp regression test passed."
@@ -576,7 +576,7 @@ test-analysis-store-stamp-regression:
 test-analysis-runtime-events-startup-regression:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling analysis runtime-events startup regression test..."
-	@$(CC) $(CFLAGS) tests/analysis_runtime_events_startup_regression_test.c src/core/Analysis/analysis_runtime_events.c src/core/Analysis/analysis_store.c src/core/Analysis/analysis_symbols_store.c src/core/LoopEvents/event_queue.c src/core/Diagnostics/diagnostics_engine.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/analysis_runtime_events_startup_regression_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "analysis runtime-events startup regression test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/analysis_runtime_events_startup_regression_test.c src/core/Analysis/analysis_runtime_events.c src/core/Analysis/analysis_store.c src/core/Analysis/analysis_symbols_store.c src/core/LoopEvents/event_queue.c src/core/Diagnostics/diagnostics_engine.c src/core/LoopKernel/mainthread_context.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/analysis_runtime_events_startup_regression_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "analysis runtime-events startup regression test compile failed."; exit 1)
 	@echo "Running analysis runtime-events startup regression test..."
 	@$(TEST_BUILD_DIR)/analysis_runtime_events_startup_regression_test || (echo "analysis runtime-events startup regression test failed."; exit 1)
 	@echo "Analysis runtime-events startup regression test passed."
@@ -585,16 +585,34 @@ test-analysis-runtime-events-startup-regression:
 test-analysis-store-published-stamp-regression:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling analysis store published-stamp regression test..."
-	@$(CC) $(CFLAGS) tests/analysis_store_published_stamp_regression_test.c src/core/Analysis/analysis_store.c src/core/Diagnostics/diagnostics_engine.c -o $(TEST_BUILD_DIR)/analysis_store_published_stamp_regression_test $(LIB_DIRS) -ljson-c || (echo "analysis store published-stamp regression test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/analysis_store_published_stamp_regression_test.c src/core/Analysis/analysis_store.c src/core/Diagnostics/diagnostics_engine.c src/core/LoopKernel/mainthread_context.c -o $(TEST_BUILD_DIR)/analysis_store_published_stamp_regression_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "analysis store published-stamp regression test compile failed."; exit 1)
 	@echo "Running analysis store published-stamp regression test..."
 	@$(TEST_BUILD_DIR)/analysis_store_published_stamp_regression_test || (echo "analysis store published-stamp regression test failed."; exit 1)
 	@echo "Analysis store published-stamp regression test passed."
+
+.PHONY: test-library-index-stamp-regression
+test-library-index-stamp-regression:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling library index stamp regression test..."
+	@$(CC) $(CFLAGS) tests/library_index_stamp_regression_test.c src/core/Analysis/library_index.c src/core/LoopKernel/mainthread_context.c -o $(TEST_BUILD_DIR)/library_index_stamp_regression_test $(LIB_DIRS) -ljson-c -lSDL2 -lpthread || (echo "library index stamp regression test compile failed."; exit 1)
+	@echo "Running library index stamp regression test..."
+	@$(TEST_BUILD_DIR)/library_index_stamp_regression_test || (echo "library index stamp regression test failed."; exit 1)
+	@echo "Library index stamp regression test passed."
+
+.PHONY: test-idle-efficiency-sanity
+test-idle-efficiency-sanity:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling idle efficiency sanity test..."
+	@$(CC) $(CFLAGS) tests/idle_efficiency_sanity_test.c src/core/LoopEvents/event_queue.c src/core/LoopResults/completed_results_queue.c src/core/LoopKernel/mainthread_context.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/idle_efficiency_sanity_test $(LIB_DIRS) -lSDL2 || (echo "idle efficiency sanity test compile failed."; exit 1)
+	@echo "Running idle efficiency sanity test..."
+	@$(TEST_BUILD_DIR)/idle_efficiency_sanity_test || (echo "idle efficiency sanity test failed."; exit 1)
+	@echo "Idle efficiency sanity test passed."
 
 .PHONY: test-diagnostics-pipeline-integration
 test-diagnostics-pipeline-integration:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling diagnostics pipeline integration test..."
-	@$(CC) $(CFLAGS) tests/diagnostics_pipeline_integration_test.c src/core/Analysis/analysis_store.c src/core/LoopResults/completed_results_queue.c src/core/LoopEvents/event_queue.c src/core/LoopEvents/event_invalidation_policy.c src/core/Diagnostics/diagnostics_engine.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/diagnostics_pipeline_integration_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "diagnostics pipeline integration test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/diagnostics_pipeline_integration_test.c src/core/Analysis/analysis_store.c src/core/LoopResults/completed_results_queue.c src/core/LoopEvents/event_queue.c src/core/LoopEvents/event_invalidation_policy.c src/core/Diagnostics/diagnostics_engine.c src/core/LoopKernel/mainthread_context.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/diagnostics_pipeline_integration_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "diagnostics pipeline integration test compile failed."; exit 1)
 	@echo "Running diagnostics pipeline integration test..."
 	@$(TEST_BUILD_DIR)/diagnostics_pipeline_integration_test || (echo "diagnostics pipeline integration test failed."; exit 1)
 	@echo "Diagnostics pipeline integration test passed."

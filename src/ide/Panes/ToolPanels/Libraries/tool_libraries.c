@@ -226,6 +226,7 @@ static void libraries_panel_init_state(void* ptr) {
         st->headerExpandedCount[i] = 0;
     }
     st->includeSystemHeaders = true;
+    st->last_published_index_stamp = library_index_published_stamp();
     st->control_hits.items = st->control_hit_storage;
     st->control_hits.capacity =
         (int)(sizeof(st->control_hit_storage) / sizeof(st->control_hit_storage[0]));
@@ -260,6 +261,7 @@ void initLibrariesPanel() {
     libraries_panel_release_dynamic_state(st);
     libraries_panel_init_state(st);
     rebuildLibraryFlatRows();
+    st->last_published_index_stamp = library_index_published_stamp();
 }
 
 UIPanelTaggedRectList* libraries_control_hits(void) {
