@@ -112,9 +112,32 @@ static void test_distinct_keys_queue_and_tick_order(void) {
     assert(snapshot.active_job_key == ANALYSIS_JOB_KEY_DIAGNOSTICS);
 }
 
+static void test_index_lane_reason_normalizes_to_index_key(void) {
+    reset_stub_state();
+    analysis_scheduler_init();
+
+    // Even if caller uses generic request(), index-lane reason should map to INDEX key.
+    analysis_scheduler_request(ANALYSIS_REASON_LIBRARY_PANEL_REFRESH, true);
+
+    AnalysisSchedulerSnapshot snapshot;
+    memset(&snapshot, 0, sizeof(snapshot));
+    analysis_scheduler_snapshot(&snapshot);
+    assert(snapshot.pending);
+    assert(snapshot.pending_job_count == 1);
+    assert((snapshot.pending_key_mask & (1u << ANALYSIS_JOB_KEY_INDEX)) != 0u);
+    assert((snapshot.pending_key_mask & (1u << ANALYSIS_JOB_KEY_WORKSPACE)) == 0u);
+
+    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    memset(&snapshot, 0, sizeof(snapshot));
+    analysis_scheduler_snapshot(&snapshot);
+    assert(snapshot.running);
+    assert(snapshot.active_job_key == ANALYSIS_JOB_KEY_INDEX);
+}
+
 int main(void) {
     test_same_key_latest_wins_coalescing();
     test_distinct_keys_queue_and_tick_order();
+    test_index_lane_reason_normalizes_to_index_key();
     puts("analysis_scheduler_coalescing_test: success");
     return 0;
 }

@@ -49,6 +49,7 @@ static void analysis_store_clear_locked(void) {
 }
 
 void analysis_store_clear(void) {
+    mainthread_context_assert_owner("analysis_store.clear");
     analysis_store_lock();
     analysis_store_clear_locked();
     analysis_store_unlock();
@@ -126,6 +127,7 @@ static void analysis_store_upsert_locked(const char* filePath,
 void analysis_store_upsert(const char* filePath,
                            const FisicsDiagnostic* fisicsDiags,
                            size_t diagCount) {
+    mainthread_context_assert_owner("analysis_store.upsert");
     analysis_store_lock();
     analysis_store_upsert_locked(filePath, fisicsDiags, diagCount);
     analysis_store_unlock();
@@ -133,6 +135,7 @@ void analysis_store_upsert(const char* filePath,
 
 void analysis_store_remove(const char* filePath) {
     if (!filePath) return;
+    mainthread_context_assert_owner("analysis_store.remove");
     analysis_store_lock();
     size_t existing = (size_t)-1;
     for (size_t i = 0; i < g_file_count; ++i) {
@@ -258,6 +261,7 @@ void analysis_store_save(const char* workspaceRoot) {
 }
 
 void analysis_store_load(const char* workspaceRoot) {
+    mainthread_context_assert_owner("analysis_store.load");
     analysis_store_lock();
     analysis_store_clear_locked();
     if (!workspaceRoot || !*workspaceRoot) {

@@ -183,7 +183,7 @@
   TEST_IDEBRIDGE_STABLE_TARGETS := test-idebridge-phase1 test-idebridge-phase6
   TEST_IDEBRIDGE_LEGACY_TARGETS := test-idebridge-phase2 test-idebridge-phase3 test-idebridge-phase4 test-idebridge-phase5
   TEST_IDEBRIDGE_ALL_TARGETS := $(TEST_IDEBRIDGE_STABLE_TARGETS) $(TEST_IDEBRIDGE_LEGACY_TARGETS)
-  TEST_SMOKE_TARGETS := test-vk-macros test-shared-theme-font-adapter test-completed-results-queue test-analysis-scheduler-coalescing test-editor-edit-transaction-debounce test-loop-events-queue test-loop-events-emission-contract test-loop-events-invalidation-policy test-loop-events-dispatch-integration test-fisics-bridge-events-regression test-analysis-store-stamp-regression test-analysis-runtime-events-startup-regression test-analysis-store-published-stamp-regression test-library-index-stamp-regression test-idle-efficiency-sanity test-diagnostics-pipeline-integration
+  TEST_SMOKE_TARGETS := test-vk-macros test-shared-theme-font-adapter test-completed-results-queue test-analysis-scheduler-coalescing test-editor-edit-transaction-debounce test-loop-events-queue test-loop-events-emission-contract test-loop-events-invalidation-policy test-loop-events-dispatch-integration test-fisics-bridge-events-regression test-analysis-store-stamp-regression test-analysis-runtime-events-startup-regression test-analysis-store-published-stamp-regression test-library-index-stamp-regression test-idle-efficiency-sanity test-diagnostics-pipeline-integration test-mainthread-context-scope-regression test-loop-diag-config-regression
   TEST_EXTENDED_TARGETS := test-idebridge-diag-pack-export test-idebridge-diag-core-data-export
 # ===== RULES =====
 all: $(OUT) $(IDEBRIDGE_OUT)
@@ -363,6 +363,7 @@ test-list:
 	@echo "Phase 2 gate:     test-phase1 + test-fast"
 	@echo "Phase 3 gate:     test-phase2 + test-fast"
 	@echo "Phase 4 gate:     test-phase3 + test-fast"
+	@echo "Phase 5 gate:     test-phase4 + test-fast"
 
 .PHONY: test-fast
 test-fast: $(TEST_SMOKE_TARGETS)
@@ -405,6 +406,10 @@ test-phase3: test-phase2 test-fast
 .PHONY: test-phase4
 test-phase4: test-phase3 test-fast
 	@echo "Phase 4 gate completed."
+
+.PHONY: test-phase5
+test-phase5: test-phase4 test-fast
+	@echo "Phase 5 gate completed."
 
 $(FISICS_LIB):
 	@echo "Building Fisics frontend library..."
@@ -616,6 +621,24 @@ test-diagnostics-pipeline-integration:
 	@echo "Running diagnostics pipeline integration test..."
 	@$(TEST_BUILD_DIR)/diagnostics_pipeline_integration_test || (echo "diagnostics pipeline integration test failed."; exit 1)
 	@echo "Diagnostics pipeline integration test passed."
+
+.PHONY: test-mainthread-context-scope-regression
+test-mainthread-context-scope-regression:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling mainthread context scope regression test..."
+	@$(CC) $(CFLAGS) tests/mainthread_context_scope_regression_test.c src/core/LoopKernel/mainthread_context.c -o $(TEST_BUILD_DIR)/mainthread_context_scope_regression_test $(LIB_DIRS) -lSDL2 || (echo "mainthread context scope regression test compile failed."; exit 1)
+	@echo "Running mainthread context scope regression test..."
+	@$(TEST_BUILD_DIR)/mainthread_context_scope_regression_test || (echo "mainthread context scope regression test failed."; exit 1)
+	@echo "Mainthread context scope regression test passed."
+
+.PHONY: test-loop-diag-config-regression
+test-loop-diag-config-regression:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling loop diagnostics config regression test..."
+	@$(CC) $(CFLAGS) tests/loop_diag_config_regression_test.c src/core/LoopDiagnostics/loop_diag_config.c -o $(TEST_BUILD_DIR)/loop_diag_config_regression_test $(LIB_DIRS) || (echo "loop diagnostics config regression test compile failed."; exit 1)
+	@echo "Running loop diagnostics config regression test..."
+	@$(TEST_BUILD_DIR)/loop_diag_config_regression_test || (echo "loop diagnostics config regression test failed."; exit 1)
+	@echo "Loop diagnostics config regression test passed."
 
 .PHONY: test-idebridge-diag-pack-export
 test-idebridge-diag-pack-export:

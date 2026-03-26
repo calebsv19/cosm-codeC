@@ -17,6 +17,7 @@
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/project_scan.h"
 #include "core/LoopResults/completed_results_queue.h"
+#include "core/LoopKernel/mainthread_context.h"
 #include "core/LoopWake/mainthread_wake.h"
 
 static SDL_Thread* g_thread = NULL;
@@ -369,6 +370,7 @@ static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats*
 
 static int analysis_thread_fn(void* data) {
     (void)data;
+    mainthread_context_push_non_owner_scope();
     BuildFlagSet flags = {0};
     SDL_AtomicSet(&g_slow_mode_active, SDL_AtomicGet(&g_slow_mode_next_run));
     SDL_AtomicSet(&g_slow_mode_next_run, 0);
@@ -384,6 +386,7 @@ static int analysis_thread_fn(void* data) {
         SDL_AtomicSet(&g_slow_mode_active, 0);
         analysis_queue_finished_message(false, true);
         mainthread_wake_push();
+        mainthread_context_pop_non_owner_scope();
         return -1;
     }
 
@@ -403,6 +406,7 @@ static int analysis_thread_fn(void* data) {
         SDL_AtomicSet(&g_slow_mode_active, 0);
         analysis_queue_finished_message(true, false);
         mainthread_wake_push();
+        mainthread_context_pop_non_owner_scope();
         return 0;
     }
 
@@ -457,6 +461,7 @@ static int analysis_thread_fn(void* data) {
     g_thread = NULL;
     SDL_AtomicSet(&g_slow_mode_active, 0);
     mainthread_wake_push();
+    mainthread_context_pop_non_owner_scope();
     return 0;
 }
 

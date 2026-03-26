@@ -18,7 +18,7 @@ of the rendering stack and other subsystems outside the main IDE loop.
 | `idebridge_diag_pack_export_check.c` | Runtime check for `core_pack` diagnostics snapshot export contract (`IDHD` summary chunk + `IDJS` payload chunk) used by `idebridge diag-pack`. |
 | `idebridge_diag_core_data_export_check.c` | Runtime check for `core_data` diagnostics snapshot contract (`ide_diagnostics_summary_v1`, `ide_diagnostics_rows_v1`) used by `idebridge diag-dataset`. |
 | `completed_results_queue_test.c` | Runtime check for LoopResults queue semantics: global-sequence `pop_any` ordering across subsystem lanes and owned payload release behavior on pop/reset paths. |
-| `analysis_scheduler_coalescing_test.c` | Runtime check for Phase 2 scheduler key coalescing semantics: latest-wins replacement per key, pending key tracking, and deterministic dequeue/start order across distinct keys. |
+| `analysis_scheduler_coalescing_test.c` | Runtime check for scheduler key coalescing semantics: latest-wins replacement per key, deterministic dequeue/start order across distinct keys, and index-lane reason normalization to `ANALYSIS_JOB_KEY_INDEX`. |
 | `editor_edit_transaction_debounce_test.c` | Synthetic timing test for Phase 2 edit-transaction debounce behavior: debounce timeout commit, cursor/focus/file-switch boundary commits, timer cancellation, and transaction counters. |
 | `loop_events_queue_test.c` | Runtime check for Phase 3/4 event queue semantics: FIFO ordering, monotonic sequence IDs, bounded-capacity overflow accounting, deferred counter tracking, and multi-frame bounded-drain fairness (backlog decreases and processed count advances without starvation). |
 | `loop_events_emission_contract_test.c` | Runtime check for Phase 3 emitter helpers: document and analysis event payload mapping, sequence ordering, and queue insertion via typed emitter APIs. |
@@ -31,6 +31,8 @@ of the rendering stack and other subsystems outside the main IDE loop.
 | `library_index_stamp_regression_test.c` | Phase 4.3 regression check that library-index combined stamp advances only after finalized mutations and that published-stamp watermark follows event-dispatch publication semantics. |
 | `idle_efficiency_sanity_test.c` | Phase 4.4 idle-efficiency sanity lane: synthetic idle ticks with empty event/result queues must keep depth/counter snapshots stable (no background queue growth without input/work). |
 | `diagnostics_pipeline_integration_test.c` | Phase 4.2 closure integration check covering diagnostics completed-result apply, stale-drop rejection, runtime event emission, event-dispatch invalidation targets, and published-stamp update semantics. |
+| `mainthread_context_scope_regression_test.c` | Phase 5.4 regression check that debug non-owner scope helpers allow sanctioned non-owner guarded paths without violating owner-thread assertions. |
+| `loop_diag_config_regression_test.c` | Phase 5.4 regression check for structured loop diagnostics env parsing contract (`IDE_LOOP_DIAG_FORMAT`, `IDE_LOOP_DIAG_JSON`, `IDE_EVENT_DIAG_LOG`, and wait override bounds). |
 
 As additional automated coverage is added, place new suites in this directory
 and extend this document so future contributors can spot gaps quickly.

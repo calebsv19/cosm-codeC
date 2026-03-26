@@ -43,6 +43,8 @@ typedef struct {
 
 void analysis_scheduler_init(void);
 void analysis_scheduler_request(AnalysisRefreshReason reason, bool force_full);
+void analysis_scheduler_request_index(AnalysisRefreshReason reason, bool force_full);
+void analysis_scheduler_request_library_index_refresh(bool force_full);
 void analysis_scheduler_request_key(AnalysisJobKey key,
                                     AnalysisRefreshReason reason,
                                     bool force_full);

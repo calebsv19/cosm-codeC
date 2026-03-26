@@ -43,6 +43,11 @@ static bool is_valid_job_key(AnalysisJobKey key) {
     return key > ANALYSIS_JOB_KEY_NONE && key <= ANALYSIS_JOB_KEY_INDEX;
 }
 
+static bool reason_is_index_lane(unsigned int reason_mask) {
+    // Current index-only lane reason; keep centralized for future expansion.
+    return reason_mask == ANALYSIS_REASON_LIBRARY_PANEL_REFRESH;
+}
+
 static unsigned int pending_key_mask_unsafe(void) {
     unsigned int mask = 0;
     for (int i = (int)ANALYSIS_JOB_KEY_WORKSPACE; i <= (int)ANALYSIS_JOB_KEY_INDEX; ++i) {
@@ -154,13 +159,33 @@ void analysis_scheduler_init(void) {
 }
 
 void analysis_scheduler_request(AnalysisRefreshReason reason, bool force_full) {
+    if (reason_is_index_lane((unsigned int)reason)) {
+        analysis_scheduler_request_index(reason, force_full);
+        return;
+    }
     analysis_scheduler_request_key(ANALYSIS_JOB_KEY_WORKSPACE, reason, force_full);
+}
+
+void analysis_scheduler_request_index(AnalysisRefreshReason reason, bool force_full) {
+    analysis_scheduler_request_key(ANALYSIS_JOB_KEY_INDEX, reason, force_full);
+}
+
+void analysis_scheduler_request_library_index_refresh(bool force_full) {
+    analysis_scheduler_request_index(ANALYSIS_REASON_LIBRARY_PANEL_REFRESH, force_full);
 }
 
 void analysis_scheduler_request_key(AnalysisJobKey key,
                                     AnalysisRefreshReason reason,
                                     bool force_full) {
     if (!is_valid_job_key(key) || reason == ANALYSIS_REASON_NONE) return;
+    if (reason_is_index_lane((unsigned int)reason) && key != ANALYSIS_JOB_KEY_INDEX) {
+#ifndef NDEBUG
+        fprintf(stderr,
+                "[AnalysisSchedulerGuard] remapping index-lane reason to index key (requested=%s)\n",
+                analysis_scheduler_key_to_string(key));
+#endif
+        key = ANALYSIS_JOB_KEY_INDEX;
+    }
 
     char reason_text[128];
     bool running = false;

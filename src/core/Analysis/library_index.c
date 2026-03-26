@@ -71,6 +71,7 @@ static void library_index_note_mutation_locked(void) {
 }
 
 void library_index_reset(void) {
+    mainthread_context_assert_owner("library_index.reset");
     library_index_lock();
     library_index_reset_locked();
     library_index_unlock();
@@ -88,6 +89,7 @@ static void library_index_begin_locked(const char* project_root) {
 }
 
 void library_index_begin(const char* project_root) {
+    mainthread_context_assert_owner("library_index.begin");
     library_index_lock();
     library_index_begin_locked(project_root);
     library_index_unlock();
@@ -195,6 +197,7 @@ void library_index_add_include(const char* source_path,
                                LibraryBucketKind origin,
                                int line,
                                int column) {
+    mainthread_context_assert_owner("library_index.add_include");
     library_index_lock();
     library_index_add_include_locked(source_path, include_name, resolved_path, kind, origin, line, column);
     library_index_unlock();
@@ -202,6 +205,7 @@ void library_index_add_include(const char* source_path,
 
 void library_index_remove_source(const char* source_path) {
     if (!source_path || !*source_path) return;
+    mainthread_context_assert_owner("library_index.remove_source");
     library_index_lock();
     const char* rel = skip_root_prefix(source_path);
     if (!rel || !*rel) rel = source_path;
@@ -287,6 +291,7 @@ static void library_index_finalize_locked(void) {
 }
 
 void library_index_finalize(void) {
+    mainthread_context_assert_owner("library_index.finalize");
     library_index_lock();
     library_index_finalize_locked();
     library_index_unlock();
@@ -416,6 +421,7 @@ void library_index_save(const char* workspace_root) {
 }
 
 void library_index_load(const char* workspace_root) {
+    mainthread_context_assert_owner("library_index.load");
     library_index_lock();
     library_index_reset_locked();
     if (!workspace_root || !*workspace_root) {

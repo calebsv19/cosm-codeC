@@ -8,6 +8,8 @@
 #include <sys/stat.h>
 #include <stdbool.h>
 
+#include "core/LoopKernel/mainthread_context.h"
+
 static AnalysisFileSymbols* g_files = NULL;
 static size_t g_file_count = 0;
 static size_t g_file_cap = 0;
@@ -60,6 +62,7 @@ static void free_symbol_entry(AnalysisFileSymbols* f) {
 }
 
 void analysis_symbols_store_clear(void) {
+    mainthread_context_assert_owner("analysis_symbols_store.clear");
     analysis_symbols_store_lock();
     for (size_t i = 0; i < g_file_count; ++i) {
         free_symbol_entry(&g_files[i]);
@@ -120,6 +123,7 @@ void analysis_symbols_store_upsert(const char* filePath,
                                    const FisicsSymbol* symbols,
                                    size_t symbolCount) {
     if (!filePath) return;
+    mainthread_context_assert_owner("analysis_symbols_store.upsert");
     analysis_symbols_store_lock();
 
     size_t existing = (size_t)-1;
@@ -180,6 +184,7 @@ void analysis_symbols_store_upsert(const char* filePath,
 
 void analysis_symbols_store_remove(const char* filePath) {
     if (!filePath) return;
+    mainthread_context_assert_owner("analysis_symbols_store.remove");
     analysis_symbols_store_lock();
     size_t existing = (size_t)-1;
     for (size_t i = 0; i < g_file_count; ++i) {
@@ -295,6 +300,7 @@ void analysis_symbols_store_save(const char* workspaceRoot) {
 }
 
 void analysis_symbols_store_load(const char* workspaceRoot) {
+    mainthread_context_assert_owner("analysis_symbols_store.load");
     analysis_symbols_store_clear();
     if (!workspaceRoot || !*workspaceRoot) return;
     char path[1024];

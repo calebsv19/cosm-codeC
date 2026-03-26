@@ -5,6 +5,9 @@
 #include <stdlib.h>
 
 static Uint32 g_owner_thread_id = 0u;
+#ifndef NDEBUG
+static __thread int g_non_owner_scope_depth = 0;
+#endif
 
 void mainthread_context_set_owner_current(void) {
     g_owner_thread_id = SDL_ThreadID();
@@ -25,6 +28,9 @@ bool mainthread_context_is_owner_thread(void) {
 
 void mainthread_context_assert_owner(const char* scope) {
 #ifndef NDEBUG
+    if (g_non_owner_scope_depth > 0) {
+        return;
+    }
     if (g_owner_thread_id == 0u) {
         // Lazy binding keeps unit tests simple while still enforcing
         // single-owner semantics once any guarded path is exercised.
@@ -42,5 +48,19 @@ void mainthread_context_assert_owner(const char* scope) {
     }
 #else
     (void)scope;
+#endif
+}
+
+void mainthread_context_push_non_owner_scope(void) {
+#ifndef NDEBUG
+    g_non_owner_scope_depth++;
+#endif
+}
+
+void mainthread_context_pop_non_owner_scope(void) {
+#ifndef NDEBUG
+    if (g_non_owner_scope_depth > 0) {
+        g_non_owner_scope_depth--;
+    }
 #endif
 }

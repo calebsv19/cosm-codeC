@@ -47,9 +47,7 @@ void handleLibrariesCommand(UIPane* pane, InputCommandMetadata meta) {
         case COMMAND_REFRESH_LIBRARY:
         {
             printf("[LibraryPanelCommand] Refreshing library index async...\n");
-            analysis_scheduler_request_key(ANALYSIS_JOB_KEY_INDEX,
-                                           ANALYSIS_REASON_LIBRARY_PANEL_REFRESH,
-                                           true);
+            analysis_scheduler_request_library_index_refresh(true);
             break;
         }
         case COMMAND_CLEAR_ANALYSIS_CACHE:

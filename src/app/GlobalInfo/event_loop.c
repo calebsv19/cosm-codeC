@@ -49,6 +49,7 @@
 #include "core/LoopJobs/mainthread_jobs.h"
 #include "core/LoopKernel/mainthread_context.h"
 #include "core/LoopKernel/mainthread_kernel.h"
+#include "core/LoopDiagnostics/loop_diag_config.h"
 #include "core/LoopTime/loop_time.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "core/Ipc/ide_ipc_server.h"
@@ -90,6 +91,7 @@ static uint64_t s_analysis_progress_stamp = 0;
 static uint64_t s_analysis_status_stamp = 0;
 static bool s_loop_diag_initialized = false;
 static bool s_loop_diag_enabled = false;
+static bool s_loop_diag_json_output = false;
 static int s_loop_max_wait_ms_override = -1;
 static bool s_event_budget_initialized = false;
 static int s_event_budget_per_frame = 128;
@@ -155,22 +157,10 @@ static LoopRuntimeDiag s_loop_diag = {0};
 
 static void init_loop_diag_config(void) {
     if (s_loop_diag_initialized) return;
-    const char* env = getenv("IDE_LOOP_DIAG_LOG");
-    s_loop_diag_enabled = (env && env[0] &&
-                           (strcmp(env, "1") == 0 || strcasecmp(env, "true") == 0));
-    const char* eventDiagEnv = getenv("IDE_EVENT_DIAG_LOG");
-    if (eventDiagEnv && eventDiagEnv[0] &&
-        (strcmp(eventDiagEnv, "1") == 0 || strcasecmp(eventDiagEnv, "true") == 0)) {
-        s_loop_diag_enabled = true;
-    }
-    const char* waitEnv = getenv("IDE_LOOP_MAX_WAIT_MS");
-    if (waitEnv && waitEnv[0]) {
-        char* end = NULL;
-        long v = strtol(waitEnv, &end, 10);
-        if (end != waitEnv && v >= 1 && v <= 5000) {
-            s_loop_max_wait_ms_override = (int)v;
-        }
-    }
+    LoopDiagConfig cfg = loop_diag_config_from_env();
+    s_loop_diag_enabled = cfg.enabled;
+    s_loop_diag_json_output = cfg.json_output;
+    s_loop_max_wait_ms_override = cfg.max_wait_ms_override;
     s_loop_diag_initialized = true;
 }
 
@@ -358,49 +348,105 @@ static void loop_diag_tick(uint64_t frameStartNs, uint64_t blockedNs, bool didWa
     Uint64 totalMs = s_loop_diag.blockedMs + s_loop_diag.activeMs;
     double blockedPct = (totalMs > 0) ? (100.0 * (double)s_loop_diag.blockedMs / (double)totalMs) : 0.0;
     double activePct = (totalMs > 0) ? (100.0 * (double)s_loop_diag.activeMs / (double)totalMs) : 0.0;
-    printf("[LoopDiag] period=%ums frames=%llu waits=%llu blocked=%llums(%.1f%%) active=%llums(%.1f%%) wakes=%llu timers=%llu q_last=%u q_peak=%u jobs=%llu coalesced=%llu applied=%llu stale_dropped=%llu edit_txn_starts=%llu commits=%llu debounce_commits=%llu boundary_commits=%llu ev_q_last=%u ev_q_peak=%u ev_enq=%llu ev_proc=%llu ev_deferred=%llu ev_dropped=%llu ev_emit[sym=%llu diag=%llu prog=%llu status=%llu idx=%llu fin=%llu] ev_dispatch[sym=%llu diag=%llu prog=%llu status=%llu idx=%llu fin=%llu] stale_by_kind[sym=%llu diag=%llu prog=%llu status=%llu fin=%llu]\n",
-           (unsigned int)periodMs,
-           (unsigned long long)s_loop_diag.frames,
-           (unsigned long long)s_loop_diag.waitCalls,
-           (unsigned long long)s_loop_diag.blockedMs,
-           blockedPct,
-           (unsigned long long)s_loop_diag.activeMs,
-           activePct,
-           (unsigned long long)s_loop_diag.wakeDelta,
-           (unsigned long long)s_loop_diag.timerFiredDelta,
-           s_loop_diag.queueDepthLast,
-           s_loop_diag.queueDepthPeak,
-           (unsigned long long)s_loop_diag.jobsScheduledDelta,
-           (unsigned long long)s_loop_diag.jobsCoalescedDelta,
-           (unsigned long long)s_loop_diag.resultsAppliedDelta,
-           (unsigned long long)s_loop_diag.resultsStaleDroppedDelta,
-           (unsigned long long)s_loop_diag.editTxnStartsDelta,
-           (unsigned long long)s_loop_diag.editTxnCommitsDelta,
-           (unsigned long long)s_loop_diag.editTxnDebounceCommitsDelta,
-           (unsigned long long)s_loop_diag.editTxnBoundaryCommitsDelta,
-           s_loop_diag.eventQueueDepthLast,
-           s_loop_diag.eventQueueDepthPeak,
-           (unsigned long long)s_loop_diag.eventsEnqueuedDelta,
-           (unsigned long long)s_loop_diag.eventsProcessedDelta,
-           (unsigned long long)s_loop_diag.eventsDeferredDelta,
-           (unsigned long long)s_loop_diag.eventsDroppedOverflowDelta,
-           (unsigned long long)s_loop_diag.eventsEmitSymbolsDelta,
-           (unsigned long long)s_loop_diag.eventsEmitDiagnosticsDelta,
-           (unsigned long long)s_loop_diag.eventsEmitAnalysisProgressDelta,
-           (unsigned long long)s_loop_diag.eventsEmitAnalysisStatusDelta,
-           (unsigned long long)s_loop_diag.eventsEmitLibraryIndexDelta,
-           (unsigned long long)s_loop_diag.eventsEmitAnalysisFinishedDelta,
-           (unsigned long long)s_loop_diag.eventsDispatchSymbolsDelta,
-           (unsigned long long)s_loop_diag.eventsDispatchDiagnosticsDelta,
-           (unsigned long long)s_loop_diag.eventsDispatchAnalysisProgressDelta,
-           (unsigned long long)s_loop_diag.eventsDispatchAnalysisStatusDelta,
-           (unsigned long long)s_loop_diag.eventsDispatchLibraryIndexDelta,
-           (unsigned long long)s_loop_diag.eventsDispatchAnalysisFinishedDelta,
-           (unsigned long long)s_loop_diag.staleDropsSymbolsDelta,
-           (unsigned long long)s_loop_diag.staleDropsDiagnosticsDelta,
-           (unsigned long long)s_loop_diag.staleDropsAnalysisProgressDelta,
-           (unsigned long long)s_loop_diag.staleDropsAnalysisStatusDelta,
-           (unsigned long long)s_loop_diag.staleDropsAnalysisFinishedDelta);
+    if (s_loop_diag_json_output) {
+        printf("{\"tag\":\"LoopDiag\",\"schema\":1,\"period_ms\":%u,\"frames\":%llu,"
+               "\"wait_calls\":%llu,\"blocked_ms\":%llu,\"blocked_pct\":%.1f,"
+               "\"active_ms\":%llu,\"active_pct\":%.1f,\"wakes\":%llu,\"timers\":%llu,"
+               "\"results_queue\":{\"last\":%u,\"peak\":%u},"
+               "\"jobs\":{\"scheduled\":%llu,\"coalesced\":%llu},"
+               "\"results\":{\"applied\":%llu,\"stale_dropped\":%llu},"
+               "\"edit_txn\":{\"starts\":%llu,\"commits\":%llu,\"debounce_commits\":%llu,\"boundary_commits\":%llu},"
+               "\"events\":{\"queue_last\":%u,\"queue_peak\":%u,\"enqueued\":%llu,\"processed\":%llu,\"deferred\":%llu,\"dropped\":%llu,"
+               "\"emit\":{\"symbols\":%llu,\"diagnostics\":%llu,\"analysis_progress\":%llu,\"analysis_status\":%llu,\"library_index\":%llu,\"analysis_finished\":%llu},"
+               "\"dispatch\":{\"symbols\":%llu,\"diagnostics\":%llu,\"analysis_progress\":%llu,\"analysis_status\":%llu,\"library_index\":%llu,\"analysis_finished\":%llu}},"
+               "\"stale_by_kind\":{\"symbols\":%llu,\"diagnostics\":%llu,\"analysis_progress\":%llu,\"analysis_status\":%llu,\"analysis_finished\":%llu}}\n",
+               (unsigned int)periodMs,
+               (unsigned long long)s_loop_diag.frames,
+               (unsigned long long)s_loop_diag.waitCalls,
+               (unsigned long long)s_loop_diag.blockedMs,
+               blockedPct,
+               (unsigned long long)s_loop_diag.activeMs,
+               activePct,
+               (unsigned long long)s_loop_diag.wakeDelta,
+               (unsigned long long)s_loop_diag.timerFiredDelta,
+               s_loop_diag.queueDepthLast,
+               s_loop_diag.queueDepthPeak,
+               (unsigned long long)s_loop_diag.jobsScheduledDelta,
+               (unsigned long long)s_loop_diag.jobsCoalescedDelta,
+               (unsigned long long)s_loop_diag.resultsAppliedDelta,
+               (unsigned long long)s_loop_diag.resultsStaleDroppedDelta,
+               (unsigned long long)s_loop_diag.editTxnStartsDelta,
+               (unsigned long long)s_loop_diag.editTxnCommitsDelta,
+               (unsigned long long)s_loop_diag.editTxnDebounceCommitsDelta,
+               (unsigned long long)s_loop_diag.editTxnBoundaryCommitsDelta,
+               s_loop_diag.eventQueueDepthLast,
+               s_loop_diag.eventQueueDepthPeak,
+               (unsigned long long)s_loop_diag.eventsEnqueuedDelta,
+               (unsigned long long)s_loop_diag.eventsProcessedDelta,
+               (unsigned long long)s_loop_diag.eventsDeferredDelta,
+               (unsigned long long)s_loop_diag.eventsDroppedOverflowDelta,
+               (unsigned long long)s_loop_diag.eventsEmitSymbolsDelta,
+               (unsigned long long)s_loop_diag.eventsEmitDiagnosticsDelta,
+               (unsigned long long)s_loop_diag.eventsEmitAnalysisProgressDelta,
+               (unsigned long long)s_loop_diag.eventsEmitAnalysisStatusDelta,
+               (unsigned long long)s_loop_diag.eventsEmitLibraryIndexDelta,
+               (unsigned long long)s_loop_diag.eventsEmitAnalysisFinishedDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchSymbolsDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchDiagnosticsDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchAnalysisProgressDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchAnalysisStatusDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchLibraryIndexDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchAnalysisFinishedDelta,
+               (unsigned long long)s_loop_diag.staleDropsSymbolsDelta,
+               (unsigned long long)s_loop_diag.staleDropsDiagnosticsDelta,
+               (unsigned long long)s_loop_diag.staleDropsAnalysisProgressDelta,
+               (unsigned long long)s_loop_diag.staleDropsAnalysisStatusDelta,
+               (unsigned long long)s_loop_diag.staleDropsAnalysisFinishedDelta);
+    } else {
+        printf("[LoopDiag] period=%ums frames=%llu waits=%llu blocked=%llums(%.1f%%) active=%llums(%.1f%%) wakes=%llu timers=%llu q_last=%u q_peak=%u jobs=%llu coalesced=%llu applied=%llu stale_dropped=%llu edit_txn_starts=%llu commits=%llu debounce_commits=%llu boundary_commits=%llu ev_q_last=%u ev_q_peak=%u ev_enq=%llu ev_proc=%llu ev_deferred=%llu ev_dropped=%llu ev_emit[sym=%llu diag=%llu prog=%llu status=%llu idx=%llu fin=%llu] ev_dispatch[sym=%llu diag=%llu prog=%llu status=%llu idx=%llu fin=%llu] stale_by_kind[sym=%llu diag=%llu prog=%llu status=%llu fin=%llu]\n",
+               (unsigned int)periodMs,
+               (unsigned long long)s_loop_diag.frames,
+               (unsigned long long)s_loop_diag.waitCalls,
+               (unsigned long long)s_loop_diag.blockedMs,
+               blockedPct,
+               (unsigned long long)s_loop_diag.activeMs,
+               activePct,
+               (unsigned long long)s_loop_diag.wakeDelta,
+               (unsigned long long)s_loop_diag.timerFiredDelta,
+               s_loop_diag.queueDepthLast,
+               s_loop_diag.queueDepthPeak,
+               (unsigned long long)s_loop_diag.jobsScheduledDelta,
+               (unsigned long long)s_loop_diag.jobsCoalescedDelta,
+               (unsigned long long)s_loop_diag.resultsAppliedDelta,
+               (unsigned long long)s_loop_diag.resultsStaleDroppedDelta,
+               (unsigned long long)s_loop_diag.editTxnStartsDelta,
+               (unsigned long long)s_loop_diag.editTxnCommitsDelta,
+               (unsigned long long)s_loop_diag.editTxnDebounceCommitsDelta,
+               (unsigned long long)s_loop_diag.editTxnBoundaryCommitsDelta,
+               s_loop_diag.eventQueueDepthLast,
+               s_loop_diag.eventQueueDepthPeak,
+               (unsigned long long)s_loop_diag.eventsEnqueuedDelta,
+               (unsigned long long)s_loop_diag.eventsProcessedDelta,
+               (unsigned long long)s_loop_diag.eventsDeferredDelta,
+               (unsigned long long)s_loop_diag.eventsDroppedOverflowDelta,
+               (unsigned long long)s_loop_diag.eventsEmitSymbolsDelta,
+               (unsigned long long)s_loop_diag.eventsEmitDiagnosticsDelta,
+               (unsigned long long)s_loop_diag.eventsEmitAnalysisProgressDelta,
+               (unsigned long long)s_loop_diag.eventsEmitAnalysisStatusDelta,
+               (unsigned long long)s_loop_diag.eventsEmitLibraryIndexDelta,
+               (unsigned long long)s_loop_diag.eventsEmitAnalysisFinishedDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchSymbolsDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchDiagnosticsDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchAnalysisProgressDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchAnalysisStatusDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchLibraryIndexDelta,
+               (unsigned long long)s_loop_diag.eventsDispatchAnalysisFinishedDelta,
+               (unsigned long long)s_loop_diag.staleDropsSymbolsDelta,
+               (unsigned long long)s_loop_diag.staleDropsDiagnosticsDelta,
+               (unsigned long long)s_loop_diag.staleDropsAnalysisProgressDelta,
+               (unsigned long long)s_loop_diag.staleDropsAnalysisStatusDelta,
+               (unsigned long long)s_loop_diag.staleDropsAnalysisFinishedDelta);
+    }
 
     s_loop_diag.periodStartMs = nowMs;
     s_loop_diag.frames = 0;
