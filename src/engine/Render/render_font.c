@@ -1,14 +1,31 @@
 #include "engine/Render/render_font.h"
+#include "app/GlobalInfo/runtime_paths.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include <SDL2/SDL_ttf.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <limits.h>
+#include <string.h>
 
 
 static TTF_Font* globalFont = NULL;
 static TTF_Font* terminalFont = NULL;
 static TTF_Font* uiTierFonts[CORE_FONT_TEXT_SIZE_COUNT] = {0};
 static int uiTierPoints[CORE_FONT_TEXT_SIZE_COUNT] = {0};
+
+static TTF_Font* open_font_runtime_aware(const char* candidate, int point_size, char* out_path, size_t out_path_cap) {
+    char resolved[PATH_MAX];
+    const char* load_path = candidate;
+    if (!candidate || !candidate[0]) return NULL;
+    if (ide_runtime_probe_resource_path(candidate, resolved, sizeof(resolved))) {
+        load_path = resolved;
+    }
+    if (out_path && out_path_cap > 0) {
+        strncpy(out_path, load_path, out_path_cap - 1);
+        out_path[out_path_cap - 1] = '\0';
+    }
+    return TTF_OpenFont(load_path, point_size);
+}
 
 static void closeUiTierFonts(void) {
     for (int i = 0; i < CORE_FONT_TEXT_SIZE_COUNT; ++i) {
@@ -69,13 +86,14 @@ static void loadTerminalMonospaceFont(void) {
     const int terminalSize = 13;
 
     for (int i = 0; i < candidateCount; ++i) {
-        TTF_Font* f = TTF_OpenFont(candidates[i], terminalSize);
+        char loaded_path[PATH_MAX];
+        TTF_Font* f = open_font_runtime_aware(candidates[i], terminalSize, loaded_path, sizeof(loaded_path));
         if (f) {
             TTF_SetFontStyle(f, TTF_STYLE_NORMAL);
             TTF_SetFontHinting(f, TTF_HINTING_LIGHT);
             TTF_SetFontKerning(f, 0);
             terminalFont = f;
-            printf("Loaded terminal font: %s\n", candidates[i]);
+            printf("Loaded terminal font: %s\n", loaded_path);
             return;
         }
     }
@@ -207,12 +225,14 @@ bool loadFontByID(FontID id) {
         TTF_CloseFont(globalFont);
     }
 
-    globalFont = TTF_OpenFont(fontPath, fontSize);
-    if (!globalFont) {
-        fprintf(stderr, "Failed to load font: %s\n", TTF_GetError());
-        return false;
+    {
+        char loaded_path[PATH_MAX];
+        globalFont = open_font_runtime_aware(fontPath, fontSize, loaded_path, sizeof(loaded_path));
+        if (!globalFont) {
+            fprintf(stderr, "Failed to load font: %s\n", TTF_GetError());
+            return false;
+        }
+        printf("Loaded font: %s\n", loaded_path);
     }
-
-    printf("Loaded font: %s\n", fontPath);
     return true;
 }

@@ -6,10 +6,9 @@
 
 int STARTING_WIDTH, STARTING_HEIGHT;
 
-bool initializeSystem();
+bool initializeSystem(const char* argv0);
 void shutdownSystem(UIPane** panes, int paneCount);
 
 
 
 #endif
-

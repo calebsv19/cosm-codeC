@@ -84,6 +84,16 @@ static VkShaderModule load_shader_module(VkDevice device,
         return module;
     }
 
+    {
+        const char* env_root = getenv("VK_RENDERER_SHADER_ROOT");
+        if (env_root && env_root[0]) {
+            char combined[PATH_MAX];
+            snprintf(combined, sizeof(combined), "%s/%s", env_root, path);
+            module = load_shader_module_from_path(device, combined);
+            if (module != VK_NULL_HANDLE) return module;
+        }
+    }
+
 #ifdef VK_RENDERER_SHADER_ROOT
     {
         char combined[PATH_MAX];

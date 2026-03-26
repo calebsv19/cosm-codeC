@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+APP_CONTENTS_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+RES_DIR="$APP_CONTENTS_DIR/Resources"
+
+export IDE_RESOURCE_ROOT="${IDE_RESOURCE_ROOT:-$RES_DIR}"
+export VK_RENDERER_SHADER_ROOT="${VK_RENDERER_SHADER_ROOT:-$RES_DIR/vk_renderer}"
+
+if [ "${1:-}" = "--self-test" ]; then
+    [ -x "$SCRIPT_DIR/ide-bin" ] || { echo "missing: ide-bin" >&2; exit 1; }
+    [ -x "$SCRIPT_DIR/idebridge" ] || { echo "missing: idebridge" >&2; exit 1; }
+    [ -f "$RES_DIR/include/fonts/Lato/Lato-Regular.ttf" ] || { echo "missing: bundled Lato font" >&2; exit 1; }
+    [ -f "$RES_DIR/vk_renderer/shaders/textured.vert.spv" ] || { echo "missing: bundled shader" >&2; exit 1; }
+    echo "self-test: ok"
+    echo "IDE_RESOURCE_ROOT=$IDE_RESOURCE_ROOT"
+    echo "VK_RENDERER_SHADER_ROOT=$VK_RENDERER_SHADER_ROOT"
+    exit 0
+fi
+
+exec "$SCRIPT_DIR/ide-bin" "$@"

@@ -29,6 +29,7 @@ This means:
 3. analysis/index residual lane migration: complete
 4. Phase 4 hardening/guardrails and closure gate: complete
 5. Phase 5 carry-forward hardening/observability closure: complete
+6. Phase 6 desktop packaging (`IDE.app`) and standalone launch flow: complete
 
 ## Validation Baseline
 
@@ -42,3 +43,5 @@ Current baseline command lanes:
 These include event queue/dispatch tests, scheduler coalescing + index-key policy checks, mutation-guard helper regressions, loop diagnostics config parsing regressions, idle-efficiency sanity coverage, idebridge runtime checks, and targeted regressions for bridge/startup diagnostics+symbols event emission behavior.
 
 Latest closure check: full `make -C ide test-phase5` reran green during Phase 5.4 closure on 2026-03-26.
+
+Desktop packaging validation: `make -C ide package-desktop-self-test` passed on 2026-03-26, followed by successful operator Finder/Desktop launch confirmation.

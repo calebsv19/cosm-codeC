@@ -1,8 +1,10 @@
 #include "ide/UI/shared_theme_font_adapter.h"
+#include "app/GlobalInfo/runtime_paths.h"
 
 #include "core_theme.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -91,8 +93,26 @@ static SDL_Color darken(SDL_Color in, int amount) {
 
 static int stat_path_exists(const char *path, void *user) {
     struct stat st;
-    (void)user;
-    return path && stat(path, &st) == 0;
+    char resolved[PATH_MAX];
+    char *resolved_out = (char*)user;
+    if (!path || !path[0]) {
+        return 0;
+    }
+    if (ide_runtime_probe_resource_path(path, resolved, sizeof(resolved))) {
+        if (resolved_out) {
+            strncpy(resolved_out, resolved, PATH_MAX - 1);
+            resolved_out[PATH_MAX - 1] = '\0';
+        }
+        return 1;
+    }
+    if (stat(path, &st) == 0) {
+        if (resolved_out) {
+            strncpy(resolved_out, path, PATH_MAX - 1);
+            resolved_out[PATH_MAX - 1] = '\0';
+        }
+        return 1;
+    }
+    return 0;
 }
 
 static void theme_runtime_init_if_needed(void) {
@@ -325,6 +345,7 @@ bool ide_shared_font_resolve_role(CoreFontRoleId role,
     CoreFontPreset preset = {0};
     CoreFontRoleSpec role_spec = {0};
     const char *selected_path = NULL;
+    char selected_resolved[PATH_MAX] = {0};
     CoreResult r;
 
     if (!out_path || out_path_size == 0 || !out_point_size ||
@@ -350,7 +371,9 @@ bool ide_shared_font_resolve_role(CoreFontRoleId role,
         return false;
     }
 
-    r = core_font_choose_path(&role_spec, stat_path_exists, NULL, &selected_path);
+    ide_runtime_paths_init(NULL);
+
+    r = core_font_choose_path(&role_spec, stat_path_exists, selected_resolved, &selected_path);
     if (r.code != CORE_OK || !selected_path || !selected_path[0]) {
         return false;
     }
@@ -360,7 +383,11 @@ bool ide_shared_font_resolve_role(CoreFontRoleId role,
         return false;
     }
 
-    strncpy(out_path, selected_path, out_path_size - 1);
+    if (selected_resolved[0]) {
+        strncpy(out_path, selected_resolved, out_path_size - 1);
+    } else {
+        strncpy(out_path, selected_path, out_path_size - 1);
+    }
     out_path[out_path_size - 1] = '\0';
     return true;
 }

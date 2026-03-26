@@ -12,6 +12,7 @@
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/system_control.h"
 #include "app/GlobalInfo/event_loop.h"
+#include "app/GlobalInfo/runtime_startup_defaults.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "timer_hud/time_scope.h"
 
@@ -73,12 +74,13 @@ int main(int argc, char* argv[]){
 	fprintf(stderr,
 	        "[TimerHUD] IDE profiling %s (enable with --timer-hud or IDE_TIMER_HUD=1)\n",
 	        isTimerHudEnabled() ? "ENABLED" : "DISABLED");
+	ide_apply_runtime_startup_defaults();
 
 	// 	====================================
 	//		INITS
 
 
-	if (!initializeSystem()) {
+	if (!initializeSystem((argc > 0) ? argv[0] : NULL)) {
             return 1;
         }
 

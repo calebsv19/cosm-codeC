@@ -167,6 +167,14 @@
 
   OUT = ide
   IDEBRIDGE_OUT = idebridge
+  DIST_DIR := dist
+  PACKAGE_APP_NAME := IDE.app
+  PACKAGE_APP_DIR := $(DIST_DIR)/$(PACKAGE_APP_NAME)
+  PACKAGE_CONTENTS_DIR := $(PACKAGE_APP_DIR)/Contents
+  PACKAGE_MACOS_DIR := $(PACKAGE_CONTENTS_DIR)/MacOS
+  PACKAGE_RESOURCES_DIR := $(PACKAGE_CONTENTS_DIR)/Resources
+  PACKAGE_INFO_PLIST_SRC := tools/packaging/macos/Info.plist
+  PACKAGE_LAUNCHER_SRC := tools/packaging/macos/ide-launcher
   IDEBRIDGE_SRC := tools/idebridge/idebridge.c
   IDEBRIDGE_OBJ := $(BUILD_DIR)/tools/idebridge.o
   DIAG_PACK_EXPORT_OBJ := $(BUILD_DIR)/core/Diagnostics/diagnostics_pack_export.o
@@ -180,15 +188,17 @@
   IDEBRIDGE_PHASE4_TEST_OUT := $(TEST_BUILD_DIR)/idebridge_phase4_check
   IDEBRIDGE_PHASE5_TEST_OUT := $(TEST_BUILD_DIR)/idebridge_phase5_check
   IDEBRIDGE_PHASE6_TEST_OUT := $(TEST_BUILD_DIR)/idebridge_phase6_check
+  RUNTIME_PATHS_TEST_OUT := $(TEST_BUILD_DIR)/runtime_paths_resolution_test
+  RUNTIME_STARTUP_DEFAULTS_TEST_OUT := $(TEST_BUILD_DIR)/runtime_startup_defaults_test
   TEST_IDEBRIDGE_STABLE_TARGETS := test-idebridge-phase1 test-idebridge-phase6
   TEST_IDEBRIDGE_LEGACY_TARGETS := test-idebridge-phase2 test-idebridge-phase3 test-idebridge-phase4 test-idebridge-phase5
   TEST_IDEBRIDGE_ALL_TARGETS := $(TEST_IDEBRIDGE_STABLE_TARGETS) $(TEST_IDEBRIDGE_LEGACY_TARGETS)
-  TEST_SMOKE_TARGETS := test-vk-macros test-shared-theme-font-adapter test-completed-results-queue test-analysis-scheduler-coalescing test-editor-edit-transaction-debounce test-loop-events-queue test-loop-events-emission-contract test-loop-events-invalidation-policy test-loop-events-dispatch-integration test-fisics-bridge-events-regression test-analysis-store-stamp-regression test-analysis-runtime-events-startup-regression test-analysis-store-published-stamp-regression test-library-index-stamp-regression test-idle-efficiency-sanity test-diagnostics-pipeline-integration test-mainthread-context-scope-regression test-loop-diag-config-regression
+  TEST_SMOKE_TARGETS := test-vk-macros test-shared-theme-font-adapter test-runtime-paths-resolution test-runtime-startup-defaults test-completed-results-queue test-analysis-scheduler-coalescing test-editor-edit-transaction-debounce test-loop-events-queue test-loop-events-emission-contract test-loop-events-invalidation-policy test-loop-events-dispatch-integration test-fisics-bridge-events-regression test-analysis-store-stamp-regression test-analysis-runtime-events-startup-regression test-analysis-store-published-stamp-regression test-library-index-stamp-regression test-idle-efficiency-sanity test-diagnostics-pipeline-integration test-mainthread-context-scope-regression test-loop-diag-config-regression
   TEST_EXTENDED_TARGETS := test-idebridge-diag-pack-export test-idebridge-diag-core-data-export
 # ===== RULES =====
 all: $(OUT) $(IDEBRIDGE_OUT)
 
-.PHONY: debug perf run-debug run-perf run-perf-log run-perf-hud run-perf-nohud run-perf-sanitized
+.PHONY: debug perf run-debug run-perf run-perf-log run-perf-hud run-perf-nohud run-perf-sanitized package-desktop package-desktop-copy-desktop package-desktop-open package-desktop-smoke package-desktop-self-test
 debug:
 	@$(MAKE) BUILD_PROFILE=debug all
 
@@ -340,6 +350,45 @@ run-ide-theme-nohud: run-ide-theme-log
 run-daw-theme: $(OUT)
 	@IDE_USE_SHARED_THEME_FONT=1 IDE_USE_SHARED_THEME=1 IDE_USE_SHARED_FONT=1 IDE_THEME_PRESET=daw_default IDE_FONT_PRESET=daw_default ./$(OUT)
 
+package-desktop:
+	@echo "Building performance binaries for desktop package..."
+	@$(MAKE) BUILD_PROFILE=perf FISICS_SANITIZED=0 all
+	@echo "Preparing app bundle layout..."
+	@rm -rf $(PACKAGE_APP_DIR)
+	@mkdir -p $(PACKAGE_MACOS_DIR) $(PACKAGE_RESOURCES_DIR)
+	@cp $(PACKAGE_INFO_PLIST_SRC) $(PACKAGE_CONTENTS_DIR)/Info.plist
+	@cp $(OUT) $(PACKAGE_MACOS_DIR)/ide-bin
+	@cp $(IDEBRIDGE_OUT) $(PACKAGE_MACOS_DIR)/idebridge
+	@cp $(PACKAGE_LAUNCHER_SRC) $(PACKAGE_MACOS_DIR)/ide-launcher
+	@chmod +x $(PACKAGE_MACOS_DIR)/ide-launcher $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_MACOS_DIR)/idebridge
+	@mkdir -p $(PACKAGE_RESOURCES_DIR)/include
+	@cp -R include/fonts $(PACKAGE_RESOURCES_DIR)/include/
+	@mkdir -p $(PACKAGE_RESOURCES_DIR)/shared/assets
+	@cp -R third_party/codework_shared/assets/fonts $(PACKAGE_RESOURCES_DIR)/shared/assets/
+	@mkdir -p $(PACKAGE_RESOURCES_DIR)/vk_renderer
+	@cp -R third_party/codework_shared/vk_renderer/shaders $(PACKAGE_RESOURCES_DIR)/vk_renderer/
+	@echo "Desktop package ready: $(PACKAGE_APP_DIR)"
+
+package-desktop-copy-desktop: package-desktop
+	@cp -R $(PACKAGE_APP_DIR) "$$HOME/Desktop/$(PACKAGE_APP_NAME)"
+	@echo "Copied $(PACKAGE_APP_NAME) to $$HOME/Desktop"
+
+package-desktop-open: package-desktop
+	@open $(PACKAGE_APP_DIR)
+
+package-desktop-smoke: package-desktop
+	@test -x $(PACKAGE_MACOS_DIR)/ide-launcher || (echo "Missing launcher"; exit 1)
+	@test -x $(PACKAGE_MACOS_DIR)/ide-bin || (echo "Missing ide-bin"; exit 1)
+	@test -x $(PACKAGE_MACOS_DIR)/idebridge || (echo "Missing idebridge"; exit 1)
+	@test -f $(PACKAGE_CONTENTS_DIR)/Info.plist || (echo "Missing Info.plist"; exit 1)
+	@test -f $(PACKAGE_RESOURCES_DIR)/include/fonts/Lato/Lato-Regular.ttf || (echo "Missing bundled Lato"; exit 1)
+	@test -f $(PACKAGE_RESOURCES_DIR)/vk_renderer/shaders/textured.vert.spv || (echo "Missing bundled shaders"; exit 1)
+	@echo "package-desktop-smoke passed."
+
+package-desktop-self-test: package-desktop-smoke
+	@$(PACKAGE_MACOS_DIR)/ide-launcher --self-test || (echo "package-desktop self-test failed."; exit 1)
+	@echo "package-desktop-self-test passed."
+
 $(IDEBRIDGE_OUT): $(IDEBRIDGE_OBJ) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(CORE_PACK_OBJS) $(CORE_BASE_OBJS) $(CORE_IO_OBJS) $(CORE_DATA_OBJS)
 	@echo "Linking idebridge..."
 	@$(CC) -o $@ $^ $(IDEBRIDGE_LDFLAGS) || (echo "idebridge linking failed!" && exit 1)
@@ -487,6 +536,7 @@ test-shared-theme-font-adapter:
 	@$(CC) -std=c99 -Wall -Wextra -MMD -MP $(INC_DIRS) \
 		tests/shared_theme_font_adapter_test.c \
 		src/ide/UI/shared_theme_font_adapter.c \
+		src/app/GlobalInfo/runtime_paths.c \
 		$(CORE_THEME_DIR)/src/core_theme.c \
 		$(CORE_FONT_DIR)/src/core_font.c \
 		$(CORE_BASE_DIR)/src/core_base.c \
@@ -495,6 +545,24 @@ test-shared-theme-font-adapter:
 	@echo "Running IDE shared theme/font adapter test..."
 	@$(TEST_BUILD_DIR)/shared_theme_font_adapter_test || (echo "shared theme/font adapter test failed."; exit 1)
 	@echo "IDE shared theme/font adapter test passed."
+
+.PHONY: test-runtime-paths-resolution
+test-runtime-paths-resolution:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling runtime paths resolution test..."
+	@$(CC) $(CFLAGS) tests/runtime_paths_resolution_test.c src/app/GlobalInfo/runtime_paths.c -o $(RUNTIME_PATHS_TEST_OUT) $(LIB_DIRS) || (echo "runtime paths resolution test compile failed."; exit 1)
+	@echo "Running runtime paths resolution test..."
+	@$(RUNTIME_PATHS_TEST_OUT) || (echo "runtime paths resolution test failed."; exit 1)
+	@echo "Runtime paths resolution test passed."
+
+.PHONY: test-runtime-startup-defaults
+test-runtime-startup-defaults:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling runtime startup defaults test..."
+	@$(CC) $(CFLAGS) tests/runtime_startup_defaults_test.c src/app/GlobalInfo/runtime_startup_defaults.c -o $(RUNTIME_STARTUP_DEFAULTS_TEST_OUT) $(LIB_DIRS) || (echo "runtime startup defaults test compile failed."; exit 1)
+	@echo "Running runtime startup defaults test..."
+	@$(RUNTIME_STARTUP_DEFAULTS_TEST_OUT) || (echo "runtime startup defaults test failed."; exit 1)
+	@echo "Runtime startup defaults test passed."
 
 .PHONY: test-completed-results-queue
 test-completed-results-queue:

@@ -1,6 +1,7 @@
 #include "build_config.h"
 #include "system_control.h"
 #include "core_state.h"
+#include "runtime_paths.h"
 
 #include "project.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
@@ -281,10 +282,13 @@ static void loadInitialWorkspace(void) {
 }
 
 
-bool initializeSystem() {
+bool initializeSystem(const char* argv0) {
     char cwd[1024];
     if (getcwd(cwd, sizeof(cwd))) {
         printf("Current working directory: %s\n", cwd);
+    }
+    if (!ide_runtime_paths_init(argv0)) {
+        fprintf(stderr, "[RuntimePaths] Warning: failed to resolve runtime resource root.\n");
     }
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {

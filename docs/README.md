@@ -5,6 +5,7 @@ This directory is for public, stable IDE documentation.
 Current public docs:
 - `keybind_reference.md`
 - `current_architecture_status.md`
+- `desktop_packaging.md`
 
 Private planning, execution, and migration docs were moved to:
 - `../../docs/private_program_docs/ide/program_docs_migrated/` (workspace root)

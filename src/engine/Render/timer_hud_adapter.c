@@ -5,12 +5,14 @@
 #include "engine/Render/render_pipeline.h"
 #include "engine/Render/render_font.h"
 #include "build_config.h"
+#include "app/GlobalInfo/runtime_paths.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 
 #if USE_VULKAN
 #include "vk_renderer_sdl.h"
@@ -34,7 +36,12 @@ static TTF_Font* timer_hud_resolve_font(void) {
     };
 
     for (int i = 0; i < (int)(sizeof(candidates) / sizeof(candidates[0])); ++i) {
-        fallbackFont = TTF_OpenFont(candidates[i], 14);
+        char resolved[PATH_MAX];
+        const char* load_path = candidates[i];
+        if (ide_runtime_probe_resource_path(candidates[i], resolved, sizeof(resolved))) {
+            load_path = resolved;
+        }
+        fallbackFont = TTF_OpenFont(load_path, 14);
         if (fallbackFont) return fallbackFont;
     }
     return NULL;
