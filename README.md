@@ -72,6 +72,18 @@ Shared modules are vendored inside this repo at:
 ide/third_party/codework_shared/
 ```
 
+## Docs Index
+
+Public docs are organized under:
+
+- `ide/docs/README.md`
+- `ide/docs/current_truth.md`
+- `ide/docs/future_intent.md`
+
+Private migration/planning docs are in the workspace private bucket:
+
+- `docs/private_program_docs/ide/`
+
 ### Build & Run
 
 ```bash

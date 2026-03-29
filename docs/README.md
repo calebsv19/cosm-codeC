@@ -1,15 +1,23 @@
-# IDE Public Docs
+# IDE Docs Index
 
-This directory is for public, stable IDE documentation.
+Start here for public IDE documentation.
 
-Current public docs:
-- `keybind_reference.md`
-- `current_architecture_status.md`
-- `desktop_packaging.md`
+## Scaffold State
+- `docs/current_truth.md`: current scaffold/runtime structure and verification snapshot.
+- `docs/future_intent.md`: scaffold convergence intent and next migration phases.
+- migration-friendly verification gate lanes:
+  - `make -C ide run-headless-smoke`
+  - `make -C ide visual-harness`
+  - `make -C ide test-stable`
+  - `make -C ide test-legacy`
 
-Private planning, execution, and migration docs were moved to:
-- `../../docs/private_program_docs/ide/program_docs_migrated/` (workspace root)
+## Existing Public Docs
+- `docs/keybind_reference.md`
+- `docs/current_architecture_status.md`
+- `docs/desktop_packaging.md`
 
-Policy reference:
-- private docs: `docs/private_program_docs/<program>/`
-- public docs: `<program>/docs/` or `shared/docs/`
+## Private Planning Docs
+- Active private scaffold docs live in:
+  - `../docs/private_program_docs/ide/`
+- historical private docs migrated from this lane are under:
+  - `../docs/private_program_docs/ide/program_docs_migrated/`

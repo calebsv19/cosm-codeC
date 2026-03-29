@@ -10,8 +10,10 @@
 
 # Generated runtime artifacts
 /ide_files/
+/tmp/
 /timing.json
 /timerhud/ide/timing.json
+/timerhud/ide/runtime/
 /vk_frame.ppm
 
 # OS/editor noise

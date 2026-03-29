@@ -414,6 +414,8 @@ test-list:
 	@echo "IDE bridge stable: $(TEST_IDEBRIDGE_STABLE_TARGETS)"
 	@echo "IDE bridge legacy: $(TEST_IDEBRIDGE_LEGACY_TARGETS)"
 	@echo "Extended tests:   $(TEST_EXTENDED_TARGETS)"
+	@echo "Scaffold stable:  test-fast + test-idebridge"
+	@echo "Scaffold legacy:  test-idebridge-legacy + test-extended"
 	@echo "Phase 1 gate:     test-fast + test-idebridge-all + test-extended"
 	@echo "Phase 2 gate:     test-phase1 + test-fast"
 	@echo "Phase 3 gate:     test-phase2 + test-fast"
@@ -439,6 +441,23 @@ test-idebridge-all: $(TEST_IDEBRIDGE_ALL_TARGETS)
 .PHONY: test-extended
 test-extended: $(TEST_EXTENDED_TARGETS)
 	@echo "test-extended completed."
+
+.PHONY: test-stable
+test-stable: test-fast test-idebridge
+	@echo "test-stable completed."
+
+.PHONY: test-legacy
+test-legacy: test-idebridge-legacy test-extended
+	@echo "test-legacy completed."
+
+.PHONY: run-headless-smoke
+run-headless-smoke: all test-stable
+	@echo "run-headless-smoke completed."
+
+.PHONY: visual-harness
+visual-harness: $(OUT)
+	@echo "visual-harness build gate ready: $(OUT)"
+	@echo "launch manual UI validation with: make -C ide run-ide-theme"
 
 .PHONY: test check
 test: test-fast test-idebridge test-extended
