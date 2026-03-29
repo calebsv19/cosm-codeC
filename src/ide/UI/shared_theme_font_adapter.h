@@ -43,6 +43,10 @@ SDL_Color ide_shared_theme_pane_hover_border_color(void);
 void ide_shared_theme_editor_border_colors(SDL_Color *out_hover,
                                            SDL_Color *out_active,
                                            SDL_Color *out_active_hover);
+int ide_shared_font_zoom_step(void);
+bool ide_shared_font_set_zoom_step(int step);
+bool ide_shared_font_step_by(int delta);
+bool ide_shared_font_reset_zoom_step(void);
 bool ide_shared_font_resolve_role(CoreFontRoleId role,
                                   CoreFontTextSizeTier tier,
                                   char *out_path,

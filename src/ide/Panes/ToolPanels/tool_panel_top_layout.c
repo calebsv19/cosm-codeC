@@ -1,14 +1,42 @@
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
+#include "ide/UI/panel_metrics.h"
+#include "engine/Render/render_font.h"
+
+#include <SDL2/SDL_ttf.h>
+
+enum {
+    TOOL_PANEL_TITLE_TOP_PAD = 6,
+    TOOL_PANEL_TITLE_BOTTOM_GAP = 8
+};
+
+static int tool_panel_font_height(CoreFontTextSizeTier tier, int fallback_min) {
+    TTF_Font* font = getUIFontByTier(tier);
+    int h = 0;
+    if (!font) {
+        font = getActiveFont();
+    }
+    if (font) {
+        h = TTF_FontHeight(font);
+    }
+    if (h < fallback_min) {
+        h = fallback_min;
+    }
+    return h;
+}
 
 ToolPanelLayoutDefaults tool_panel_layout_defaults(void) {
+    const int dense_row_h = IDE_UI_DENSE_ROW_HEIGHT;
+    const int title_h = tool_panel_font_height(CORE_FONT_TEXT_SIZE_TITLE, dense_row_h);
+    const int header_h = tool_panel_font_height(CORE_FONT_TEXT_SIZE_HEADER, dense_row_h);
+    const int banner_h = (title_h > header_h) ? title_h : header_h;
     ToolPanelLayoutDefaults d = {
         .pad_left = 12,
         .pad_right = 12,
-        .controls_top = 24,
-        .button_h = 20,
+        .controls_top = TOOL_PANEL_TITLE_TOP_PAD + banner_h + TOOL_PANEL_TITLE_BOTTOM_GAP,
+        .button_h = dense_row_h + 6,
         .row_gap = 6,
         .info_top = 8,
-        .info_line_gap = 14,
+        .info_line_gap = dense_row_h,
         .body_darken = 14
     };
     return d;
@@ -29,6 +57,11 @@ int tool_panel_info_line_y(const UIPane* pane, int line_index) {
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
     if (line_index < 0) line_index = 0;
     return pane->y + d.info_top + (line_index * d.info_line_gap);
+}
+
+int tool_panel_title_text_y(const UIPane* pane) {
+    if (!pane) return 0;
+    return pane->y + TOOL_PANEL_TITLE_TOP_PAD;
 }
 
 ToolPanelControlRow tool_panel_control_row_with(const UIPane* pane,

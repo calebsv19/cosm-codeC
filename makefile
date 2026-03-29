@@ -175,6 +175,7 @@
   PACKAGE_RESOURCES_DIR := $(PACKAGE_CONTENTS_DIR)/Resources
   PACKAGE_INFO_PLIST_SRC := tools/packaging/macos/Info.plist
   PACKAGE_LAUNCHER_SRC := tools/packaging/macos/ide-launcher
+  DESKTOP_APP_DIR ?= $(HOME)/Desktop/$(PACKAGE_APP_NAME)
   IDEBRIDGE_SRC := tools/idebridge/idebridge.c
   IDEBRIDGE_OBJ := $(BUILD_DIR)/tools/idebridge.o
   DIAG_PACK_EXPORT_OBJ := $(BUILD_DIR)/core/Diagnostics/diagnostics_pack_export.o
@@ -198,7 +199,7 @@
 # ===== RULES =====
 all: $(OUT) $(IDEBRIDGE_OUT)
 
-.PHONY: debug perf run-debug run-perf run-perf-log run-perf-hud run-perf-nohud run-perf-sanitized package-desktop package-desktop-copy-desktop package-desktop-open package-desktop-smoke package-desktop-self-test
+.PHONY: debug perf run-debug run-perf run-perf-log run-perf-hud run-perf-nohud run-perf-sanitized package-desktop package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-smoke package-desktop-self-test
 debug:
 	@$(MAKE) BUILD_PROFILE=debug all
 
@@ -370,8 +371,13 @@ package-desktop:
 	@echo "Desktop package ready: $(PACKAGE_APP_DIR)"
 
 package-desktop-copy-desktop: package-desktop
-	@cp -R $(PACKAGE_APP_DIR) "$$HOME/Desktop/$(PACKAGE_APP_NAME)"
-	@echo "Copied $(PACKAGE_APP_NAME) to $$HOME/Desktop"
+	@rm -rf "$(DESKTOP_APP_DIR)"
+	@cp -R "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
+	@echo "Copied $(PACKAGE_APP_NAME) to $(DESKTOP_APP_DIR)"
+
+# Convenience target for post-edit desktop deployment flow.
+package-desktop-sync: package-desktop-copy-desktop
+	@echo "Desktop app sync complete."
 
 package-desktop-open: package-desktop
 	@open $(PACKAGE_APP_DIR)

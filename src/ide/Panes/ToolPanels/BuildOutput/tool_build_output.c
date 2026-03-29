@@ -76,6 +76,7 @@ PaneScrollState* build_output_get_scroll_state(void) {
         scroll_state_init(&state->scroll, NULL);
         state->scroll_init = true;
     }
+    state->scroll.line_height_px = (float)BUILD_OUTPUT_LINE_HEIGHT;
     return &state->scroll;
 }
 

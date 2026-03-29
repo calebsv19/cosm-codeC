@@ -57,6 +57,7 @@ static UIRowSurfaceRenderSpec library_row_surface_spec(bool is_selected,
 
 void renderLibrariesPanel(UIPane* pane) {
     LibraryPanelState* st = libraries_panel_state();
+    const int rowHeightPx = LIBRARY_ROW_HEIGHT;
     uint64_t published_index_stamp = library_index_published_stamp();
     if (st->last_published_index_stamp != published_index_stamp) {
         st->last_published_index_stamp = published_index_stamp;
@@ -67,6 +68,7 @@ void renderLibrariesPanel(UIPane* pane) {
         scroll_state_init(&st->scroll, NULL);
         scrollInit = true;
     }
+    st->scroll.line_height_px = (float)rowHeightPx;
 
     RenderContext* ctx = getRenderContext();
     SDL_Renderer* renderer = ctx->renderer;
@@ -162,7 +164,7 @@ void renderLibrariesPanel(UIPane* pane) {
     if (clip.w < 0) clip.w = 0;
     pushClipRect(&clip);
 
-    float totalHeight = (float)(st->flatCount * LIBRARY_ROW_HEIGHT);
+    float totalHeight = (float)(st->flatCount * rowHeightPx);
     scroll_state_set_viewport(&st->scroll, (float)contentH);
     scroll_state_set_content_height(&st->scroll,
                                     scroll_state_top_anchor_content_height(&st->scroll, totalHeight));
@@ -176,15 +178,15 @@ void renderLibrariesPanel(UIPane* pane) {
     float offset = scroll_state_get_offset(&st->scroll);
     int yStart = contentY - (int)offset;
     TTF_Font* rowFont = library_row_font();
-    int textHeight = rowFont ? TTF_FontHeight(rowFont) : LIBRARY_ROW_HEIGHT;
-    if (textHeight < 1) textHeight = LIBRARY_ROW_HEIGHT;
+    int textHeight = rowFont ? TTF_FontHeight(rowFont) : rowHeightPx;
+    if (textHeight < 1) textHeight = rowHeightPx;
 
     int mouseX = 0, mouseY = 0;
     SDL_GetMouseState(&mouseX, &mouseY);
 
     for (int i = 0; i < st->flatCount; ++i) {
         LibraryFlatRow* row = &st->flatRows[i];
-        int rowHeight = LIBRARY_ROW_HEIGHT;
+        int rowHeight = rowHeightPx;
         int rowTop = yStart + i * rowHeight;
         int rowBottom = rowTop + rowHeight;
         if (rowBottom <= contentY) continue;   // entirely above clip
@@ -219,7 +221,7 @@ void renderLibrariesPanel(UIPane* pane) {
         }
 
         int textWidth = getTextWidthWithFont(line, rowFont);
-        int textY = drawY + ((LIBRARY_ROW_HEIGHT - textHeight) / 2);
+        int textY = drawY + ((rowHeightPx - textHeight) / 2);
         SDL_Rect box = {
             drawX - 6,
             textY - 1,

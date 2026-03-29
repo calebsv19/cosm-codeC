@@ -2,7 +2,9 @@
 #define IDE_UI_PANEL_CONTROL_WIDGETS_H
 
 #include "engine/Render/render_helpers.h"
+#include "engine/Render/render_font.h"
 #include "engine/Render/render_text_helpers.h"
+#include "ide/UI/panel_metrics.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 
 #include <SDL2/SDL.h>
@@ -206,9 +208,25 @@ static inline void ui_panel_compact_button_render(SDL_Renderer* renderer,
     memcpy(labelBuf, src, keepLen);
     labelBuf[keepLen] = '\0';
 
-    int tx = spec->rect.x + (spec->rect.w - getTextWidth(labelBuf)) / 2;
-    int ty = spec->rect.y + 2;
-    drawTextWithTier(tx, ty, labelBuf, spec->tier);
+    TTF_Font* tierFont = getUIFontByTier(spec->tier);
+    if (!tierFont) {
+        tierFont = getActiveFont();
+    }
+    int textW = getTextWidthWithFont(labelBuf, tierFont);
+    int textH = tierFont ? TTF_FontHeight(tierFont) : 12;
+    if (textH < 1) textH = 12;
+
+    int tx = spec->rect.x + (spec->rect.w - textW) / 2;
+    int ty = spec->rect.y + (spec->rect.h - textH) / 2;
+    if (ty < spec->rect.y) {
+        ty = spec->rect.y;
+    }
+    drawTextUTF8WithFontColor(tx,
+                              ty,
+                              labelBuf,
+                              tierFont,
+                              palette.text_primary,
+                              false);
 }
 
 static inline void ui_panel_compact_button_row_render(SDL_Renderer* renderer,
@@ -257,9 +275,17 @@ static inline int ui_panel_collapsible_header_render(SDL_Renderer* renderer,
     char title[128];
     snprintf(title, sizeof(title), "%s %s", collapsed ? "[+]" : "[-]", label ? label : "");
     drawTextWithTier(x, y, title, tier);
-    int titleW = getTextWidth(title);
+    TTF_Font* tierFont = getUIFontByTier(tier);
+    if (!tierFont) {
+        tierFont = getActiveFont();
+    }
+    int titleW = getTextWidthWithFont(title, tierFont);
+    int titleH = tierFont ? TTF_FontHeight(tierFont) : IDE_UI_DENSE_HEADER_HEIGHT;
+    if (titleH < IDE_UI_DENSE_HEADER_HEIGHT) {
+        titleH = IDE_UI_DENSE_HEADER_HEIGHT;
+    }
     if (out_hit_rect) {
-        *out_hit_rect = (SDL_Rect){ x - 2, y - 1, titleW + 8, 14 };
+        *out_hit_rect = (SDL_Rect){ x - 2, y - 1, titleW + 8, titleH + 2 };
     }
     return titleW;
 }

@@ -21,11 +21,6 @@
 PaneScrollState* project_get_scroll_state(UIPane* pane);
 static const int PROJECT_TREE_BOX_PAD_X = 3;
 static const int PROJECT_TREE_BOX_PAD_Y = 1;
-static const PaneScrollConfig s_projectScrollConfig = {
-    .line_height_px = (float)IDE_UI_DENSE_ROW_HEIGHT,
-    .deceleration_px = 0.0f,
-    .allow_negative = false,
-};
 
 static SDL_Color project_entry_text_color(const DirEntry* entry) {
     IDEThemePalette palette = {0};
@@ -307,11 +302,18 @@ static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int
 }
 
 PaneScrollState* project_get_scroll_state(UIPane* pane) {
+    const float row_height_px = (float)IDE_UI_DENSE_ROW_HEIGHT;
     if (!pane) return NULL;
     if (!*project_panel_scroll_initialized_ptr()) {
-        scroll_state_init(project_panel_scroll_state(), &s_projectScrollConfig);
+        PaneScrollConfig cfg = {
+            .line_height_px = row_height_px,
+            .deceleration_px = 0.0f,
+            .allow_negative = false,
+        };
+        scroll_state_init(project_panel_scroll_state(), &cfg);
         *project_panel_scroll_initialized_ptr() = true;
     }
+    project_panel_scroll_state()->line_height_px = row_height_px;
     pane->scrollState = project_panel_scroll_state();
     return pane->scrollState;
 }
@@ -326,6 +328,7 @@ void renderProjectFilesPanel(UIPane* pane) {
     bool paneActive = coreState && coreState->focusedPane == pane;
 
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    const int rowHeight = IDE_UI_DENSE_ROW_HEIGHT;
     int x = pane->x + d.pad_left;
     const char* workspace = getWorkspacePath();
     char workspaceLabel[512];
@@ -399,7 +402,7 @@ void renderProjectFilesPanel(UIPane* pane) {
 
     int visibleLines = project_count_visible_entries(projectRoot);
     float contentHeight = (float)treeTopGap +
-                          (float)visibleLines * s_projectScrollConfig.line_height_px;
+                          (float)visibleLines * (float)rowHeight;
     scroll_state_set_content_height(scroll,
                                     scroll_state_top_anchor_content_height(scroll, contentHeight));
 
@@ -423,7 +426,7 @@ void renderProjectFilesPanel(UIPane* pane) {
             .viewportBottom = (float)(viewport.y + viewport.h),
             .clipRect = clipRect,
             .baseX = x,
-            .lineHeight = (int)s_projectScrollConfig.line_height_px,
+            .lineHeight = rowHeight,
             .indentWidth = IDE_UI_TREE_INDENT_WIDTH,
             .drag = &coreState->projectDrag,
         };

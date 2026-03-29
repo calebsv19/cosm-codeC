@@ -12,6 +12,8 @@
 static char cachedWorkspacePath[PATH_MAX];
 static char cachedRunTargetPath[PATH_MAX];
 static char cachedThemePreset[128];
+static int cachedFontZoomStep = 0;
+static int cachedFontZoomStepSet = 0;
 static WorkspaceBuildConfig cachedBuildConfig;
 static int configLoaded = 0;
 
@@ -99,6 +101,7 @@ static int writeConfigContents(FILE* file) {
     rc &= fprintf(file, "workspace=%s\n", cachedWorkspacePath) >= 0;
     rc &= fprintf(file, "run_target=%s\n", cachedRunTargetPath) >= 0;
     rc &= fprintf(file, "theme_preset=%s\n", cachedThemePreset) >= 0;
+    rc &= fprintf(file, "font_zoom_step=%d\n", cachedFontZoomStepSet ? cachedFontZoomStep : 0) >= 0;
     rc &= fprintf(file, "build_command=%s\n", cachedBuildConfig.build_command) >= 0;
     rc &= fprintf(file, "build_args=%s\n", cachedBuildConfig.build_args) >= 0;
     rc &= fprintf(file, "build_workdir=%s\n", cachedBuildConfig.build_working_dir) >= 0;
@@ -133,6 +136,8 @@ static void loadConfigFile(void) {
     cachedWorkspacePath[0] = '\0';
     cachedRunTargetPath[0] = '\0';
     cachedThemePreset[0] = '\0';
+    cachedFontZoomStep = 0;
+    cachedFontZoomStepSet = 0;
     resetWorkspaceBuildConfigDefaults();
 
     char configPath[PATH_MAX];
@@ -167,6 +172,13 @@ static void loadConfigFile(void) {
         } else if (strncmp(line, "theme_preset", keyLen) == 0) {
             strncpy(cachedThemePreset, value, sizeof(cachedThemePreset) - 1);
             cachedThemePreset[sizeof(cachedThemePreset) - 1] = '\0';
+        } else if (strncmp(line, "font_zoom_step", keyLen) == 0) {
+            char* end = NULL;
+            long parsed = strtol(value, &end, 10);
+            if (end != value) {
+                cachedFontZoomStep = (int)parsed;
+                cachedFontZoomStepSet = 1;
+            }
         } else if (strncmp(line, "build_command", keyLen) == 0) {
             strncpy(cachedBuildConfig.build_command, value, sizeof(cachedBuildConfig.build_command) - 1);
             cachedBuildConfig.build_command[sizeof(cachedBuildConfig.build_command) - 1] = '\0';
@@ -300,6 +312,21 @@ void saveThemePresetPreference(const char* preset_name) {
     } else {
         cachedThemePreset[0] = '\0';
     }
+    writeConfigFile();
+}
+
+int loadFontZoomStepPreference(int* out_step) {
+    loadConfigFile();
+    if (!out_step) return 0;
+    if (!cachedFontZoomStepSet) return 0;
+    *out_step = cachedFontZoomStep;
+    return 1;
+}
+
+void saveFontZoomStepPreference(int step) {
+    loadConfigFile();
+    cachedFontZoomStep = step;
+    cachedFontZoomStepSet = 1;
     writeConfigFile();
 }
 

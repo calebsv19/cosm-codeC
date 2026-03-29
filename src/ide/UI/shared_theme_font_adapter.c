@@ -11,6 +11,8 @@
 
 static bool g_theme_runtime_initialized = false;
 static CoreThemePresetId g_theme_runtime_preset = CORE_THEME_PRESET_IDE_GRAY;
+static bool g_font_zoom_runtime_initialized = false;
+static int g_font_zoom_step = 0;
 static const CoreThemePresetId k_theme_cycle_order[] = {
     CORE_THEME_PRESET_DAW_DEFAULT,
     CORE_THEME_PRESET_MAP_FORGE_DEFAULT,
@@ -19,6 +21,39 @@ static const CoreThemePresetId k_theme_cycle_order[] = {
     CORE_THEME_PRESET_IDE_GRAY,
     CORE_THEME_PRESET_GREYSCALE
 };
+enum {
+    IDE_FONT_ZOOM_STEP_MIN = -4,
+    IDE_FONT_ZOOM_STEP_MAX = 5
+};
+
+static int clamp_int(int value, int min_value, int max_value) {
+    if (value < min_value) return min_value;
+    if (value > max_value) return max_value;
+    return value;
+}
+
+static void font_zoom_runtime_init_if_needed(void) {
+    char* end = NULL;
+    long parsed = 0;
+    const char* env;
+    if (g_font_zoom_runtime_initialized) {
+        return;
+    }
+    env = getenv("IDE_FONT_ZOOM_STEP");
+    if (env && env[0]) {
+        parsed = strtol(env, &end, 10);
+        if (end != env) {
+            g_font_zoom_step = clamp_int((int)parsed, IDE_FONT_ZOOM_STEP_MIN, IDE_FONT_ZOOM_STEP_MAX);
+        }
+    }
+    g_font_zoom_runtime_initialized = true;
+}
+
+static int font_zoom_step_percent(void) {
+    int step = ide_shared_font_zoom_step();
+    int pct = 100 + (step * 10);
+    return clamp_int(pct, 60, 180);
+}
 
 static bool parse_bool_env(const char *value, bool *out_value) {
     char lowered[16];
@@ -336,6 +371,29 @@ void ide_shared_theme_editor_border_colors(SDL_Color *out_hover,
     }
 }
 
+int ide_shared_font_zoom_step(void) {
+    font_zoom_runtime_init_if_needed();
+    return g_font_zoom_step;
+}
+
+bool ide_shared_font_set_zoom_step(int step) {
+    int clamped = clamp_int(step, IDE_FONT_ZOOM_STEP_MIN, IDE_FONT_ZOOM_STEP_MAX);
+    font_zoom_runtime_init_if_needed();
+    if (clamped == g_font_zoom_step) {
+        return false;
+    }
+    g_font_zoom_step = clamped;
+    return true;
+}
+
+bool ide_shared_font_step_by(int delta) {
+    return ide_shared_font_set_zoom_step(ide_shared_font_zoom_step() + delta);
+}
+
+bool ide_shared_font_reset_zoom_step(void) {
+    return ide_shared_font_set_zoom_step(0);
+}
+
 bool ide_shared_font_resolve_role(CoreFontRoleId role,
                                   CoreFontTextSizeTier tier,
                                   char *out_path,
@@ -381,6 +439,12 @@ bool ide_shared_font_resolve_role(CoreFontRoleId role,
     r = core_font_point_size_for_tier(&role_spec, tier, out_point_size);
     if (r.code != CORE_OK) {
         return false;
+    }
+    {
+        int percent = font_zoom_step_percent();
+        int scaled = ((*out_point_size * percent) + 50) / 100;
+        if (scaled < 6) scaled = 6;
+        *out_point_size = scaled;
     }
 
     if (selected_resolved[0]) {

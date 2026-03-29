@@ -2,6 +2,7 @@
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
+#include "ide/UI/panel_metrics.h"
 
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_pipeline.h"
@@ -29,7 +30,7 @@ static GitPanelLayout git_panel_layout(const UIPane* pane) {
     l.controlsHeight = d.button_h;
 
     const int metadataGap = d.row_gap;
-    const int metadataLineGap = 12;
+    const int metadataLineGap = d.info_line_gap;
     l.branchY = l.controlsY + l.controlsHeight + metadataGap;
     l.statusY = l.branchY + metadataLineGap;
     l.contentTop = git_panel_content_top(pane);
@@ -96,11 +97,13 @@ void renderGitPanel(UIPane* pane) {
 
     TTF_Font* uiFont = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
     if (!uiFont) uiFont = getActiveFont();
+    int metaLineHeight = uiFont ? TTF_FontHeight(uiFont) : IDE_UI_DENSE_ROW_HEIGHT;
+    if (metaLineHeight < IDE_UI_DENSE_ROW_HEIGHT) metaLineHeight = IDE_UI_DENSE_ROW_HEIGHT;
 
     char branchLine[96];
     const char* branchName = git_panel_branch_name();
     snprintf(branchLine, sizeof(branchLine), "Branch: %s", (branchName && branchName[0]) ? branchName : "unknown");
-    SDL_Rect branchClip = { pane->x + 10, layout.branchY, pane->w - 20, 14 };
+    SDL_Rect branchClip = { pane->x + 10, layout.branchY, pane->w - 20, metaLineHeight };
     if (branchClip.w < 0) branchClip.w = 0;
     SDL_Color branchColor = {232, 238, 248, 255};
     drawTextUTF8WithFontColorClipped(branchClip.x,
@@ -113,7 +116,7 @@ void renderGitPanel(UIPane* pane) {
 
     const char* status = git_panel_get_status_text();
     if (status && status[0]) {
-        SDL_Rect statusClip = { pane->x + 10, layout.statusY, pane->w - 20, 14 };
+        SDL_Rect statusClip = { pane->x + 10, layout.statusY, pane->w - 20, metaLineHeight };
         if (statusClip.w < 0) statusClip.w = 0;
         SDL_Color statusColor = {213, 220, 233, 255};
         drawTextUTF8WithFontColorClipped(statusClip.x,

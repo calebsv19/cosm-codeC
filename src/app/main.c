@@ -75,6 +75,15 @@ int main(int argc, char* argv[]){
 	        "[TimerHUD] IDE profiling %s (enable with --timer-hud or IDE_TIMER_HUD=1)\n",
 	        isTimerHudEnabled() ? "ENABLED" : "DISABLED");
 	ide_apply_runtime_startup_defaults();
+	{
+		const char* zoomEnv = getenv("IDE_FONT_ZOOM_STEP");
+		int persistedZoom = 0;
+		if ((!zoomEnv || !zoomEnv[0]) && loadFontZoomStepPreference(&persistedZoom)) {
+			char zoomBuf[16];
+			snprintf(zoomBuf, sizeof(zoomBuf), "%d", persistedZoom);
+			setenv("IDE_FONT_ZOOM_STEP", zoomBuf, 1);
+		}
+	}
 
 	// 	====================================
 	//		INITS

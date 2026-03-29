@@ -12,14 +12,7 @@
 #include "ide/UI/shared_theme_font_adapter.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
-#include <stdio.h>
 #include <string.h>
-
-static const PaneScrollConfig g_taskScrollCfg = {
-    .line_height_px = (float)TASK_LINE_HEIGHT,
-    .deceleration_px = 0.0f,
-    .allow_negative = false
-};
 
 typedef struct TaskTopControlSpec {
     TaskTopControlId id;
@@ -148,6 +141,7 @@ void renderTasksPanel(UIPane* pane) {
     RenderContext* ctx = getRenderContext();
     SDL_Renderer* renderer = ctx ? ctx->renderer : NULL;
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
+    const int rowHeight = TASK_LINE_HEIGHT;
     int x = pane->x + d.pad_left;
     int y = pane->y + d.controls_top + 8;
     int maxY = pane->y + pane->h;
@@ -183,9 +177,15 @@ void renderTasksPanel(UIPane* pane) {
     int contentTop = y;
     PaneScrollState* scroll = task_panel_scroll_state();
     if (!*task_panel_scroll_initialized_ptr()) {
-        scroll_state_init(scroll, &g_taskScrollCfg);
+        PaneScrollConfig cfg = {
+            .line_height_px = (float)rowHeight,
+            .deceleration_px = 0.0f,
+            .allow_negative = false
+        };
+        scroll_state_init(scroll, &cfg);
         *task_panel_scroll_initialized_ptr() = true;
     }
+    scroll->line_height_px = (float)rowHeight;
     if (renderer) {
         tool_panel_render_split_background(renderer, pane, contentTop, 14);
     }

@@ -13,8 +13,6 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <stdio.h>
-static const PaneScrollConfig gScrollCfg = { .line_height_px = 14.0f, .deceleration_px = 0.0f, .allow_negative = false };
-
 static TTF_Font* asset_row_font(void) {
     TTF_Font* font = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
     return font ? font : getActiveFont();
@@ -33,12 +31,17 @@ static SDL_Color asset_row_color(bool isHeader) {
 
 void renderAssetManagerPanel(UIPane* pane) {
     PaneScrollState* scroll = assets_get_scroll_state(pane);
-    if (!scroll->line_height_px && !scroll->viewport_height_px && !scroll->content_height_px) {
-        scroll_state_init(scroll, &gScrollCfg);
-    }
-
     const int headerHeight = ASSET_PANEL_HEADER_HEIGHT;
     const int lineHeight = ASSET_PANEL_ROW_HEIGHT;
+    if (!scroll->line_height_px && !scroll->viewport_height_px && !scroll->content_height_px) {
+        PaneScrollConfig cfg = {
+            .line_height_px = (float)lineHeight,
+            .deceleration_px = 0.0f,
+            .allow_negative = false
+        };
+        scroll_state_init(scroll, &cfg);
+    }
+    scroll->line_height_px = (float)lineHeight;
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
     const int paddingX = d.pad_left;
     const int controlsY = pane->y + d.controls_top;

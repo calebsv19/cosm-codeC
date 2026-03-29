@@ -636,7 +636,7 @@ static void handleCommandFolderClick(DirEntry* entry, bool clickedPrefix, bool i
 
 static bool project_row_click_hits_prefix(UIPane* pane, int depth, int click_x) {
     if (!pane) return false;
-    int indent = depth * IDE_UI_TREE_INDENT_WIDTH;
+    int indent = depth * ide_ui_tree_indent_width();
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
     int drawX = pane->x + d.pad_left + indent;
     int prefixWidth = getTextWidth("[-] ");

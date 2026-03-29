@@ -45,6 +45,7 @@ int main(void) {
     unsetenv("IDE_USE_SHARED_FONT");
     unsetenv("IDE_THEME_PRESET");
     unsetenv("IDE_FONT_PRESET");
+    unsetenv("IDE_FONT_ZOOM_STEP");
 
     setenv("IDE_USE_SHARED_THEME_FONT", "0", 1);
     expect(!ide_shared_theme_apply(&theme), "theme should remain fallback when shared mode is disabled");
@@ -84,6 +85,30 @@ int main(void) {
                                         &point_size),
            "ui_regular caption size should resolve");
     expect(point_size < 12, "caption size should be smaller than base");
+
+    {
+        int baseline_point = point_size;
+        expect(ide_shared_font_set_zoom_step(2),
+               "setting positive zoom step should report change");
+        expect(ide_shared_font_zoom_step() == 2,
+               "zoom step getter should return updated value");
+        expect(ide_shared_font_resolve_role(CORE_FONT_ROLE_UI_REGULAR,
+                                            CORE_FONT_TEXT_SIZE_CAPTION,
+                                            path,
+                                            sizeof(path),
+                                            &point_size),
+               "caption size should resolve with zoom");
+        expect(point_size > baseline_point,
+               "positive zoom should increase resolved point size");
+        expect(ide_shared_font_step_by(-3),
+               "decreasing zoom step should report change");
+        expect(ide_shared_font_zoom_step() == -1,
+               "zoom step decrement should apply");
+        expect(ide_shared_font_reset_zoom_step(),
+               "zoom reset should report change");
+        expect(ide_shared_font_zoom_step() == 0,
+               "zoom reset should return to zero");
+    }
 
     expect(ide_shared_theme_set_preset("midnight_contrast"),
            "runtime preset set should accept known preset");

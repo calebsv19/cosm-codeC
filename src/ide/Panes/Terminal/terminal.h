@@ -98,6 +98,7 @@ bool terminal_is_following_output(void);
 void terminal_set_safe_paste_enabled(bool enabled);
 bool terminal_safe_paste_enabled(void);
 void terminal_toggle_safe_paste_enabled(void);
+void terminal_notify_font_metrics_changed(void);
 
 // Input to the PTY shell (UTF-8 bytes; caller provides already-encoded data).
 void terminal_send_text(const char* text, size_t len);

@@ -33,7 +33,7 @@ static SDL_Color statusColors[8] = {
 
 static int tree_line_height_for_pane(const UIPane* pane) {
     (void)pane;
-    return IDE_UI_DENSE_ROW_HEIGHT;
+    return ide_ui_dense_row_height();
 }
 
 int tree_panel_content_offset_y(void) {
@@ -141,7 +141,7 @@ static void renderTreeRecursive(UITreeNode* node,
                                 bool selectAllVisual,
                                 int lineHeight) {
     if (!node || *y > maxY) return;
-    int indent = node->depth * IDE_UI_TREE_INDENT_WIDTH;
+    int indent = node->depth * ide_ui_tree_indent_width();
     int drawX = x + indent;
     int drawY = *y;
 
@@ -328,7 +328,7 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
         if (drawY + lineHeight <= contentTop) {
             // Skip draw, but continue traversal (need depth info)
         } else if (drawY < maxY) {
-            int indent = n->depth * IDE_UI_TREE_INDENT_WIDTH;
+            int indent = n->depth * ide_ui_tree_indent_width();
             int drawX = x + indent;
 
             RenderContext* ctx = getRenderContext();
@@ -494,7 +494,7 @@ bool treeNodePrefixHit(const UIPane* pane, const UITreeNode* node, int clickX) {
     if (!pane || !node) return false;
     if (node->type != TREE_NODE_FOLDER && node->type != TREE_NODE_SECTION) return false;
 
-    int indent = node->depth * IDE_UI_TREE_INDENT_WIDTH;
+    int indent = node->depth * ide_ui_tree_indent_width();
     int drawX = pane->x + TREE_PANEL_PADDING_X + indent;
     int prefixWidth = getTextWidth("[-] ") + 10;
     return (clickX >= drawX && clickX <= drawX + prefixWidth);

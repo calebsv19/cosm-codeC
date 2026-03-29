@@ -1146,16 +1146,16 @@ int control_panel_get_symbol_list_top(const UIPane* pane) {
     if (!pane) return 0;
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
     int controlsY = pane->y + d.controls_top - 1;
-    int controlsH = 22;
+    int controlsH = d.button_h;
     int infoStartY = controlsY + controlsH + d.row_gap;
     ToolPanelHeaderMetrics metrics = {
         .controls_y = controlsY,
         .controls_h = controlsH,
         .info_start_y = infoStartY,
-        .info_line_gap = 12,
+        .info_line_gap = d.info_line_gap,
         .info_line_count = 1,
         .bottom_padding = d.row_gap + 2,
-        .min_content_top = controlsY + controlsH + d.row_gap + 12
+        .min_content_top = controlsY + controlsH + d.row_gap + d.info_line_gap
     };
     return tool_panel_compute_content_top(&metrics) + d.info_line_gap;
 }

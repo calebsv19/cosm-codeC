@@ -5,11 +5,18 @@
 #include "core/CommandBus/command_metadata.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/workspace_prefs.h"
+#include "engine/Render/render_font.h"
+#include "engine/Render/render_helpers.h"
 #include "ide/UI/layout.h"
 #include "ide/UI/ui_state.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
+#include "ide/Panes/Terminal/terminal.h"
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 // This file handles SDL_KEYDOWN input → dispatchInputCommand()
 // It does NOT handle behavior — that's routed by the pane’s inputHandler
@@ -44,6 +51,26 @@ static bool global_shortcut_text_capture_active(void) {
     return false;
 }
 
+static void apply_font_zoom_runtime_change(void) {
+    char zoom_step_buf[16];
+    int zoom_step = ide_shared_font_zoom_step();
+
+    snprintf(zoom_step_buf, sizeof(zoom_step_buf), "%d", zoom_step);
+    setenv("IDE_FONT_ZOOM_STEP", zoom_step_buf, 1);
+    saveFontZoomStepPreference(zoom_step);
+
+    render_text_cache_shutdown();
+    if (!initFontSystem()) {
+        return;
+    }
+
+    terminal_notify_font_metrics_changed();
+    requestFullRedraw(RENDER_INVALIDATION_LAYOUT |
+                      RENDER_INVALIDATION_RESIZE |
+                      RENDER_INVALIDATION_CONTENT |
+                      RENDER_INVALIDATION_BACKGROUND);
+}
+
 void handleKeyboardInput(SDL_Event* event,
                          UIPane** panes, int* paneCount, bool* running) {
     if (!event || event->type != SDL_KEYDOWN) return;
@@ -54,6 +81,28 @@ void handleKeyboardInput(SDL_Event* event,
     Uint16 mod = event->key.keysym.mod;
     bool ctrl_or_cmd = (mod & (KMOD_CTRL | KMOD_GUI)) != 0;
     bool shift = (mod & KMOD_SHIFT) != 0;
+
+    if (ctrl_or_cmd && !global_shortcut_text_capture_active()) {
+        bool zoom_handled = false;
+        bool zoom_changed = false;
+        if (key == SDLK_EQUALS || key == SDLK_PLUS || key == SDLK_KP_PLUS) {
+            zoom_handled = true;
+            zoom_changed = ide_shared_font_step_by(1);
+        } else if (key == SDLK_MINUS || key == SDLK_KP_MINUS) {
+            zoom_handled = true;
+            zoom_changed = ide_shared_font_step_by(-1);
+        } else if (key == SDLK_0 || key == SDLK_KP_0) {
+            zoom_handled = true;
+            zoom_changed = ide_shared_font_reset_zoom_step();
+        }
+
+        if (zoom_handled) {
+            if (zoom_changed) {
+                apply_font_zoom_runtime_change();
+            }
+            return;
+        }
+    }
 
     if (ctrl_or_cmd && shift && !global_shortcut_text_capture_active()) {
         if (key == SDLK_t) {

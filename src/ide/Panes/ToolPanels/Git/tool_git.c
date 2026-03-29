@@ -32,6 +32,11 @@ typedef struct {
 } GitPanelUIState;
 
 typedef struct {
+    char* key;
+    bool expanded;
+} GitPanelExpandCacheEntry;
+
+typedef struct {
     UITreeNode* tree;
     bool needs_refresh;
     PaneScrollState scroll;
@@ -39,6 +44,9 @@ typedef struct {
     SDL_Rect scroll_track;
     SDL_Rect scroll_thumb;
     UIDoubleClickTracker double_click_tracker;
+    GitPanelExpandCacheEntry* expand_cache;
+    int expand_count;
+    int expand_cap;
 } GitPanelTreeState;
 
 typedef struct {
@@ -82,6 +90,14 @@ static void git_panel_destroy_controller_state(void* ptr) {
         freeGitTree(state->tree.tree);
         state->tree.tree = NULL;
     }
+    for (int i = 0; i < state->tree.expand_count; ++i) {
+        free(state->tree.expand_cache[i].key);
+        state->tree.expand_cache[i].key = NULL;
+    }
+    free(state->tree.expand_cache);
+    state->tree.expand_cache = NULL;
+    state->tree.expand_count = 0;
+    state->tree.expand_cap = 0;
 
     free(state);
 }
@@ -115,9 +131,145 @@ static GitPanelControllerState* git_panel_state(void) {
 #define g_gitScrollInit (git_panel_state()->tree.scroll_init)
 #define g_gitScrollTrack (git_panel_state()->tree.scroll_track)
 #define g_gitScrollThumb (git_panel_state()->tree.scroll_thumb)
+#define g_expandCache (git_panel_state()->tree.expand_cache)
+#define g_expandCount (git_panel_state()->tree.expand_count)
+#define g_expandCap (git_panel_state()->tree.expand_cap)
 
 #define g_lastStatusHash (git_panel_state()->watcher.last_status_hash)
 #define g_lastWorkspacePath (git_panel_state()->watcher.last_workspace_path)
+
+static bool git_tree_node_tracks_expansion(const UITreeNode* node) {
+    if (!node) return false;
+    if (!(node->type == TREE_NODE_FOLDER || node->type == TREE_NODE_SECTION)) return false;
+    // Track stable structural sections only; commit rows use transient hashes.
+    if (node->fullPath && node->fullPath[0]) return false;
+    return true;
+}
+
+static bool git_panel_tree_expansion_cache_get(const char* key, bool* outExpanded) {
+    if (!key || !key[0]) return false;
+    for (int i = 0; i < g_expandCount; ++i) {
+        if (g_expandCache[i].key && strcmp(g_expandCache[i].key, key) == 0) {
+            if (outExpanded) *outExpanded = g_expandCache[i].expanded;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void git_panel_tree_expansion_cache_set(const char* key, bool expanded) {
+    if (!key || !key[0]) return;
+    for (int i = 0; i < g_expandCount; ++i) {
+        if (g_expandCache[i].key && strcmp(g_expandCache[i].key, key) == 0) {
+            g_expandCache[i].expanded = expanded;
+            return;
+        }
+    }
+
+    if (g_expandCount >= g_expandCap) {
+        int newCap = g_expandCap > 0 ? (g_expandCap * 2) : 32;
+        GitPanelExpandCacheEntry* grown =
+            (GitPanelExpandCacheEntry*)realloc(g_expandCache, (size_t)newCap * sizeof(*grown));
+        if (!grown) return;
+        g_expandCache = grown;
+        g_expandCap = newCap;
+    }
+
+    char* copied = strdup(key);
+    if (!copied) return;
+
+    g_expandCache[g_expandCount].key = copied;
+    g_expandCache[g_expandCount].expanded = expanded;
+    g_expandCount++;
+}
+
+static void git_panel_tree_expansion_cache_clear(void) {
+    for (int i = 0; i < g_expandCount; ++i) {
+        free(g_expandCache[i].key);
+        g_expandCache[i].key = NULL;
+    }
+    free(g_expandCache);
+    g_expandCache = NULL;
+    g_expandCount = 0;
+    g_expandCap = 0;
+}
+
+static bool git_panel_tree_expansion_key(const UITreeNode* node,
+                                         const char* parentKey,
+                                         char* out,
+                                         size_t outCap) {
+    if (!node || !out || outCap == 0) return false;
+    const char* source = NULL;
+    const char* prefix = NULL;
+
+    if (node->fullPath && node->fullPath[0]) {
+        source = node->fullPath;
+        prefix = "path";
+    } else if (node->label && node->label[0]) {
+        source = node->label;
+        prefix = "label";
+    } else {
+        source = "unknown";
+        prefix = "node";
+    }
+
+    int wrote = 0;
+    if (parentKey && parentKey[0]) {
+        wrote = snprintf(out, outCap, "%s/%s:%s", parentKey, prefix, source);
+    } else {
+        wrote = snprintf(out, outCap, "%s:%s", prefix, source);
+    }
+    return wrote > 0 && (size_t)wrote < outCap;
+}
+
+static void git_panel_capture_tree_expansion_recursive(const UITreeNode* node, const char* parentKey) {
+    if (!node) return;
+
+    char key[2048] = {0};
+    const char* nextParent = parentKey;
+    if (git_tree_node_tracks_expansion(node) &&
+        git_panel_tree_expansion_key(node, parentKey, key, sizeof(key))) {
+        git_panel_tree_expansion_cache_set(key, node->isExpanded);
+        nextParent = key;
+    }
+
+    for (int i = 0; i < node->childCount; ++i) {
+        git_panel_capture_tree_expansion_recursive(node->children[i], nextParent);
+    }
+}
+
+static void git_panel_apply_tree_expansion_recursive(UITreeNode* node, const char* parentKey) {
+    if (!node) return;
+
+    char key[2048] = {0};
+    const char* nextParent = parentKey;
+    if (git_tree_node_tracks_expansion(node) &&
+        git_panel_tree_expansion_key(node, parentKey, key, sizeof(key))) {
+        bool expanded = false;
+        if (git_panel_tree_expansion_cache_get(key, &expanded)) {
+            node->isExpanded = expanded;
+        }
+        nextParent = key;
+    }
+
+    for (int i = 0; i < node->childCount; ++i) {
+        git_panel_apply_tree_expansion_recursive(node->children[i], nextParent);
+    }
+}
+
+static void git_panel_capture_tree_expansion_state(void) {
+    if (!g_gitTree) return;
+    git_panel_capture_tree_expansion_recursive(g_gitTree, NULL);
+}
+
+static void git_panel_apply_tree_expansion_state(UITreeNode* root) {
+    if (!root) return;
+    git_panel_apply_tree_expansion_recursive(root, NULL);
+}
+
+static void git_panel_reset_tree_expansion_state(void) {
+    git_panel_tree_expansion_cache_clear();
+}
 
 static UIPanelTextEditBuffer git_panel_message_buffer(void) {
     UIPanelTextEditBuffer buffer = {
@@ -227,6 +379,7 @@ void git_panel_prepare_for_render(void) {
         refreshGitStatus();
         refreshGitLog(20);
         if (g_gitTree) {
+            git_panel_capture_tree_expansion_state();
             if (tree_select_all_visual_active_for(g_gitTree)) {
                 clearTreeSelectAllVisual();
             }
@@ -238,15 +391,18 @@ void git_panel_prepare_for_render(void) {
 
     if (!g_gitTree) {
         g_gitTree = convertGitModelToTree();
+        git_panel_apply_tree_expansion_state(g_gitTree);
     }
 
     if (!g_gitScrollInit) {
         scroll_state_init(&g_gitScroll, NULL);
         g_gitScrollInit = true;
     }
+    g_gitScroll.line_height_px = (float)IDE_UI_DENSE_ROW_HEIGHT;
 }
 
 void resetGitTree(void) {
+    git_panel_capture_tree_expansion_state();
     if (tree_select_all_visual_active_for(g_gitTree)) {
         clearTreeSelectAllVisual();
     }
@@ -266,6 +422,7 @@ PaneScrollState* git_panel_scroll(void) {
         scroll_state_init(&g_gitScroll, NULL);
         g_gitScrollInit = true;
     }
+    g_gitScroll.line_height_px = (float)IDE_UI_DENSE_ROW_HEIGHT;
     return &g_gitScroll;
 }
 
@@ -284,6 +441,7 @@ UIDoubleClickTracker* git_panel_tree_double_click_tracker(void) {
 void resetGitStatusWatcher(void) {
     g_lastStatusHash = 0;
     g_lastWorkspacePath[0] = '\0';
+    git_panel_reset_tree_expansion_state();
 }
 
 void git_panel_set_top_strip_layout(UIPanelThreeSegmentStripLayout layout) {
@@ -314,12 +472,12 @@ int git_panel_content_top(const UIPane* pane) {
     const int controlsY = pane->y + d.controls_top - 1;
     const int controlsHeight = d.button_h;
     const int metadataGap = d.row_gap;
-    const int metadataLineGap = 12;
+    const int metadataLineGap = d.info_line_gap;
     const int branchY = controlsY + controlsHeight + metadataGap;
 
     int infoLines = g_statusText[0] ? 2 : 1;
     int bottomPadding = g_statusText[0] ? 10 : 14;
-    int minContentTop = g_statusText[0] ? (pane->y + 72) : (pane->y + 68);
+    int minContentTop = branchY + (infoLines * metadataLineGap) + bottomPadding;
     ToolPanelHeaderMetrics metrics = {
         .controls_y = controlsY,
         .controls_h = controlsHeight,
@@ -533,6 +691,7 @@ void pollGitStatusWatcher(void) {
         snprintf(g_lastWorkspacePath, sizeof(g_lastWorkspacePath), "%s", projectPath);
         g_lastWorkspacePath[sizeof(g_lastWorkspacePath) - 1] = '\0';
         g_lastStatusHash = 0;
+        git_panel_reset_tree_expansion_state();
         resetGitTree();
     }
 

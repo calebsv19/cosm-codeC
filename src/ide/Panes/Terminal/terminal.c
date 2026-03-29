@@ -256,6 +256,9 @@ static void ensure_terminal_scroll_state(void) {
         scroll_state_init(&s->scrollState, &kTerminalScrollConfig);
         s->scrollInitialized = true;
     }
+    if (s->cellHeight > 0) {
+        s->scrollState.line_height_px = (float)s->cellHeight;
+    }
 }
 
 static void terminal_feed_bytes(TerminalSession* s, const char* bytes, size_t len) {
@@ -935,6 +938,16 @@ void terminal_toggle_safe_paste_enabled(void) {
     g_terminal_safe_paste_enabled = !g_terminal_safe_paste_enabled;
 }
 
+void terminal_notify_font_metrics_changed(void) {
+    for (int i = 0; i < g_session_count; ++i) {
+        g_sessions[i].lastViewportW = -1;
+        g_sessions[i].lastViewportH = -1;
+        if (g_sessions[i].scrollInitialized && g_sessions[i].cellHeight > 0) {
+            g_sessions[i].scrollState.line_height_px = (float)g_sessions[i].cellHeight;
+        }
+    }
+}
+
 static bool terminal_flush_backend_output(void) {
     bool changed = false;
     TerminalSession* s = active_session();
@@ -1127,6 +1140,9 @@ void terminal_resize_grid_for_pane(int width_px, int height_px) {
     s->gridRows = desiredRows;
     s->cellWidth = cellW;
     s->cellHeight = cellH;
+    if (s->scrollInitialized) {
+        s->scrollState.line_height_px = (float)s->cellHeight;
+    }
 
     if (gridSizeChanged) {
         term_grid_resize(&s->grid, desiredRows, viewCols);

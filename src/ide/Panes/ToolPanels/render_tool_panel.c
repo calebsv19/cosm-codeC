@@ -2,6 +2,7 @@
 #include "ide/Panes/ToolPanels/render_tool_panel.h"
 #include "ide/Panes/panel_view_adapter.h"
 #include "ide/Panes/ToolPanels/tool_panel_adapter.h"
+#include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "engine/Render/render_helpers.h"
 #include "app/GlobalInfo/system_control.h"
 
@@ -23,7 +24,7 @@ void renderToolPanelContents(UIPane* pane,bool hovered, struct IDECoreState* cor
     IconTool currentIcon = getActiveIcon();
     const char* label = getToolPanelLabel();
     if (currentIcon != ICON_PROJECT_FILES && label) {
-        drawTextWithTier(pane->x + 8, pane->y + 6, label, CORE_FONT_TEXT_SIZE_TITLE);
+        drawTextWithTier(pane->x + 8, tool_panel_title_text_y(pane), label, CORE_FONT_TEXT_SIZE_TITLE);
     }
 
     // Optional clipping here for future

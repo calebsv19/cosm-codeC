@@ -547,10 +547,22 @@ void renderButton(UIPane* pane, SDL_Rect rect, const char* label) {
     SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, border.a);
     SDL_RenderDrawRect(renderer, &rect);
 
-    drawTextUTF8WithFontColor(rect.x + 6,
-                              rect.y + 4,
+    TTF_Font* buttonFont = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
+    if (!buttonFont) {
+        buttonFont = getActiveFont();
+    }
+    int textW = getTextWidthWithFont(label, buttonFont);
+    int textH = buttonFont ? TTF_FontHeight(buttonFont) : 12;
+    if (textH < 1) textH = 12;
+    int tx = rect.x + (rect.w - textW) / 2;
+    int ty = rect.y + (rect.h - textH) / 2;
+    if (ty < rect.y) {
+        ty = rect.y;
+    }
+    drawTextUTF8WithFontColor(tx,
+                              ty,
                               label,
-                              getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION),
+                              buttonFont,
                               text,
                               false);
 }

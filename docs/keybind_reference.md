@@ -15,6 +15,9 @@ This file is the current keybind map based on active input handlers.
 | `Ctrl+1` | Switch editor tab (`COMMAND_SWITCH_TAB`) | `src/core/InputManager/input_keyboard.c` |
 | `Ctrl+R` | Toggle control panel visibility (`COMMAND_TOGGLE_CONTROL_PANEL`) | `src/core/InputManager/input_keyboard.c` |
 | `Ctrl+T` | Toggle tool panel visibility (`COMMAND_TOGGLE_TOOL_PANEL`) | `src/core/InputManager/input_keyboard.c` |
+| `Ctrl/Cmd +` | Increase shared font zoom step | `src/core/InputManager/input_keyboard.c` |
+| `Ctrl/Cmd -` | Decrease shared font zoom step | `src/core/InputManager/input_keyboard.c` |
+| `Ctrl/Cmd 0` | Reset shared font zoom step | `src/core/InputManager/input_keyboard.c` |
 | `Ctrl+Shift+C` or `Cmd+Shift+C` | Clear analysis cache (`COMMAND_CLEAR_ANALYSIS_CACHE`) | `src/core/InputManager/input_keyboard.c` |
 | `P` (plain, no modifiers) | Toggle control-panel search pause/resume | `src/core/InputManager/input_keyboard.c` |
 

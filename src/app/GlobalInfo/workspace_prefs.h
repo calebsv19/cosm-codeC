@@ -19,6 +19,8 @@ const char* loadRunTargetPreference(void);
 void saveRunTargetPreference(const char* path);
 const char* loadThemePresetPreference(void);
 void saveThemePresetPreference(const char* preset_name);
+int loadFontZoomStepPreference(int* out_step);
+void saveFontZoomStepPreference(int step);
 
 const WorkspaceBuildConfig* getWorkspaceBuildConfig(void);
 void saveWorkspaceBuildConfig(const WorkspaceBuildConfig* config);

@@ -109,7 +109,7 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
     int x = pane->x + d.pad_left;
     int y = pane->y + d.controls_top - 1;
-    const int searchRowHeight = 22;
+    const int searchRowHeight = d.button_h;
 
     // Panel title
     drawTextWithTier(x, tool_panel_info_line_y(pane, 0), pane->title, CORE_FONT_TEXT_SIZE_HEADER);
@@ -173,7 +173,7 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
         }
     }
     if (snap.last_error[0] || snap.updating || snap.has_cache) {
-        int statusLineY = infoStartY + (infoLineCount * 12);
+        int statusLineY = infoStartY + (infoLineCount * d.info_line_gap);
         char secondaryBuf[128] = {0};
         if (snap.last_error[0]) {
             snprintf(secondaryBuf, sizeof(secondaryBuf), "%s", snap.last_error);
@@ -444,10 +444,10 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
         .controls_y = searchRow.y,
         .controls_h = searchRow.h,
         .info_start_y = infoStartY,
-        .info_line_gap = 12,
+        .info_line_gap = d.info_line_gap,
         .info_line_count = infoLineCount > 0 ? infoLineCount : 1,
         .bottom_padding = d.row_gap + 2,
-        .min_content_top = searchRow.y + searchRow.h + d.row_gap + 12
+        .min_content_top = searchRow.y + searchRow.h + d.row_gap + d.info_line_gap
     };
     int minListTop = tool_panel_compute_content_top(&headerMetrics);
     int listTop = y + d.row_gap;
