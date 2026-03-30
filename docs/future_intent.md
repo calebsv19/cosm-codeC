@@ -1,6 +1,6 @@
 # ide Future Intent
 
-Last updated: 2026-03-29
+Last updated: 2026-03-30
 
 ## Scaffold Alignment Targets
 - keep `ide` on the required scaffold floor (`docs/src/include/tests/build`) while preserving current editor/runtime behavior.
@@ -45,4 +45,6 @@ Last updated: 2026-03-29
 - `IDE-S3` lifecycle/symbol wrapper lock is now landed.
 - `IDE-S4` naming/path hygiene and runtime-temp lane policy lock is now landed.
 - `IDE-S5` stabilization closeout is now landed.
-- next focus is routine maintenance and future subsystem-level improvements, not scaffold floor migration work.
+- post-scaffold font-size lane is now documented as complete with standardized closeout title:
+  - `Post-Scaffold Font Size Standardization`
+- next focus is routine maintenance and subsystem improvements; no additional scaffold/font baseline migration lane is pending for `ide`.

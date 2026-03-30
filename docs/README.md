@@ -5,6 +5,7 @@ Start here for public IDE documentation.
 ## Scaffold State
 - `docs/current_truth.md`: current scaffold/runtime structure and verification snapshot.
 - `docs/future_intent.md`: scaffold convergence intent and next migration phases.
+- post-scaffold font-size lane is complete and tracked in `docs/current_truth.md`.
 - migration-friendly verification gate lanes:
   - `make -C ide run-headless-smoke`
   - `make -C ide visual-harness`

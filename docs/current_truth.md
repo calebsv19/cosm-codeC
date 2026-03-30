@@ -1,9 +1,26 @@
 # ide Current Truth
 
-Last updated: 2026-03-29
+Last updated: 2026-03-30
 
 ## Scaffold Migration Status
 - `IDE-S0` through `IDE-S5` scaffold migration slices are complete.
+
+## Post-Scaffold Font Pass Status
+- post-scaffold font-size standardization lane is complete.
+- runtime zoom controls are active and modifier-gated:
+  - `Ctrl/Cmd +` increase
+  - `Ctrl/Cmd -` decrease
+  - `Ctrl/Cmd 0` reset
+  - handler lane: `src/core/InputManager/input_keyboard.c`
+- zoom preference persists through workspace prefs:
+  - key: `font_zoom_step`
+  - load/save lane: `src/app/GlobalInfo/workspace_prefs.c`
+- startup applies persisted zoom before runtime init when env override is absent:
+  - lane: `src/app/ide_app_main.c`
+- closeout verification rerun on 2026-03-30:
+  - `make -C ide clean && make -C ide`
+  - `make -C ide run-headless-smoke`
+  - `make -C ide visual-harness`
 
 ## Program Identity
 - repo/program directory: `ide`
