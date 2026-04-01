@@ -47,4 +47,7 @@ Last updated: 2026-03-30
 - `IDE-S5` stabilization closeout is now landed.
 - post-scaffold font-size lane is now documented as complete with standardized closeout title:
   - `Post-Scaffold Font Size Standardization`
+- packaging parity pass is now landed:
+  - IDE now includes full `package-desktop*` target parity (`remove` + `refresh` included).
+  - launcher diagnostics are aligned with packaging contract (`--print-config` + startup log file).
 - next focus is routine maintenance and subsystem improvements; no additional scaffold/font baseline migration lane is pending for `ide`.

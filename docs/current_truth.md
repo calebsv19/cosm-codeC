@@ -73,6 +73,14 @@ Last updated: 2026-03-30
 - `make -C ide visual-harness`
 - `make -C ide test-stable`
 - `make -C ide test-legacy`
+- packaging verification:
+  - `make -C ide package-desktop`
+  - `make -C ide package-desktop-smoke`
+  - `make -C ide package-desktop-self-test`
+  - `make -C ide package-desktop-copy-desktop`
+  - `make -C ide package-desktop-remove`
+  - `make -C ide package-desktop-refresh`
+  - `/Users/<user>/Desktop/IDE.app/Contents/MacOS/ide-launcher --print-config`
 
 Legacy verification lanes are preserved:
 - `make -C ide test-fast`
@@ -96,6 +104,20 @@ Legacy verification lanes are preserved:
   - `timing.json`
   - `timerhud/ide/timing.json`
   - `timerhud/ide/runtime/`
+
+## App Packaging Status (Current)
+- IDE packaging contract is now at full parity with scaffold standard:
+  - `package-desktop`
+  - `package-desktop-smoke`
+  - `package-desktop-self-test`
+  - `package-desktop-copy-desktop`
+  - `package-desktop-sync`
+  - `package-desktop-open`
+  - `package-desktop-remove`
+  - `package-desktop-refresh`
+- launcher diagnostics now include:
+  - `--print-config` for non-interactive root inspection
+  - startup logging to `~/Library/Logs/IDE/launcher.log` (with tmp fallback)
 
 ## Defaults vs Runtime Persistence (Current)
 - tracked defaults remain in source-controlled lanes (for example project-shipped defaults such as `timerhud/ide/settings.json`).

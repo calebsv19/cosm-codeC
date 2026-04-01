@@ -199,7 +199,7 @@
 # ===== RULES =====
 all: $(OUT) $(IDEBRIDGE_OUT)
 
-.PHONY: debug perf run-debug run-perf run-perf-log run-perf-hud run-perf-nohud run-perf-sanitized package-desktop package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-smoke package-desktop-self-test
+.PHONY: debug perf run-debug run-perf run-perf-log run-perf-hud run-perf-nohud run-perf-sanitized package-desktop package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-smoke package-desktop-self-test package-desktop-remove package-desktop-refresh
 debug:
 	@$(MAKE) BUILD_PROFILE=debug all
 
@@ -371,6 +371,7 @@ package-desktop:
 	@echo "Desktop package ready: $(PACKAGE_APP_DIR)"
 
 package-desktop-copy-desktop: package-desktop
+	@mkdir -p "$$(dirname "$(DESKTOP_APP_DIR)")"
 	@rm -rf "$(DESKTOP_APP_DIR)"
 	@cp -R "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
 	@echo "Copied $(PACKAGE_APP_NAME) to $(DESKTOP_APP_DIR)"
@@ -394,6 +395,16 @@ package-desktop-smoke: package-desktop
 package-desktop-self-test: package-desktop-smoke
 	@$(PACKAGE_MACOS_DIR)/ide-launcher --self-test || (echo "package-desktop self-test failed."; exit 1)
 	@echo "package-desktop-self-test passed."
+
+package-desktop-remove:
+	@rm -rf "$(DESKTOP_APP_DIR)"
+	@echo "Removed desktop copy at $(DESKTOP_APP_DIR)"
+
+package-desktop-refresh: package-desktop
+	@mkdir -p "$$(dirname "$(DESKTOP_APP_DIR)")"
+	@rm -rf "$(DESKTOP_APP_DIR)"
+	@cp -R "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
+	@echo "Refreshed $(PACKAGE_APP_NAME) at $(DESKTOP_APP_DIR)"
 
 $(IDEBRIDGE_OUT): $(IDEBRIDGE_OBJ) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(CORE_PACK_OBJS) $(CORE_BASE_OBJS) $(CORE_IO_OBJS) $(CORE_DATA_OBJS)
 	@echo "Linking idebridge..."

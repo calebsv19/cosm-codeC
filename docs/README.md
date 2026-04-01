@@ -16,6 +16,7 @@ Start here for public IDE documentation.
 - `docs/keybind_reference.md`
 - `docs/current_architecture_status.md`
 - `docs/desktop_packaging.md`
+  - includes full `package-desktop*` flow, launcher `--print-config`, and launcher logfile checks
 
 ## Private Planning Docs
 - Active private scaffold docs live in:

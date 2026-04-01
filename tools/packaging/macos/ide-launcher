@@ -4,9 +4,26 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 APP_CONTENTS_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 RES_DIR="$APP_CONTENTS_DIR/Resources"
+LOG_DIR="${HOME}/Library/Logs/IDE"
+LOG_FILE="$LOG_DIR/launcher.log"
 
 export IDE_RESOURCE_ROOT="${IDE_RESOURCE_ROOT:-$RES_DIR}"
 export VK_RENDERER_SHADER_ROOT="${VK_RENDERER_SHADER_ROOT:-$RES_DIR/vk_renderer}"
+
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+if ! touch "$LOG_FILE" 2>/dev/null; then
+    LOG_FILE="${TMPDIR:-/tmp}/ide-launcher.log"
+    touch "$LOG_FILE" 2>/dev/null || true
+fi
+
+if [ "${1:-}" = "--print-config" ]; then
+    echo "APP_CONTENTS_DIR=$APP_CONTENTS_DIR"
+    echo "RES_DIR=$RES_DIR"
+    echo "LOG_FILE=$LOG_FILE"
+    echo "IDE_RESOURCE_ROOT=$IDE_RESOURCE_ROOT"
+    echo "VK_RENDERER_SHADER_ROOT=$VK_RENDERER_SHADER_ROOT"
+    exit 0
+fi
 
 if [ "${1:-}" = "--self-test" ]; then
     [ -x "$SCRIPT_DIR/ide-bin" ] || { echo "missing: ide-bin" >&2; exit 1; }
@@ -14,9 +31,11 @@ if [ "${1:-}" = "--self-test" ]; then
     [ -f "$RES_DIR/include/fonts/Lato/Lato-Regular.ttf" ] || { echo "missing: bundled Lato font" >&2; exit 1; }
     [ -f "$RES_DIR/vk_renderer/shaders/textured.vert.spv" ] || { echo "missing: bundled shader" >&2; exit 1; }
     echo "self-test: ok"
+    echo "LOG_FILE=$LOG_FILE"
     echo "IDE_RESOURCE_ROOT=$IDE_RESOURCE_ROOT"
     echo "VK_RENDERER_SHADER_ROOT=$VK_RENDERER_SHADER_ROOT"
     exit 0
 fi
 
-exec "$SCRIPT_DIR/ide-bin" "$@"
+printf '%s launch begin pid=%s resource_root=%s shader_root=%s args=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$$" "$IDE_RESOURCE_ROOT" "$VK_RENDERER_SHADER_ROOT" "$*" >>"$LOG_FILE" 2>/dev/null || true
+exec "$SCRIPT_DIR/ide-bin" "$@" >>"$LOG_FILE" 2>&1
