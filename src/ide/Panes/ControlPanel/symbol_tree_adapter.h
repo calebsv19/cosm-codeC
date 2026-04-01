@@ -40,6 +40,7 @@ typedef struct {
 } SymbolFilterOptions;
 
 void symbol_tree_cache_note_node(const struct UITreeNode* node);
+void symbol_tree_cache_note_tree(const struct UITreeNode* root);
 bool symbol_tree_query_matches_node(const struct UITreeNode* node,
                                     const char* query,
                                     const SymbolFilterOptions* options);

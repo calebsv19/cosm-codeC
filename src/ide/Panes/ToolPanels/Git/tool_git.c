@@ -19,8 +19,12 @@ typedef struct {
     GitFileEntry files[MAX_GIT_ENTRIES];
     int file_count;
     char current_branch[64];
-    GitLogEntry logs[MAX_GIT_LOG_ENTRIES];
+    GitLogEntry* logs;
     int log_count;
+    int log_capacity;
+    FILE* log_pipe;
+    bool log_loading;
+    bool log_parse_error;
 } GitPanelModelState;
 
 typedef struct {
@@ -98,6 +102,16 @@ static void git_panel_destroy_controller_state(void* ptr) {
     state->tree.expand_cache = NULL;
     state->tree.expand_count = 0;
     state->tree.expand_cap = 0;
+    if (state->model.log_pipe) {
+        pclose(state->model.log_pipe);
+        state->model.log_pipe = NULL;
+    }
+    free(state->model.logs);
+    state->model.logs = NULL;
+    state->model.log_count = 0;
+    state->model.log_capacity = 0;
+    state->model.log_loading = false;
+    state->model.log_parse_error = false;
 
     free(state);
 }
@@ -118,6 +132,10 @@ static GitPanelControllerState* git_panel_state(void) {
 #define currentGitBranch (git_panel_state()->model.current_branch)
 #define gitLogEntries (git_panel_state()->model.logs)
 #define gitLogCount (git_panel_state()->model.log_count)
+#define gitLogCapacity (git_panel_state()->model.log_capacity)
+#define gitLogPipe (git_panel_state()->model.log_pipe)
+#define gitLogLoading (git_panel_state()->model.log_loading)
+#define gitLogParseError (git_panel_state()->model.log_parse_error)
 
 #define g_topStripLayout (git_panel_state()->ui.top_strip_layout)
 #define g_messageFocused (git_panel_state()->ui.message_focused)
@@ -299,6 +317,146 @@ static void sanitize_line(char* s) {
     }
 }
 
+static bool git_panel_is_metadata_path_ignored(const char* path) {
+    if (!path || !path[0]) return false;
+    return strcmp(path, "ide_files") == 0 ||
+           strncmp(path, "ide_files/", 10) == 0;
+}
+
+static void git_panel_log_close_stream(void) {
+    if (!gitLogPipe) return;
+    pclose(gitLogPipe);
+    gitLogPipe = NULL;
+    gitLogLoading = false;
+}
+
+static void git_panel_log_reset_entries(void) {
+    gitLogCount = 0;
+    gitLogParseError = false;
+}
+
+static bool git_panel_log_ensure_capacity(int desiredCount) {
+    if (desiredCount <= gitLogCapacity) return true;
+    int nextCap = gitLogCapacity > 0 ? gitLogCapacity : 256;
+    while (nextCap < desiredCount) {
+        if (nextCap > 1000000) return false;
+        nextCap *= 2;
+    }
+    GitLogEntry* grown = (GitLogEntry*)realloc(gitLogEntries, (size_t)nextCap * sizeof(*grown));
+    if (!grown) return false;
+    gitLogEntries = grown;
+    gitLogCapacity = nextCap;
+    return true;
+}
+
+static int git_panel_log_batch_size(void) {
+    const int defaultBatch = 200;
+    const char* env = getenv("IDE_GIT_LOG_PAGE_SIZE");
+    if (!env || !env[0]) return defaultBatch;
+    char* end = NULL;
+    long v = strtol(env, &end, 10);
+    if (end == env || v < 20 || v > 5000) return defaultBatch;
+    return (int)v;
+}
+
+static int git_panel_log_max_commits_env(void) {
+    const char* env = getenv("IDE_GIT_LOG_MAX_COMMITS");
+    if (!env || !env[0]) return 0;
+    char* end = NULL;
+    long v = strtol(env, &end, 10);
+    if (end == env || v <= 0 || v > 2000000) return 0;
+    return (int)v;
+}
+
+static bool git_panel_log_parse_line(char* line, GitLogEntry* out) {
+    if (!line || !out) return false;
+    char* nl = strchr(line, '\n');
+    if (nl) *nl = '\0';
+    if (!line[0]) return false;
+
+    char* f1 = strchr(line, '\x1f');
+    if (!f1) return false;
+    *f1 = '\0';
+    char* subject = f1 + 1;
+
+    char* f2 = strchr(subject, '\x1f');
+    if (!f2) return false;
+    *f2 = '\0';
+    char* author = f2 + 1;
+
+    char* f3 = strchr(author, '\x1f');
+    if (!f3) return false;
+    *f3 = '\0';
+    char* date = f3 + 1;
+
+    snprintf(out->hash, sizeof(out->hash), "%s", line);
+    snprintf(out->message, sizeof(out->message), "%s", subject);
+    snprintf(out->author, sizeof(out->author), "%s", author);
+    snprintf(out->date, sizeof(out->date), "%s", date);
+    return true;
+}
+
+static bool git_panel_log_start_stream(int requestedMaxCommits) {
+    git_panel_log_close_stream();
+    git_panel_log_reset_entries();
+
+    if (!projectPath[0]) return false;
+
+    int maxCommits = requestedMaxCommits > 0 ? requestedMaxCommits : git_panel_log_max_commits_env();
+    char cmd[2048];
+    if (maxCommits > 0) {
+        snprintf(cmd,
+                 sizeof(cmd),
+                 "cd \"%s\" && git log -n %d --date=short --pretty=format:\"%%h%%x1f%%s%%x1f%%an%%x1f%%ad\"",
+                 projectPath,
+                 maxCommits);
+    } else {
+        snprintf(cmd,
+                 sizeof(cmd),
+                 "cd \"%s\" && git log --date=short --pretty=format:\"%%h%%x1f%%s%%x1f%%an%%x1f%%ad\"",
+                 projectPath);
+    }
+
+    gitLogPipe = popen(cmd, "r");
+    if (!gitLogPipe) {
+        fprintf(stderr, "[GitError] Failed to start git log stream\n");
+        gitLogLoading = false;
+        return false;
+    }
+
+    gitLogLoading = true;
+    return true;
+}
+
+static int git_panel_log_pump_stream(int maxLines) {
+    if (!gitLogPipe || maxLines <= 0) return 0;
+
+    int appended = 0;
+    char line[GIT_LOG_LINE_MAX];
+    while (appended < maxLines && fgets(line, sizeof(line), gitLogPipe)) {
+        GitLogEntry parsed = {0};
+        if (!git_panel_log_parse_line(line, &parsed)) {
+            gitLogParseError = true;
+            continue;
+        }
+
+        if (!git_panel_log_ensure_capacity(gitLogCount + 1)) {
+            fprintf(stderr, "[GitError] Unable to grow git log buffer\n");
+            git_panel_log_close_stream();
+            break;
+        }
+
+        gitLogEntries[gitLogCount++] = parsed;
+        appended++;
+    }
+
+    if (feof(gitLogPipe)) {
+        git_panel_log_close_stream();
+    }
+
+    return appended;
+}
+
 static void shell_append_quoted(char* out, size_t outCap, const char* raw) {
     if (!out || outCap == 0) return;
     size_t n = strlen(out);
@@ -374,10 +532,14 @@ const GitLogEntry* git_panel_log_at(int index) {
     return &gitLogEntries[index];
 }
 
+bool git_panel_log_is_loading(void) {
+    return gitLogLoading;
+}
+
 void git_panel_prepare_for_render(void) {
     if (g_needsRefresh) {
         refreshGitStatus();
-        refreshGitLog(20);
+        refreshGitLog(0);
         if (g_gitTree) {
             git_panel_capture_tree_expansion_state();
             if (tree_select_all_visual_active_for(g_gitTree)) {
@@ -387,6 +549,20 @@ void git_panel_prepare_for_render(void) {
             g_gitTree = NULL;
         }
         g_needsRefresh = false;
+    }
+
+    if (gitLogLoading) {
+        int appended = git_panel_log_pump_stream(git_panel_log_batch_size());
+        if (appended > 0 || !gitLogLoading) {
+            if (g_gitTree) {
+                git_panel_capture_tree_expansion_state();
+                if (tree_select_all_visual_active_for(g_gitTree)) {
+                    clearTreeSelectAllVisual();
+                }
+                freeGitTree(g_gitTree);
+                g_gitTree = NULL;
+            }
+        }
     }
 
     if (!g_gitTree) {
@@ -410,6 +586,7 @@ void resetGitTree(void) {
         freeGitTree(g_gitTree);
         g_gitTree = NULL;
     }
+    git_panel_log_close_stream();
     g_needsRefresh = true;
 }
 
@@ -596,14 +773,17 @@ void refreshGitStatus() {
     while (fgets(line, sizeof(line), pipe) && gitFileCount < MAX_GIT_ENTRIES) {
         if (strlen(line) < 4) continue;
 
-        GitFileEntry* f = &gitFiles[gitFileCount++];
-
         char statusCode[3];
         strncpy(statusCode, line, 2);
         statusCode[2] = '\0';
 
         char* filePath = line + 3;
         filePath[strcspn(filePath, "\n")] = 0;
+        if (git_panel_is_metadata_path_ignored(filePath)) {
+            continue;
+        }
+
+        GitFileEntry* f = &gitFiles[gitFileCount++];
 
         strncpy(f->path, filePath, sizeof(f->path) - 1);
         f->path[sizeof(f->path) - 1] = '\0';
@@ -634,54 +814,10 @@ void refreshGitStatus() {
 }
 
 void refreshGitLog(int maxEntries) {
-    gitLogCount = 0;
-    if (maxEntries <= 0 || maxEntries > MAX_GIT_LOG_ENTRIES) {
-        maxEntries = MAX_GIT_LOG_ENTRIES;
-    }
-
-    char cmd[512];
-    // Tab-delimited: hash<TAB>subject<TAB>author<TAB>short-date
-    snprintf(cmd,
-             sizeof(cmd),
-             "cd \"%s\" && git log -n %d --date=short --pretty=format:\"%%h\t%%s\t%%an\t%%ad\"",
-             projectPath,
-             maxEntries);
-    FILE* pipe = popen(cmd, "r");
-    if (!pipe) {
-        fprintf(stderr, "[GitError] Failed to run git log\n");
+    if (!git_panel_log_start_stream(maxEntries)) {
         return;
     }
-
-    char line[GIT_LOG_LINE_MAX];
-    while (fgets(line, sizeof(line), pipe) && gitLogCount < maxEntries) {
-        char* nl = strchr(line, '\n');
-        if (nl) *nl = '\0';
-        if (line[0] == '\0') continue;
-
-        char* t1 = strchr(line, '\t');
-        if (!t1) continue;
-        *t1 = '\0';
-        char* subject = t1 + 1;
-
-        char* t2 = strchr(subject, '\t');
-        if (!t2) continue;
-        *t2 = '\0';
-        char* author = t2 + 1;
-
-        char* t3 = strchr(author, '\t');
-        if (!t3) continue;
-        *t3 = '\0';
-        char* date = t3 + 1;
-
-        GitLogEntry* e = &gitLogEntries[gitLogCount++];
-        strncpy(e->hash, line, sizeof(e->hash) - 1);
-        e->hash[sizeof(e->hash) - 1] = '\0';
-        snprintf(e->message, sizeof(e->message), "%s", subject);
-        snprintf(e->author, sizeof(e->author), "%s", author);
-        snprintf(e->date, sizeof(e->date), "%s", date);
-    }
-
-    pclose(pipe);
+    (void)git_panel_log_pump_stream(git_panel_log_batch_size());
 }
 
 void pollGitStatusWatcher(void) {
@@ -707,6 +843,24 @@ void pollGitStatusWatcher(void) {
     char buf[1024];
     bool sawAny = false;
     while (fgets(buf, sizeof(buf), pipe)) {
+        char lineCopy[1024];
+        snprintf(lineCopy, sizeof(lineCopy), "%s", buf);
+        lineCopy[sizeof(lineCopy) - 1] = '\0';
+        lineCopy[strcspn(lineCopy, "\r\n")] = '\0';
+
+        bool include_line = true;
+        if (!(lineCopy[0] == '#' && lineCopy[1] == '#')) {
+            if (strlen(lineCopy) < 4) {
+                include_line = false;
+            } else {
+                const char* path = lineCopy + 3;
+                if (git_panel_is_metadata_path_ignored(path)) {
+                    include_line = false;
+                }
+            }
+        }
+
+        if (!include_line) continue;
         sawAny = true;
         hash = fnv1a64_bytes((const unsigned char*)buf, strlen(buf), hash);
     }

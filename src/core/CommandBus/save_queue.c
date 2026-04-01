@@ -89,7 +89,9 @@ void tickSaveQueue() {
         analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
         loop_events_emit_analysis_status_updated(projectPath, 0u, SDL_GetTicks64());
         analysis_scheduler_request(ANALYSIS_REASON_PROJECT_MUTATION, false);
-        resetGitTree();
+        // Let the git watcher decide whether the panel needs a refresh so
+        // save-driven analysis churn does not force tree/UI resets.
+        pollGitStatusWatcher();
     } else {
         printf("[SaveQueue] FAILED to save: %s\n", item->filePath);
     }

@@ -1,5 +1,6 @@
 #include "tree_git_adapter.h"
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -71,6 +72,15 @@ UITreeNode* convertGitModelToTree(void) {
 
         addChildNode(logRoot, n);
     }
+
+    if (git_panel_log_is_loading()) {
+        char loadingLabel[128];
+        snprintf(loadingLabel, sizeof(loadingLabel), "Loading full history... (%d loaded)", logCount);
+        UITreeNode* loadingNode =
+            createTreeNode(loadingLabel, TREE_NODE_FILE, NODE_COLOR_SECTION, NULL, NULL);
+        addChildNode(logRoot, loadingNode);
+    }
+
     if (logRoot->childCount) {
         addChildNode(root, logRoot);
     } else {

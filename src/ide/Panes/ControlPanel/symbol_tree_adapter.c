@@ -1,6 +1,7 @@
 #include "ide/Panes/ControlPanel/symbol_tree_adapter.h"
 
 #include <ctype.h>
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,15 +78,55 @@ static SymbolTreeExpandEntry* g_expandCache = NULL;
 static size_t g_expandCount = 0;
 static size_t g_expandCap = 0;
 
-static const char* cache_key_for_label(const char* label) {
-    static char key[256];
-    if (!label) return NULL;
-    snprintf(key, sizeof(key), "section:%s", label);
-    return key;
+static bool expansion_key_for_path_node(TreeNodeType type,
+                                        const char* path,
+                                        char* out,
+                                        size_t outCap) {
+    if (!path || !path[0] || !out || outCap == 0) return false;
+    int wrote = snprintf(out, outCap, "node:%d:path:%s", (int)type, path);
+    return wrote > 0 && (size_t)wrote < outCap;
 }
 
-static const char* cache_key_for_path(const char* path) {
-    return path;
+static bool expansion_key_for_label_node(TreeNodeType type,
+                                         const char* label,
+                                         char* out,
+                                         size_t outCap) {
+    if (!label || !label[0] || !out || outCap == 0) return false;
+    int wrote = snprintf(out, outCap, "node:%d:label:%s", (int)type, label);
+    return wrote > 0 && (size_t)wrote < outCap;
+}
+
+static bool expansion_key_for_symbol(const FisicsSymbol* sym,
+                                     const char* fallbackPath,
+                                     char* out,
+                                     size_t outCap) {
+    if (!out || outCap == 0) return false;
+    const char* path = (sym && sym->file_path && sym->file_path[0]) ? sym->file_path : fallbackPath;
+    if (!path || !path[0]) return false;
+    const char* name = (sym && sym->name) ? sym->name : "";
+    const char* parent = (sym && sym->parent_name) ? sym->parent_name : "";
+    int startLine = sym ? sym->start_line : 0;
+    int startCol = sym ? sym->start_col : 0;
+    int kind = sym ? (int)sym->kind : 0;
+    int wrote = snprintf(out, outCap,
+                         "symbol:%s:%d:%d:%d:%s:%s",
+                         path, kind, startLine, startCol, name, parent);
+    return wrote > 0 && (size_t)wrote < outCap;
+}
+
+static bool expansion_key_for_node(const UITreeNode* node, char* out, size_t outCap) {
+    if (!node || !out || outCap == 0) return false;
+    const FisicsSymbol* sym = (const FisicsSymbol*)node->userData;
+    if (sym && expansion_key_for_symbol(sym, node->fullPath, out, outCap)) {
+        return true;
+    }
+    if (node->fullPath && node->fullPath[0]) {
+        return expansion_key_for_path_node(node->type, node->fullPath, out, outCap);
+    }
+    if (node->label && node->label[0]) {
+        return expansion_key_for_label_node(node->type, node->label, out, outCap);
+    }
+    return false;
 }
 
 static bool expansion_cache_get(const char* key, bool* outExpanded) {
@@ -124,14 +165,17 @@ static void expansion_cache_set(const char* key, bool expanded) {
 void symbol_tree_cache_note_node(const UITreeNode* node) {
     if (!node) return;
     if (!(node->type == TREE_NODE_FOLDER || node->type == TREE_NODE_SECTION)) return;
-    const char* key = NULL;
-    if (node->fullPath && node->fullPath[0]) {
-        key = cache_key_for_path(node->fullPath);
-    } else if (node->label) {
-        key = cache_key_for_label(node->label);
-    }
-    if (!key) return;
+    char key[4096] = {0};
+    if (!expansion_key_for_node(node, key, sizeof(key))) return;
     expansion_cache_set(key, node->isExpanded);
+}
+
+void symbol_tree_cache_note_tree(const UITreeNode* root) {
+    if (!root) return;
+    symbol_tree_cache_note_node(root);
+    for (int i = 0; i < root->childCount; ++i) {
+        symbol_tree_cache_note_tree(root->children[i]);
+    }
 }
 
 static bool symbol_kind_matches_mode(FisicsSymbolKind kind, SymbolFilterMode mode) {
@@ -286,13 +330,9 @@ static UITreeNode* clone_filtered_node(const UITreeNode* node,
     clone->isExpanded = node->isExpanded;
     if (clone->type == TREE_NODE_FOLDER || clone->type == TREE_NODE_SECTION) {
         bool cachedExpanded = false;
-        const char* key = NULL;
-        if (node->fullPath && node->fullPath[0]) {
-            key = cache_key_for_path(node->fullPath);
-        } else if (node->label) {
-            key = cache_key_for_label(node->label);
-        }
-        if (key && expansion_cache_get(key, &cachedExpanded)) {
+        char key[4096] = {0};
+        if (expansion_key_for_node(node, key, sizeof(key)) &&
+            expansion_cache_get(key, &cachedExpanded)) {
             clone->isExpanded = cachedExpanded;
         }
         if (query && query[0] && descendantMatch) {
@@ -458,6 +498,24 @@ static void append_symbols_to_file(UITreeNode* fileNode,
             setTreeNodeUserDataFreeFn(symNode, free_tree_symbol_user_data);
         }
         symNode->isExpanded = false;
+        {
+            bool cachedExpanded = false;
+            char key[4096] = {0};
+            if (expansion_key_for_symbol(sym, filePath, key, sizeof(key)) &&
+                expansion_cache_get(key, &cachedExpanded)) {
+                symNode->isExpanded = cachedExpanded;
+            }
+        }
+#ifndef NDEBUG
+        {
+            char symbolKey[4096] = {0};
+            char fileKey[4096] = {0};
+            if (expansion_key_for_symbol(sym, filePath, symbolKey, sizeof(symbolKey)) &&
+                expansion_key_for_path_node(TREE_NODE_SECTION, filePath, fileKey, sizeof(fileKey))) {
+                assert(strcmp(symbolKey, fileKey) != 0);
+            }
+        }
+#endif
 
         if (sym->kind == FISICS_SYMBOL_FUNCTION && sym->param_count > 0) {
             for (size_t p = 0; p < sym->param_count; ++p) {
@@ -546,8 +604,9 @@ static UITreeNode* build_project_tree_node(const DirEntry* entry,
         UITreeNode* fileNode = createTreeNode(entry->name, TREE_NODE_SECTION, NODE_COLOR_DEFAULT, entry->path, NULL);
         if (!fileNode) return NULL;
         bool cachedExpanded = false;
-        const char* key = cache_key_for_path(entry->path);
-        if (key && expansion_cache_get(key, &cachedExpanded)) {
+        char key[4096] = {0};
+        if (expansion_key_for_path_node(TREE_NODE_SECTION, entry->path, key, sizeof(key)) &&
+            expansion_cache_get(key, &cachedExpanded)) {
             fileNode->isExpanded = cachedExpanded;
         } else {
             fileNode->isExpanded = false;
@@ -562,8 +621,9 @@ static UITreeNode* build_project_tree_node(const DirEntry* entry,
     UITreeNode* dirNode = createTreeNode(entry->name, TREE_NODE_FOLDER, NODE_COLOR_SECTION, entry->path, NULL);
     if (!dirNode) return NULL;
     bool cachedExpanded = false;
-    const char* key = cache_key_for_path(entry->path);
-    if (key && expansion_cache_get(key, &cachedExpanded)) {
+    char key[4096] = {0};
+    if (expansion_key_for_path_node(TREE_NODE_FOLDER, entry->path, key, sizeof(key)) &&
+        expansion_cache_get(key, &cachedExpanded)) {
         dirNode->isExpanded = cachedExpanded;
     } else {
         dirNode->isExpanded = entry->isExpanded;
@@ -632,8 +692,9 @@ struct UITreeNode* buildSymbolTreeForWorkspace(const DirEntry* projectRoot,
     }
     {
         bool cachedExpanded = false;
-        const char* key = cache_key_for_label("Active File");
-        if (key && expansion_cache_get(key, &cachedExpanded)) {
+        char key[512] = {0};
+        if (expansion_key_for_label_node(TREE_NODE_SECTION, "Active File", key, sizeof(key)) &&
+            expansion_cache_get(key, &cachedExpanded)) {
             activeSection->isExpanded = cachedExpanded;
         } else {
             activeSection->isExpanded = true;
@@ -646,8 +707,9 @@ struct UITreeNode* buildSymbolTreeForWorkspace(const DirEntry* projectRoot,
         UITreeNode* fileNode = createTreeNode(label, TREE_NODE_SECTION, NODE_COLOR_SECTION, activeFilePath, NULL);
         {
             bool cachedExpanded = false;
-            const char* key = cache_key_for_path(activeFilePath);
-            if (key && expansion_cache_get(key, &cachedExpanded)) {
+            char key[4096] = {0};
+            if (expansion_key_for_path_node(TREE_NODE_SECTION, activeFilePath, key, sizeof(key)) &&
+                expansion_cache_get(key, &cachedExpanded)) {
                 fileNode->isExpanded = cachedExpanded;
             } else {
                 fileNode->isExpanded = true;
@@ -671,8 +733,9 @@ struct UITreeNode* buildSymbolTreeForWorkspace(const DirEntry* projectRoot,
     }
     {
         bool cachedExpanded = false;
-        const char* key = cache_key_for_label("Project Files");
-        if (key && expansion_cache_get(key, &cachedExpanded)) {
+        char key[512] = {0};
+        if (expansion_key_for_label_node(TREE_NODE_SECTION, "Project Files", key, sizeof(key)) &&
+            expansion_cache_get(key, &cachedExpanded)) {
             projectSection->isExpanded = cachedExpanded;
         } else {
             projectSection->isExpanded = true;

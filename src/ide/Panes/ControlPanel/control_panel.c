@@ -1078,6 +1078,9 @@ void control_panel_refresh_symbol_tree(const DirEntry* projectRoot,
                         analysisChanged;
     if (!needsRebuild) return;
 
+    // Capture latest base-tree expansion state before rebuilding from analysis output.
+    symbol_tree_cache_note_tree(baseSymbolTree);
+
     pendingSelectAllRestore = tree_select_all_visual_active_for(visibleSymbolTree) ||
                               tree_select_all_visual_active_for(baseSymbolTree);
     control_panel_capture_selection_snapshot(&pendingSelectionSnapshot);

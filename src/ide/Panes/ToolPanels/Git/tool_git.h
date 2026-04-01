@@ -25,8 +25,7 @@ typedef struct {
 } GitFileEntry;
 
 #define MAX_GIT_ENTRIES 512
-#define MAX_GIT_LOG_ENTRIES 128
-#define GIT_LOG_LINE_MAX 512
+#define GIT_LOG_LINE_MAX 2048
 #define GIT_PANEL_HEADER_HEIGHT 80
 
 typedef struct {
@@ -44,6 +43,7 @@ int git_panel_file_count(void);
 const GitFileEntry* git_panel_file_at(int index);
 int git_panel_log_count(void);
 const GitLogEntry* git_panel_log_at(int index);
+bool git_panel_log_is_loading(void);
 void git_panel_prepare_for_render(void);
 void resetGitTree(void);
 struct UITreeNode* git_panel_tree(void);

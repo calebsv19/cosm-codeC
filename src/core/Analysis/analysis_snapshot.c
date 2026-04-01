@@ -11,6 +11,51 @@
 #include <sys/stat.h>
 #include <time.h>
 
+static uint64_t fnv1a64_update(uint64_t hash, const unsigned char* data, size_t len) {
+    if (!data || len == 0) return hash;
+    for (size_t i = 0; i < len; ++i) {
+        hash ^= (uint64_t)data[i];
+        hash *= 0x100000001b3ULL;
+    }
+    return hash;
+}
+
+static uint64_t compute_file_content_hash(const char* path) {
+    if (!path || !*path) return 0;
+    FILE* fp = fopen(path, "rb");
+    if (!fp) return 0;
+
+    unsigned char buffer[8192];
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    while (!feof(fp)) {
+        size_t n = fread(buffer, 1, sizeof(buffer), fp);
+        if (n > 0) {
+            hash = fnv1a64_update(hash, buffer, n);
+        }
+        if (ferror(fp)) {
+            fclose(fp);
+            return 0;
+        }
+    }
+
+    fclose(fp);
+    return hash;
+}
+
+static bool fingerprint_content_equal(const AnalysisFileFingerprint* cached_file,
+                                      const AnalysisFileFingerprint* current_file) {
+    if (!cached_file || !current_file) return false;
+
+    // Preferred comparison path uses content hash when both sides provide it.
+    if (cached_file->content_hash != 0 && current_file->content_hash != 0) {
+        return cached_file->content_hash == current_file->content_hash;
+    }
+
+    // Fallback for legacy snapshots with missing hashes.
+    return cached_file->mtime == current_file->mtime &&
+           cached_file->size == current_file->size;
+}
+
 static void ensure_ide_dir(const char* workspace_root) {
     if (!workspace_root || !*workspace_root) return;
     char dir[PATH_MAX];
@@ -172,7 +217,12 @@ bool analysis_snapshot_scan_workspace(const char* workspace_root, AnalysisSnapsh
                 }
                 stack[count++] = (DirQueueEntry){strdup(child), cur.depth + 1};
             } else if (S_ISREG(st.st_mode) && is_source_file(ent->d_name)) {
-                if (!snapshot_add_file(out_snapshot, child, (long)st.st_mtime, (long long)st.st_size, 0)) {
+                uint64_t content_hash = compute_file_content_hash(child);
+                if (!snapshot_add_file(out_snapshot,
+                                       child,
+                                       (long)st.st_mtime,
+                                       (long long)st.st_size,
+                                       content_hash)) {
                     closedir(dir);
                     free(cur.path);
                     free(stack);
@@ -347,7 +397,7 @@ bool analysis_snapshot_compute_dirty_sets(const AnalysisSnapshot* cached,
         const char* bp = b->path ? b->path : "";
         int cmp = strcmp(ap, bp);
         if (cmp == 0) {
-            if (a->mtime != b->mtime || a->size != b->size) {
+            if (!fingerprint_content_equal(a, b)) {
                 if (!append_path(out_dirty_paths, out_dirty_count, &dirty_capacity, bp)) return false;
             }
             i++;

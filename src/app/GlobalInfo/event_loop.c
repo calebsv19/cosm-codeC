@@ -1227,7 +1227,8 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
             loop_diag_note_event_emitted(IDE_EVENT_LIBRARY_INDEX_UPDATED);
         }
         initAssetManagerPanel();
-        resetGitTree();
+        // Keep Git panel refresh bounded to watcher-observed changes.
+        pollGitStatusWatcher();
         pendingProjectRefresh = false;
         pendingProjectRefreshReasonMask = 0;
         invalidateAll(ctx->panes, *ctx->paneCount,

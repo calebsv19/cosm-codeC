@@ -38,6 +38,7 @@ static void control_panel_tree_prefix_action(void* user_data) {
     if (!state || !state->node) return;
     if (state->node->type == TREE_NODE_FOLDER || state->node->type == TREE_NODE_SECTION) {
         state->node->isExpanded = !state->node->isExpanded;
+        symbol_tree_cache_note_node(state->node);
     }
 }
 

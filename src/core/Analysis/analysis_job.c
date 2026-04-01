@@ -235,6 +235,17 @@ static void remove_deleted_file_entries(char** removed_paths, size_t removed_cou
     }
 }
 
+static bool incremental_baseline_invalid_when_clean(const AnalysisSnapshot* current) {
+    if (!current) return true;
+    // Empty source workspaces are valid: zero targets is expected.
+    if (current->file_count == 0) return false;
+    if (analysis_store_file_count() == 0) return true;
+    if (analysis_symbols_store_file_count() == 0) return true;
+    if (analysis_token_store_file_count() == 0) return true;
+    if (!library_index_has_entries()) return true;
+    return false;
+}
+
 static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats* out_stats) {
     if (!flags) return false;
     if (out_stats) {
@@ -279,10 +290,7 @@ static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats*
     // If snapshots match but in-memory stores/index are empty, incremental mode
     // has no baseline to operate on. Force a full rebuild.
     if (dirty_count == 0 && removed_count == 0) {
-        if (analysis_store_file_count() == 0 ||
-            analysis_symbols_store_file_count() == 0 ||
-            analysis_token_store_file_count() == 0 ||
-            !library_index_has_entries()) {
+        if (incremental_baseline_invalid_when_clean(&current)) {
             analysis_snapshot_free_path_list(dirty_paths, dirty_count);
             analysis_snapshot_free_path_list(removed_paths, removed_count);
             analysis_snapshot_clear(&current);
@@ -291,7 +299,9 @@ static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats*
     }
 
     PathList targets;
+    PathList dependents;
     path_list_init(&targets);
+    path_list_init(&dependents);
     bool paths_ok = true;
     for (size_t i = 0; i < dirty_count; ++i) {
         if (!path_list_add_unique(&targets, dirty_paths[i])) {
@@ -305,12 +315,15 @@ static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats*
             char** deps = NULL;
             size_t dep_count = include_graph_collect_dependents(dirty_paths[i], &deps);
             for (size_t d = 0; d < dep_count; ++d) {
+                if (!path_list_add_unique(&dependents, deps[d])) {
+                    paths_ok = false;
+                    break;
+                }
                 if (!path_list_add_unique(&targets, deps[d])) {
                     paths_ok = false;
                     break;
                 }
             }
-            if (out_stats) out_stats->dependent_count += (int)dep_count;
             include_graph_free_path_list(deps, dep_count);
             if (!paths_ok) break;
         }
@@ -322,12 +335,15 @@ static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats*
             char** deps = NULL;
             size_t dep_count = include_graph_collect_dependents(removed_paths[i], &deps);
             for (size_t d = 0; d < dep_count; ++d) {
+                if (!path_list_add_unique(&dependents, deps[d])) {
+                    paths_ok = false;
+                    break;
+                }
                 if (!path_list_add_unique(&targets, deps[d])) {
                     paths_ok = false;
                     break;
                 }
             }
-            if (out_stats) out_stats->dependent_count += (int)dep_count;
             include_graph_free_path_list(deps, dep_count);
             if (!paths_ok) break;
         }
@@ -341,6 +357,7 @@ static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats*
 
     if (!paths_ok) {
         path_list_clear(&targets);
+        path_list_clear(&dependents);
         analysis_snapshot_clear(&current);
         return false;
     }
@@ -354,6 +371,7 @@ static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats*
                                        false);
     }
     if (out_stats) {
+        out_stats->dependent_count = (int)dependents.count;
         out_stats->target_count = (int)targets.count;
     }
 
@@ -364,6 +382,7 @@ static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats*
     include_graph_save(g_project_root);
     analysis_snapshot_save(g_project_root, &current);
     path_list_clear(&targets);
+    path_list_clear(&dependents);
     analysis_snapshot_clear(&current);
     return true;
 }

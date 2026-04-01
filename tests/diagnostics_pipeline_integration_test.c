@@ -143,10 +143,9 @@ static void test_diagnostics_apply_dispatch_and_invalidation(void) {
 
     assert(analysis_store_published_stamp() == stamp);
     assert(editor.dirty);
-    assert(control.dirty);
+    assert(!control.dirty);
     assert(tool.dirty);
     assert((editor.dirtyReasons & PANE_INVALIDATION_CONTENT) != 0u);
-    assert((control.dirtyReasons & PANE_INVALIDATION_BACKGROUND) != 0u);
     assert((tool.dirtyReasons & PANE_INVALIDATION_BACKGROUND) != 0u);
 }
 

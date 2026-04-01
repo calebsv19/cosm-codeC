@@ -16,7 +16,6 @@
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "core/Analysis/analysis_status.h"
-#include "core/Analysis/analysis_scheduler.h"
 
 #include <SDL2/SDL.h>
 #include <string.h>
@@ -40,6 +39,102 @@ typedef struct {
     ControlFilterButtonId id;
     const char* label;
 } FilterButtonSpec;
+
+static void control_panel_format_header_status(const AnalysisStatusSnapshot* snap,
+                                               char* out,
+                                               size_t out_cap) {
+    if (!out || out_cap == 0) return;
+    out[0] = '\0';
+    if (!snap) return;
+
+    if (snap->last_error[0]) {
+        snprintf(out, out_cap, "Analysis error");
+        return;
+    }
+    if (snap->updating) {
+        snprintf(out, out_cap, "Updating");
+        return;
+    }
+    if (snap->status == ANALYSIS_STATUS_FRESH) {
+        snprintf(out, out_cap, "Loaded");
+        return;
+    }
+    if (snap->status == ANALYSIS_STATUS_STALE_LOADING) {
+        snprintf(out, out_cap, "Loading");
+        return;
+    }
+    if (snap->has_cache) {
+        snprintf(out, out_cap, "Cached");
+        return;
+    }
+    snprintf(out, out_cap, "Idle");
+}
+
+static void control_panel_format_secondary_summary(const AnalysisStatusSnapshot* snap,
+                                                   char* out,
+                                                   size_t out_cap,
+                                                   bool last_run_prefix) {
+    if (!out || out_cap == 0) return;
+    out[0] = '\0';
+    if (!snap) return;
+
+    const char* prefix = last_run_prefix ? "Last run: " : "Mode: ";
+    if (snap->refresh_mode == ANALYSIS_REFRESH_MODE_INCREMENTAL) {
+        snprintf(out,
+                 out_cap,
+                 "%sinc d:%d r:%d dep:%d t:%d",
+                 prefix,
+                 snap->dirty_files,
+                 snap->removed_files,
+                 snap->dependent_files,
+                 snap->target_files);
+    } else if (snap->refresh_mode == ANALYSIS_REFRESH_MODE_FULL) {
+        snprintf(out, out_cap, "%sfull rebuild", prefix);
+    } else if (snap->updating) {
+        snprintf(out, out_cap, "%srefreshing", prefix);
+    } else {
+        snprintf(out, out_cap, "%snone", prefix);
+    }
+}
+
+static void control_panel_format_status_lines(const AnalysisStatusSnapshot* snap,
+                                              int progress_completed,
+                                              int progress_total,
+                                              char* line1,
+                                              size_t line1_cap,
+                                              char* line2,
+                                              size_t line2_cap) {
+    if (line1 && line1_cap > 0) line1[0] = '\0';
+    if (line2 && line2_cap > 0) line2[0] = '\0';
+    if (!snap || !line1 || line1_cap == 0 || !line2 || line2_cap == 0) return;
+
+    if (snap->last_error[0]) {
+        snprintf(line1, line1_cap, "Status: analysis error");
+        snprintf(line2, line2_cap, "%s", snap->last_error);
+        return;
+    }
+
+    if (snap->updating) {
+        if (progress_total > 0) {
+            snprintf(line1, line1_cap, "Status: updating %d/%d", progress_completed, progress_total);
+        } else {
+            snprintf(line1, line1_cap, "Status: updating");
+        }
+        control_panel_format_secondary_summary(snap, line2, line2_cap, false);
+        return;
+    }
+
+    if (snap->status == ANALYSIS_STATUS_FRESH) {
+        snprintf(line1, line1_cap, "Status: ready");
+    } else if (snap->status == ANALYSIS_STATUS_STALE_LOADING) {
+        snprintf(line1, line1_cap, "Status: loading");
+    } else if (snap->has_cache) {
+        snprintf(line1, line1_cap, "Status: cache loaded");
+    } else {
+        snprintf(line1, line1_cap, "Status: idle");
+    }
+    control_panel_format_secondary_summary(snap, line2, line2_cap, true);
+}
 
 static int render_filter_group(SDL_Renderer* renderer,
                                int rowX,
@@ -114,88 +209,39 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     // Panel title
     drawTextWithTier(x, tool_panel_info_line_y(pane, 0), pane->title, CORE_FONT_TEXT_SIZE_HEADER);
     AnalysisStatusSnapshot snap = {0};
-    AnalysisSchedulerSnapshot sched = {0};
     int progressCompleted = 0;
     int progressTotal = 0;
     analysis_status_snapshot(&snap);
     analysis_status_get_progress(&progressCompleted, &progressTotal);
-    analysis_scheduler_snapshot(&sched);
-    if (snap.updating || snap.last_error[0] || snap.has_cache) {
-        char statusBuf[128] = {0};
-        if (snap.updating) {
-            if (progressTotal > 0) {
-                snprintf(statusBuf, sizeof(statusBuf),
-                         sched.active_run_id ? "Updating %d/%d (#%llu)" : "Updating %d/%d",
-                         progressCompleted,
-                         progressTotal,
-                         (unsigned long long)sched.active_run_id);
-            } else {
-                snprintf(statusBuf, sizeof(statusBuf),
-                         sched.active_run_id ? "Updating (#%llu)..." : "Updating...",
-                         (unsigned long long)sched.active_run_id);
-            }
-        } else if (snap.last_error[0]) {
-            snprintf(statusBuf, sizeof(statusBuf), "Analysis error");
-        } else if (snap.status == ANALYSIS_STATUS_FRESH) {
-            snprintf(statusBuf, sizeof(statusBuf), "Loaded");
-        } else if (snap.has_cache) {
-            snprintf(statusBuf, sizeof(statusBuf), "(cached)");
-        }
-        if (statusBuf[0]) {
-            int tw = getTextWidth(statusBuf);
-            int tx = pane->x + pane->w - tw - 16;
-            int ty = tool_panel_info_line_y(pane, 0);
-            if (snap.last_error[0]) {
-                drawTextWithTierError(tx, ty, statusBuf, CORE_FONT_TEXT_SIZE_CAPTION);
-            } else {
-                drawTextWithTierMuted(tx, ty, statusBuf, CORE_FONT_TEXT_SIZE_CAPTION);
-            }
-        }
-    }
-    int infoLineCount = 0;
-    int infoStartY = y + searchRowHeight + d.row_gap;
-    if (!snap.updating && !snap.last_error[0]) {
-        char runBuf[128] = {0};
-        if (snap.refresh_mode == ANALYSIS_REFRESH_MODE_INCREMENTAL) {
-            snprintf(runBuf,
-                     sizeof(runBuf),
-                     "Inc d:%d r:%d dep:%d t:%d",
-                     snap.dirty_files,
-                     snap.removed_files,
-                     snap.dependent_files,
-                     snap.target_files);
-        } else if (snap.refresh_mode == ANALYSIS_REFRESH_MODE_FULL) {
-            snprintf(runBuf, sizeof(runBuf), "Full rebuild");
-        }
-        if (runBuf[0]) {
-            drawTextWithTierMuted(x, infoStartY, runBuf, CORE_FONT_TEXT_SIZE_CAPTION);
-            infoLineCount = 1;
-        }
-    }
-    if (snap.last_error[0] || snap.updating || snap.has_cache) {
-        int statusLineY = infoStartY + (infoLineCount * d.info_line_gap);
-        char secondaryBuf[128] = {0};
+    char headerStatus[64] = {0};
+    control_panel_format_header_status(&snap, headerStatus, sizeof(headerStatus));
+    if (headerStatus[0]) {
+        int tw = getTextWidth(headerStatus);
+        int tx = pane->x + pane->w - tw - 16;
+        int ty = tool_panel_info_line_y(pane, 0);
         if (snap.last_error[0]) {
-            snprintf(secondaryBuf, sizeof(secondaryBuf), "%s", snap.last_error);
-        } else if (snap.refresh_mode == ANALYSIS_REFRESH_MODE_INCREMENTAL) {
-            snprintf(secondaryBuf,
-                     sizeof(secondaryBuf),
-                     "Inc d:%d r:%d dep:%d t:%d",
-                     snap.dirty_files,
-                     snap.removed_files,
-                     snap.dependent_files,
-                     snap.target_files);
-        } else if (snap.refresh_mode == ANALYSIS_REFRESH_MODE_FULL) {
-            snprintf(secondaryBuf, sizeof(secondaryBuf), "Full rebuild");
+            drawTextWithTierError(tx, ty, headerStatus, CORE_FONT_TEXT_SIZE_CAPTION);
+        } else {
+            drawTextWithTierMuted(tx, ty, headerStatus, CORE_FONT_TEXT_SIZE_CAPTION);
         }
-        if (secondaryBuf[0]) {
-            if (snap.last_error[0]) {
-                drawTextWithTierError(x, statusLineY, secondaryBuf, CORE_FONT_TEXT_SIZE_CAPTION);
-            } else {
-                drawTextWithTierMuted(x, statusLineY, secondaryBuf, CORE_FONT_TEXT_SIZE_CAPTION);
-            }
-            infoLineCount++;
-        }
+    }
+
+    const int statusLineSlots = 2;
+    int infoStartY = y + searchRowHeight + d.row_gap;
+    char statusLine1[192] = {0};
+    char statusLine2[256] = {0};
+    control_panel_format_status_lines(&snap,
+                                      progressCompleted,
+                                      progressTotal,
+                                      statusLine1,
+                                      sizeof(statusLine1),
+                                      statusLine2,
+                                      sizeof(statusLine2));
+    drawTextWithTierMuted(x, infoStartY, statusLine1, CORE_FONT_TEXT_SIZE_CAPTION);
+    if (snap.last_error[0]) {
+        drawTextWithTierError(x, infoStartY + d.info_line_gap, statusLine2, CORE_FONT_TEXT_SIZE_CAPTION);
+    } else {
+        drawTextWithTierMuted(x, infoStartY + d.info_line_gap, statusLine2, CORE_FONT_TEXT_SIZE_CAPTION);
     }
 
     const int pauseW = 20;
@@ -262,7 +308,7 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
                                        .custom_outline = palette.input_border,
                                        .tier = CORE_FONT_TEXT_SIZE_CAPTION
                                    });
-    y = infoStartY + (infoLineCount > 0 ? (infoLineCount * 12) : 0) + d.row_gap + 2;
+    y = infoStartY + (statusLineSlots * d.info_line_gap) + d.row_gap + 2;
 
     const bool collapsed = control_panel_filters_collapsed();
     SDL_Rect filterHeader = {0};
@@ -445,7 +491,7 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
         .controls_h = searchRow.h,
         .info_start_y = infoStartY,
         .info_line_gap = d.info_line_gap,
-        .info_line_count = infoLineCount > 0 ? infoLineCount : 1,
+        .info_line_count = statusLineSlots,
         .bottom_padding = d.row_gap + 2,
         .min_content_top = searchRow.y + searchRow.h + d.row_gap + d.info_line_gap
     };
