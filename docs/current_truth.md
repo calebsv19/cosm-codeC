@@ -1,6 +1,6 @@
 # ide Current Truth
 
-Last updated: 2026-03-30
+Last updated: 2026-04-02
 
 ## Scaffold Migration Status
 - `IDE-S0` through `IDE-S5` scaffold migration slices are complete.
@@ -66,6 +66,11 @@ Last updated: 2026-03-30
   - `ide_app_shutdown`
 - legacy startup/runtime body is preserved as explicit fallback path:
   - `ide_app_main_legacy`
+- `W1` wrapper contract upgrade is now landed for IDE:
+  - typed `IdeAppContext`
+  - typed dispatch request/outcome seam
+  - explicit ownership ledger
+  - deterministic shutdown stage completion
 
 ## Verification Contract (Current)
 - `make -C ide clean && make -C ide`
@@ -80,7 +85,21 @@ Last updated: 2026-03-30
   - `make -C ide package-desktop-copy-desktop`
   - `make -C ide package-desktop-remove`
   - `make -C ide package-desktop-refresh`
-  - `/Users/<user>/Desktop/IDE.app/Contents/MacOS/ide-launcher --print-config`
+- `/Users/<user>/Desktop/IDE.app/Contents/MacOS/ide-launcher --print-config`
+- `W1` verification rerun (2026-04-02):
+  - `make -C ide`
+  - `make -C ide run-headless-smoke`
+  - `make -C ide visual-harness`
+- `W2` verification rerun (2026-04-02):
+  - `make -C ide clean && make -C ide`
+  - `make -C ide run-headless-smoke` (outside-sandbox for IPC bind checks)
+  - `make -C ide visual-harness`
+  - `make -C ide test-stable` (outside-sandbox for IPC bind checks)
+
+## Cross-Program Wrapper Wave State
+- `W0`: complete (shared canonical wrapper contract frozen)
+- `W1`: complete for `ide`
+- `W2`: complete for `ide` (wrapper diagnostics normalization lane)
 
 Legacy verification lanes are preserved:
 - `make -C ide test-fast`

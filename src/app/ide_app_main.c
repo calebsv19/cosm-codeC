@@ -1,6 +1,7 @@
 #include "ide/ide_app_main.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <SDL2/SDL.h>
 #include <unistd.h>
@@ -23,21 +24,73 @@
 
 int STARTING_WIDTH = 1600, STARTING_HEIGHT = 860;
 
-typedef struct IdeLifecycleState {
-    bool bootstrapped;
-    bool config_loaded;
-    bool state_seeded;
-    bool subsystems_initialized;
-    bool runtime_started;
-    bool run_loop_completed;
-    bool shutdown_completed;
+typedef enum IdeAppStage {
+    IDE_APP_STAGE_INIT = 0,
+    IDE_APP_STAGE_BOOTSTRAPPED,
+    IDE_APP_STAGE_CONFIG_LOADED,
+    IDE_APP_STAGE_STATE_SEEDED,
+    IDE_APP_STAGE_SUBSYSTEMS_READY,
+    IDE_APP_STAGE_RUNTIME_STARTED,
+    IDE_APP_STAGE_LOOP_COMPLETED,
+    IDE_APP_STAGE_SHUTDOWN_COMPLETED
+} IdeAppStage;
+
+typedef struct IdeLaunchArgs {
+    int argc;
+    char **argv;
+} IdeLaunchArgs;
+
+typedef struct IdeDispatchRequest {
+    int argc;
+    char **argv;
+    int (*legacy_entry)(int argc, char **argv);
+} IdeDispatchRequest;
+
+typedef struct IdeDispatchOutcome {
+    bool dispatched;
+    bool used_legacy_entry;
     int exit_code;
-} IdeLifecycleState;
+} IdeDispatchOutcome;
 
-static IdeLifecycleState g_ide_lifecycle = {0};
+typedef struct IdeDispatchSummary {
+    uint32_t dispatch_count;
+    bool dispatch_succeeded;
+    int last_dispatch_exit_code;
+} IdeDispatchSummary;
 
-static int g_ide_launch_argc = 0;
-static char **g_ide_launch_argv = NULL;
+typedef struct IdeLifecycleOwnership {
+    bool bootstrap_owned;
+    bool config_owned;
+    bool state_seed_owned;
+    bool subsystems_owned;
+    bool runtime_owned;
+    bool dispatch_owned;
+    bool shutdown_owned;
+} IdeLifecycleOwnership;
+
+typedef struct IdeAppContext {
+    IdeAppStage stage;
+    int exit_code;
+    int (*legacy_entry)(int argc, char **argv);
+    bool (*runtime_dispatch)(const IdeDispatchRequest *request, IdeDispatchOutcome *outcome);
+    IdeLaunchArgs launch_args;
+    IdeDispatchSummary dispatch_summary;
+    IdeLifecycleOwnership ownership;
+    int wrapper_error;
+} IdeAppContext;
+
+typedef enum IdeWrapperError {
+    IDE_WRAP_OK = 0,
+    IDE_WRAP_BOOTSTRAP_FAILED = 1,
+    IDE_WRAP_CONFIG_LOAD_FAILED = 2,
+    IDE_WRAP_STATE_SEED_FAILED = 3,
+    IDE_WRAP_SUBSYSTEMS_INIT_FAILED = 4,
+    IDE_WRAP_RUNTIME_START_FAILED = 5,
+    IDE_WRAP_DISPATCH_PREPARE_FAILED = 6,
+    IDE_WRAP_DISPATCH_EXECUTE_FAILED = 7,
+    IDE_WRAP_DISPATCH_FINALIZE_FAILED = 8,
+    IDE_WRAP_RUN_LOOP_FAILED = 9
+} IdeWrapperError;
 
 static int ide_default_legacy_entry(int argc, char **argv) {
     (void)argc;
@@ -45,97 +98,369 @@ static int ide_default_legacy_entry(int argc, char **argv) {
     return 1;
 }
 
-static int (*g_ide_legacy_entry)(int argc, char **argv) = ide_default_legacy_entry;
+static bool ide_default_runtime_dispatch(const IdeDispatchRequest *request,
+                                         IdeDispatchOutcome *outcome) {
+    if (!request || !outcome || !request->legacy_entry) {
+        return false;
+    }
+    outcome->dispatched = true;
+    outcome->used_legacy_entry = true;
+    outcome->exit_code = request->legacy_entry(request->argc, request->argv);
+    return true;
+}
+
+static IdeAppContext g_ide_app_ctx = {
+    .stage = IDE_APP_STAGE_INIT,
+    .exit_code = 1,
+    .legacy_entry = ide_default_legacy_entry,
+    .runtime_dispatch = ide_default_runtime_dispatch
+};
+
+static void ide_log_stage_error(const char *fn_name,
+                                const char *stage_name,
+                                IdeAppStage expected,
+                                IdeAppStage actual,
+                                IdeAppStage next) {
+    fprintf(stderr,
+            "ide: lifecycle stage order violation fn=%s stage=%s (expected=%d actual=%d next=%d)\n",
+            fn_name ? fn_name : "unknown",
+            stage_name ? stage_name : "unknown",
+            (int)expected,
+            (int)actual,
+            (int)next);
+}
+
+static void ide_log_wrapper_error(IdeWrapperError code,
+                                  const char *fn_name,
+                                  IdeAppStage stage,
+                                  const char *reason) {
+    fprintf(stderr,
+            "ide: wrapper error code=%d fn=%s stage=%d reason=%s\n",
+            (int)code,
+            fn_name ? fn_name : "unknown",
+            (int)stage,
+            reason ? reason : "unspecified");
+}
+
+static bool ide_app_transition_stage(IdeAppContext *ctx, IdeAppStage expected, IdeAppStage next, const char *fn_name) {
+    if (!ctx) {
+        return false;
+    }
+    if (ctx->stage != expected) {
+        ide_log_stage_error(fn_name, fn_name, expected, ctx->stage, next);
+        return false;
+    }
+    ctx->stage = next;
+    return true;
+}
+
+static bool ide_app_bootstrap_ctx(IdeAppContext *ctx) {
+    int (*legacy_entry)(int argc, char **argv) = ide_default_legacy_entry;
+    bool (*runtime_dispatch)(const IdeDispatchRequest *request, IdeDispatchOutcome *outcome) =
+        ide_default_runtime_dispatch;
+    IdeLaunchArgs launch_args = {0};
+    if (!ctx) {
+        return false;
+    }
+    if (ctx->legacy_entry) {
+        legacy_entry = ctx->legacy_entry;
+    }
+    if (ctx->runtime_dispatch) {
+        runtime_dispatch = ctx->runtime_dispatch;
+    }
+    launch_args = ctx->launch_args;
+
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->legacy_entry = legacy_entry;
+    ctx->runtime_dispatch = runtime_dispatch;
+    ctx->launch_args = launch_args;
+    ctx->exit_code = 1;
+    ctx->dispatch_summary.last_dispatch_exit_code = 1;
+    ctx->wrapper_error = IDE_WRAP_OK;
+
+    if (!ide_app_transition_stage(ctx,
+                                  IDE_APP_STAGE_INIT,
+                                  IDE_APP_STAGE_BOOTSTRAPPED,
+                                  "ide_app_bootstrap")) {
+        return false;
+    }
+    ctx->ownership.bootstrap_owned = true;
+    return true;
+}
+
+static bool ide_app_config_load_ctx(IdeAppContext *ctx) {
+    if (!ctx) {
+        return false;
+    }
+    if (!ide_app_transition_stage(ctx,
+                                  IDE_APP_STAGE_BOOTSTRAPPED,
+                                  IDE_APP_STAGE_CONFIG_LOADED,
+                                  "ide_app_config_load")) {
+        return false;
+    }
+    ctx->ownership.config_owned = true;
+    return true;
+}
+
+static bool ide_app_state_seed_ctx(IdeAppContext *ctx) {
+    if (!ctx) {
+        return false;
+    }
+    if (!ide_app_transition_stage(ctx,
+                                  IDE_APP_STAGE_CONFIG_LOADED,
+                                  IDE_APP_STAGE_STATE_SEEDED,
+                                  "ide_app_state_seed")) {
+        return false;
+    }
+    ctx->ownership.state_seed_owned = true;
+    return true;
+}
+
+static bool ide_app_subsystems_init_ctx(IdeAppContext *ctx) {
+    if (!ctx) {
+        return false;
+    }
+    if (!ide_app_transition_stage(ctx,
+                                  IDE_APP_STAGE_STATE_SEEDED,
+                                  IDE_APP_STAGE_SUBSYSTEMS_READY,
+                                  "ide_app_subsystems_init")) {
+        return false;
+    }
+    ctx->ownership.subsystems_owned = true;
+    return true;
+}
+
+static bool ide_runtime_start_ctx(IdeAppContext *ctx) {
+    if (!ctx) {
+        return false;
+    }
+    if (!ide_app_transition_stage(ctx,
+                                  IDE_APP_STAGE_SUBSYSTEMS_READY,
+                                  IDE_APP_STAGE_RUNTIME_STARTED,
+                                  "ide_runtime_start")) {
+        return false;
+    }
+    ctx->ownership.runtime_owned = true;
+    return true;
+}
+
+static bool ide_app_dispatch_prepare_ctx(IdeAppContext *ctx, IdeDispatchRequest *request) {
+    if (!ctx || !request || !ctx->legacy_entry || !ctx->runtime_dispatch) {
+        ide_log_wrapper_error(IDE_WRAP_DISPATCH_PREPARE_FAILED,
+                              "ide_app_dispatch_prepare_ctx",
+                              ctx ? ctx->stage : IDE_APP_STAGE_INIT,
+                              "invalid wrapper context");
+        return false;
+    }
+    if (ctx->stage != IDE_APP_STAGE_RUNTIME_STARTED) {
+        ide_log_stage_error("ide_app_dispatch_prepare_ctx",
+                            "runtime_started",
+                            IDE_APP_STAGE_RUNTIME_STARTED,
+                            ctx->stage,
+                            ctx->stage);
+        return false;
+    }
+    memset(request, 0, sizeof(*request));
+    request->argc = ctx->launch_args.argc;
+    request->argv = ctx->launch_args.argv;
+    request->legacy_entry = ctx->legacy_entry;
+    ctx->dispatch_summary.dispatch_count += 1u;
+    ctx->ownership.dispatch_owned = true;
+    return true;
+}
+
+static bool ide_app_dispatch_execute_ctx(IdeAppContext *ctx,
+                                         const IdeDispatchRequest *request,
+                                         IdeDispatchOutcome *outcome) {
+    if (!ctx || !request || !outcome || !ctx->runtime_dispatch) {
+        ide_log_wrapper_error(IDE_WRAP_DISPATCH_EXECUTE_FAILED,
+                              "ide_app_dispatch_execute_ctx",
+                              ctx ? ctx->stage : IDE_APP_STAGE_INIT,
+                              "invalid wrapper context");
+        return false;
+    }
+    memset(outcome, 0, sizeof(*outcome));
+    return ctx->runtime_dispatch(request, outcome) && outcome->dispatched;
+}
+
+static int ide_app_dispatch_finalize_ctx(IdeAppContext *ctx, const IdeDispatchOutcome *outcome) {
+    if (!ctx || !outcome) {
+        if (ctx) {
+            ctx->wrapper_error = IDE_WRAP_DISPATCH_FINALIZE_FAILED;
+        }
+        ide_log_wrapper_error(IDE_WRAP_DISPATCH_FINALIZE_FAILED,
+                              "ide_app_dispatch_finalize_ctx",
+                              ctx ? ctx->stage : IDE_APP_STAGE_INIT,
+                              "invalid dispatch outcome");
+        return IDE_WRAP_DISPATCH_FINALIZE_FAILED;
+    }
+    ctx->dispatch_summary.dispatch_succeeded = true;
+    ctx->dispatch_summary.last_dispatch_exit_code = outcome->exit_code;
+    ctx->exit_code = outcome->exit_code;
+    if (!ide_app_transition_stage(ctx,
+                                  IDE_APP_STAGE_RUNTIME_STARTED,
+                                  IDE_APP_STAGE_LOOP_COMPLETED,
+                                  "ide_app_dispatch_finalize_ctx")) {
+        ctx->wrapper_error = IDE_WRAP_DISPATCH_FINALIZE_FAILED;
+        ide_log_wrapper_error(IDE_WRAP_DISPATCH_FINALIZE_FAILED,
+                              "ide_app_dispatch_finalize_ctx",
+                              ctx->stage,
+                              "stage transition failed");
+        return IDE_WRAP_DISPATCH_FINALIZE_FAILED;
+    }
+    return ctx->exit_code;
+}
+
+static int ide_app_run_loop_ctx(IdeAppContext *ctx) {
+    IdeDispatchRequest request = {0};
+    IdeDispatchOutcome outcome = {0};
+    if (!ide_app_dispatch_prepare_ctx(ctx, &request)) {
+        if (ctx) {
+            ctx->wrapper_error = IDE_WRAP_DISPATCH_PREPARE_FAILED;
+        }
+        return IDE_WRAP_DISPATCH_PREPARE_FAILED;
+    }
+    if (!ide_app_dispatch_execute_ctx(ctx, &request, &outcome)) {
+        ctx->dispatch_summary.dispatch_succeeded = false;
+        ctx->dispatch_summary.last_dispatch_exit_code = IDE_WRAP_DISPATCH_EXECUTE_FAILED;
+        ctx->wrapper_error = IDE_WRAP_DISPATCH_EXECUTE_FAILED;
+        ide_log_wrapper_error(IDE_WRAP_DISPATCH_EXECUTE_FAILED,
+                              "ide_app_run_loop_ctx",
+                              ctx->stage,
+                              "dispatch execute failed");
+        return IDE_WRAP_DISPATCH_EXECUTE_FAILED;
+    }
+    return ide_app_dispatch_finalize_ctx(ctx, &outcome);
+}
+
+static void ide_app_release_ownership_ctx(IdeAppContext *ctx) {
+    if (!ctx) {
+        return;
+    }
+    ctx->ownership.dispatch_owned = false;
+    ctx->ownership.runtime_owned = false;
+    ctx->ownership.subsystems_owned = false;
+    ctx->ownership.state_seed_owned = false;
+    ctx->ownership.config_owned = false;
+    ctx->ownership.bootstrap_owned = false;
+}
+
+static void ide_app_shutdown_ctx(IdeAppContext *ctx) {
+    if (!ctx) {
+        return;
+    }
+    if (ctx->stage == IDE_APP_STAGE_SHUTDOWN_COMPLETED) {
+        return;
+    }
+    ide_app_release_ownership_ctx(ctx);
+    ctx->ownership.shutdown_owned = true;
+    ctx->stage = IDE_APP_STAGE_SHUTDOWN_COMPLETED;
+}
 
 bool ide_app_bootstrap(void) {
-    memset(&g_ide_lifecycle, 0, sizeof(g_ide_lifecycle));
-    g_ide_lifecycle.bootstrapped = true;
-    return true;
+    return ide_app_bootstrap_ctx(&g_ide_app_ctx);
 }
 
 bool ide_app_config_load(void) {
-    if (!g_ide_lifecycle.bootstrapped) {
-        return false;
-    }
-    g_ide_lifecycle.config_loaded = true;
-    return true;
+    return ide_app_config_load_ctx(&g_ide_app_ctx);
 }
 
 bool ide_app_state_seed(void) {
-    if (!g_ide_lifecycle.config_loaded) {
-        return false;
-    }
-    g_ide_lifecycle.state_seeded = true;
-    return true;
+    return ide_app_state_seed_ctx(&g_ide_app_ctx);
 }
 
 bool ide_app_subsystems_init(void) {
-    if (!g_ide_lifecycle.state_seeded) {
-        return false;
-    }
-    g_ide_lifecycle.subsystems_initialized = true;
-    return true;
+    return ide_app_subsystems_init_ctx(&g_ide_app_ctx);
 }
 
 bool ide_runtime_start(void) {
-    if (!g_ide_lifecycle.subsystems_initialized) {
-        return false;
-    }
-    g_ide_lifecycle.runtime_started = true;
-    return true;
+    return ide_runtime_start_ctx(&g_ide_app_ctx);
 }
 
 void ide_app_set_legacy_entry(int (*legacy_entry)(int argc, char **argv)) {
     if (legacy_entry) {
-        g_ide_legacy_entry = legacy_entry;
+        g_ide_app_ctx.legacy_entry = legacy_entry;
     }
 }
 
 int ide_app_run_loop(void) {
-    if (!g_ide_lifecycle.runtime_started) {
-        return 1;
-    }
-    g_ide_lifecycle.exit_code = g_ide_legacy_entry(g_ide_launch_argc, g_ide_launch_argv);
-    g_ide_lifecycle.run_loop_completed = true;
-    return g_ide_lifecycle.exit_code;
+    return ide_app_run_loop_ctx(&g_ide_app_ctx);
 }
 
 void ide_app_shutdown(void) {
-    if (!g_ide_lifecycle.bootstrapped) {
-        return;
-    }
-    g_ide_lifecycle.shutdown_completed = true;
+    ide_app_shutdown_ctx(&g_ide_app_ctx);
 }
 
 int ide_app_main(int argc, char **argv) {
-    int exit_code = 1;
+    int exit_code = IDE_WRAP_BOOTSTRAP_FAILED;
 
-    g_ide_launch_argc = argc;
-    g_ide_launch_argv = argv;
+    g_ide_app_ctx.launch_args.argc = argc;
+    g_ide_app_ctx.launch_args.argv = argv;
     ide_app_set_legacy_entry(ide_app_main_legacy);
 
-    if (!ide_app_bootstrap()) {
+    if (!ide_app_bootstrap_ctx(&g_ide_app_ctx)) {
+        g_ide_app_ctx.wrapper_error = IDE_WRAP_BOOTSTRAP_FAILED;
+        ide_log_wrapper_error(IDE_WRAP_BOOTSTRAP_FAILED,
+                              "ide_app_main",
+                              g_ide_app_ctx.stage,
+                              "bootstrap failed");
         return exit_code;
     }
-    if (!ide_app_config_load()) {
-        ide_app_shutdown();
-        return exit_code;
+    if (!ide_app_config_load_ctx(&g_ide_app_ctx)) {
+        exit_code = IDE_WRAP_CONFIG_LOAD_FAILED;
+        g_ide_app_ctx.wrapper_error = IDE_WRAP_CONFIG_LOAD_FAILED;
+        ide_log_wrapper_error(IDE_WRAP_CONFIG_LOAD_FAILED,
+                              "ide_app_main",
+                              g_ide_app_ctx.stage,
+                              "config load failed");
+        goto shutdown;
     }
-    if (!ide_app_state_seed()) {
-        ide_app_shutdown();
-        return exit_code;
+    if (!ide_app_state_seed_ctx(&g_ide_app_ctx)) {
+        exit_code = IDE_WRAP_STATE_SEED_FAILED;
+        g_ide_app_ctx.wrapper_error = IDE_WRAP_STATE_SEED_FAILED;
+        ide_log_wrapper_error(IDE_WRAP_STATE_SEED_FAILED,
+                              "ide_app_main",
+                              g_ide_app_ctx.stage,
+                              "state seed failed");
+        goto shutdown;
     }
-    if (!ide_app_subsystems_init()) {
-        ide_app_shutdown();
-        return exit_code;
+    if (!ide_app_subsystems_init_ctx(&g_ide_app_ctx)) {
+        exit_code = IDE_WRAP_SUBSYSTEMS_INIT_FAILED;
+        g_ide_app_ctx.wrapper_error = IDE_WRAP_SUBSYSTEMS_INIT_FAILED;
+        ide_log_wrapper_error(IDE_WRAP_SUBSYSTEMS_INIT_FAILED,
+                              "ide_app_main",
+                              g_ide_app_ctx.stage,
+                              "subsystems init failed");
+        goto shutdown;
     }
-    if (!ide_runtime_start()) {
-        ide_app_shutdown();
-        return exit_code;
+    if (!ide_runtime_start_ctx(&g_ide_app_ctx)) {
+        exit_code = IDE_WRAP_RUNTIME_START_FAILED;
+        g_ide_app_ctx.wrapper_error = IDE_WRAP_RUNTIME_START_FAILED;
+        ide_log_wrapper_error(IDE_WRAP_RUNTIME_START_FAILED,
+                              "ide_app_main",
+                              g_ide_app_ctx.stage,
+                              "runtime start failed");
+        goto shutdown;
     }
 
-    exit_code = ide_app_run_loop();
-    ide_app_shutdown();
+    exit_code = ide_app_run_loop_ctx(&g_ide_app_ctx);
+    if (exit_code != 0 && g_ide_app_ctx.wrapper_error == IDE_WRAP_OK) {
+        g_ide_app_ctx.wrapper_error = IDE_WRAP_RUN_LOOP_FAILED;
+        ide_log_wrapper_error(IDE_WRAP_RUN_LOOP_FAILED,
+                              "ide_app_main",
+                              g_ide_app_ctx.stage,
+                              "run loop failed");
+    }
+shutdown:
+    ide_app_shutdown_ctx(&g_ide_app_ctx);
+    fprintf(stderr,
+            "ide: wrapper exit stage=%d exit_code=%d dispatch_count=%u dispatch_ok=%d last_dispatch_exit=%d wrapper_error=%d\n",
+            (int)g_ide_app_ctx.stage,
+            exit_code,
+            (unsigned)g_ide_app_ctx.dispatch_summary.dispatch_count,
+            g_ide_app_ctx.dispatch_summary.dispatch_succeeded ? 1 : 0,
+            g_ide_app_ctx.dispatch_summary.last_dispatch_exit_code,
+            g_ide_app_ctx.wrapper_error);
     return exit_code;
 }
 

@@ -1,6 +1,6 @@
 # ide Future Intent
 
-Last updated: 2026-03-30
+Last updated: 2026-04-02
 
 ## Scaffold Alignment Targets
 - keep `ide` on the required scaffold floor (`docs/src/include/tests/build`) while preserving current editor/runtime behavior.
@@ -51,3 +51,7 @@ Last updated: 2026-03-30
   - IDE now includes full `package-desktop*` target parity (`remove` + `refresh` included).
   - launcher diagnostics are aligned with packaging contract (`--print-config` + startup log file).
 - next focus is routine maintenance and subsystem improvements; no additional scaffold/font baseline migration lane is pending for `ide`.
+- cross-program wrapper initiative state:
+  - `W0` complete (canonical shared wrapper contract frozen)
+  - `W1` complete for `ide` (typed context/dispatch contract landed in `src/app/ide_app_main.c`)
+  - `W2` complete for `ide` (wrapper-level structured lifecycle failure reporting is now normalized in `src/app/ide_app_main.c`)
