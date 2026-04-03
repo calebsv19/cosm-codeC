@@ -95,11 +95,27 @@ Last updated: 2026-04-02
   - `make -C ide run-headless-smoke` (outside-sandbox for IPC bind checks)
   - `make -C ide visual-harness`
   - `make -C ide test-stable` (outside-sandbox for IPC bind checks)
+- `W3-S0/S1` verification rerun (2026-04-02):
+  - `make -C ide clean && make -C ide`
+  - `make -C ide run-headless-smoke` (outside-sandbox for IPC bind checks)
+  - `make -C ide visual-harness`
+  - `make -C ide test-stable` (outside-sandbox for IPC bind checks)
+- `W3-S2` verification rerun (2026-04-02):
+  - `make -C ide clean && make -C ide`
+  - `make -C ide run-headless-smoke` (outside-sandbox for IPC bind checks)
+  - `make -C ide visual-harness`
+  - `make -C ide test-stable` (outside-sandbox for IPC bind checks)
+- `W3-S3` verification rerun (2026-04-02):
+  - `make -C ide clean && make -C ide`
+  - `make -C ide run-headless-smoke` (outside-sandbox for IPC bind checks)
+  - `make -C ide visual-harness`
+  - `make -C ide test-stable` (outside-sandbox for IPC bind checks)
 
 ## Cross-Program Wrapper Wave State
 - `W0`: complete (shared canonical wrapper contract frozen)
 - `W1`: complete for `ide`
 - `W2`: complete for `ide` (wrapper diagnostics normalization lane)
+- `W3`: complete (`S0`/`S1`/`S2`/`S3`/`S4` complete; typed runtime-loop adapter + handoff seams + seam diagnostics/ownership hardening + closeout docs/commit lane landed)
 
 Legacy verification lanes are preserved:
 - `make -C ide test-fast`

@@ -52,6 +52,31 @@ typedef struct IdeDispatchOutcome {
     int exit_code;
 } IdeDispatchOutcome;
 
+typedef struct IdeRuntimeLoopRequest {
+    const IdeDispatchRequest *dispatch_request;
+    bool (*runtime_dispatch)(const IdeDispatchRequest *request, IdeDispatchOutcome *outcome);
+} IdeRuntimeLoopRequest;
+
+typedef struct IdeRuntimeLoopOutcome {
+    bool dispatched;
+    bool used_legacy_entry;
+    int exit_code;
+} IdeRuntimeLoopOutcome;
+
+typedef struct IdeAppContext IdeAppContext;
+
+typedef struct IdeRunLoopHandoffRequest {
+    IdeAppContext *ctx;
+    IdeDispatchRequest dispatch_request;
+} IdeRunLoopHandoffRequest;
+
+typedef struct IdeRunLoopHandoffOutcome {
+    bool dispatched;
+    bool used_legacy_entry;
+    int dispatch_exit_code;
+    int wrapper_exit_code;
+} IdeRunLoopHandoffOutcome;
+
 typedef struct IdeDispatchSummary {
     uint32_t dispatch_count;
     bool dispatch_succeeded;
@@ -65,10 +90,11 @@ typedef struct IdeLifecycleOwnership {
     bool subsystems_owned;
     bool runtime_owned;
     bool dispatch_owned;
+    bool run_loop_handoff_owned;
     bool shutdown_owned;
 } IdeLifecycleOwnership;
 
-typedef struct IdeAppContext {
+struct IdeAppContext {
     IdeAppStage stage;
     int exit_code;
     int (*legacy_entry)(int argc, char **argv);
@@ -77,7 +103,7 @@ typedef struct IdeAppContext {
     IdeDispatchSummary dispatch_summary;
     IdeLifecycleOwnership ownership;
     int wrapper_error;
-} IdeAppContext;
+};
 
 typedef enum IdeWrapperError {
     IDE_WRAP_OK = 0,
@@ -89,7 +115,8 @@ typedef enum IdeWrapperError {
     IDE_WRAP_DISPATCH_PREPARE_FAILED = 6,
     IDE_WRAP_DISPATCH_EXECUTE_FAILED = 7,
     IDE_WRAP_DISPATCH_FINALIZE_FAILED = 8,
-    IDE_WRAP_RUN_LOOP_FAILED = 9
+    IDE_WRAP_RUN_LOOP_FAILED = 9,
+    IDE_WRAP_RUN_LOOP_HANDOFF_FAILED = 10
 } IdeWrapperError;
 
 static int ide_default_legacy_entry(int argc, char **argv) {
@@ -269,9 +296,27 @@ static bool ide_app_dispatch_prepare_ctx(IdeAppContext *ctx, IdeDispatchRequest 
     return true;
 }
 
+static bool ide_app_runtime_loop_adapter(const IdeRuntimeLoopRequest *request,
+                                         IdeRuntimeLoopOutcome *outcome) {
+    IdeDispatchOutcome dispatch_outcome = {0};
+    if (!request || !outcome || !request->dispatch_request || !request->runtime_dispatch) {
+        return false;
+    }
+    if (!request->runtime_dispatch(request->dispatch_request, &dispatch_outcome) ||
+        !dispatch_outcome.dispatched) {
+        return false;
+    }
+    outcome->dispatched = true;
+    outcome->used_legacy_entry = dispatch_outcome.used_legacy_entry;
+    outcome->exit_code = dispatch_outcome.exit_code;
+    return true;
+}
+
 static bool ide_app_dispatch_execute_ctx(IdeAppContext *ctx,
                                          const IdeDispatchRequest *request,
                                          IdeDispatchOutcome *outcome) {
+    IdeRuntimeLoopRequest loop_request = {0};
+    IdeRuntimeLoopOutcome loop_outcome = {0};
     if (!ctx || !request || !outcome || !ctx->runtime_dispatch) {
         ide_log_wrapper_error(IDE_WRAP_DISPATCH_EXECUTE_FAILED,
                               "ide_app_dispatch_execute_ctx",
@@ -280,7 +325,60 @@ static bool ide_app_dispatch_execute_ctx(IdeAppContext *ctx,
         return false;
     }
     memset(outcome, 0, sizeof(*outcome));
-    return ctx->runtime_dispatch(request, outcome) && outcome->dispatched;
+    loop_request.dispatch_request = request;
+    loop_request.runtime_dispatch = ctx->runtime_dispatch;
+    if (!ide_app_runtime_loop_adapter(&loop_request, &loop_outcome)) {
+        return false;
+    }
+    outcome->dispatched = loop_outcome.dispatched;
+    outcome->used_legacy_entry = loop_outcome.used_legacy_entry;
+    outcome->exit_code = loop_outcome.exit_code;
+    return true;
+}
+
+static int ide_app_dispatch_finalize_ctx(IdeAppContext *ctx, const IdeDispatchOutcome *outcome);
+
+static bool ide_app_runtime_loop_handoff_ctx(const IdeRunLoopHandoffRequest *request,
+                                             IdeRunLoopHandoffOutcome *outcome) {
+    IdeDispatchOutcome dispatch_outcome = {0};
+    if (!request || !outcome || !request->ctx || !request->dispatch_request.legacy_entry) {
+        if (outcome) {
+            memset(outcome, 0, sizeof(*outcome));
+            outcome->wrapper_exit_code = IDE_WRAP_RUN_LOOP_HANDOFF_FAILED;
+        }
+        if (request && request->ctx) {
+            request->ctx->wrapper_error = IDE_WRAP_RUN_LOOP_HANDOFF_FAILED;
+            ide_log_wrapper_error(IDE_WRAP_RUN_LOOP_HANDOFF_FAILED,
+                                  "ide_app_runtime_loop_handoff_ctx",
+                                  request->ctx->stage,
+                                  "invalid handoff request");
+        }
+        return false;
+    }
+    memset(outcome, 0, sizeof(*outcome));
+    request->ctx->ownership.run_loop_handoff_owned = true;
+    if (!ide_app_dispatch_execute_ctx(request->ctx, &request->dispatch_request, &dispatch_outcome)) {
+        request->ctx->dispatch_summary.dispatch_succeeded = false;
+        request->ctx->dispatch_summary.last_dispatch_exit_code = IDE_WRAP_DISPATCH_EXECUTE_FAILED;
+        request->ctx->wrapper_error = IDE_WRAP_DISPATCH_EXECUTE_FAILED;
+        ide_log_wrapper_error(IDE_WRAP_DISPATCH_EXECUTE_FAILED,
+                              "ide_app_runtime_loop_handoff_ctx",
+                              request->ctx->stage,
+                              "dispatch execute failed");
+        outcome->wrapper_exit_code = IDE_WRAP_DISPATCH_EXECUTE_FAILED;
+        return false;
+    }
+    outcome->dispatched = dispatch_outcome.dispatched;
+    outcome->used_legacy_entry = dispatch_outcome.used_legacy_entry;
+    outcome->dispatch_exit_code = dispatch_outcome.exit_code;
+    outcome->wrapper_exit_code = ide_app_dispatch_finalize_ctx(request->ctx, &dispatch_outcome);
+    if (outcome->wrapper_exit_code != dispatch_outcome.exit_code) {
+        ide_log_wrapper_error(IDE_WRAP_DISPATCH_FINALIZE_FAILED,
+                              "ide_app_runtime_loop_handoff_ctx",
+                              request->ctx->stage,
+                              "dispatch finalize reported wrapper failure");
+    }
+    return true;
 }
 
 static int ide_app_dispatch_finalize_ctx(IdeAppContext *ctx, const IdeDispatchOutcome *outcome) {
@@ -313,24 +411,21 @@ static int ide_app_dispatch_finalize_ctx(IdeAppContext *ctx, const IdeDispatchOu
 
 static int ide_app_run_loop_ctx(IdeAppContext *ctx) {
     IdeDispatchRequest request = {0};
-    IdeDispatchOutcome outcome = {0};
+    IdeRunLoopHandoffRequest handoff_request = {0};
+    IdeRunLoopHandoffOutcome handoff_outcome = {0};
     if (!ide_app_dispatch_prepare_ctx(ctx, &request)) {
         if (ctx) {
             ctx->wrapper_error = IDE_WRAP_DISPATCH_PREPARE_FAILED;
         }
         return IDE_WRAP_DISPATCH_PREPARE_FAILED;
     }
-    if (!ide_app_dispatch_execute_ctx(ctx, &request, &outcome)) {
-        ctx->dispatch_summary.dispatch_succeeded = false;
-        ctx->dispatch_summary.last_dispatch_exit_code = IDE_WRAP_DISPATCH_EXECUTE_FAILED;
-        ctx->wrapper_error = IDE_WRAP_DISPATCH_EXECUTE_FAILED;
-        ide_log_wrapper_error(IDE_WRAP_DISPATCH_EXECUTE_FAILED,
-                              "ide_app_run_loop_ctx",
-                              ctx->stage,
-                              "dispatch execute failed");
-        return IDE_WRAP_DISPATCH_EXECUTE_FAILED;
+
+    handoff_request.ctx = ctx;
+    handoff_request.dispatch_request = request;
+    if (!ide_app_runtime_loop_handoff_ctx(&handoff_request, &handoff_outcome)) {
+        return handoff_outcome.wrapper_exit_code;
     }
-    return ide_app_dispatch_finalize_ctx(ctx, &outcome);
+    return handoff_outcome.wrapper_exit_code;
 }
 
 static void ide_app_release_ownership_ctx(IdeAppContext *ctx) {
@@ -338,6 +433,7 @@ static void ide_app_release_ownership_ctx(IdeAppContext *ctx) {
         return;
     }
     ctx->ownership.dispatch_owned = false;
+    ctx->ownership.run_loop_handoff_owned = false;
     ctx->ownership.runtime_owned = false;
     ctx->ownership.subsystems_owned = false;
     ctx->ownership.state_seed_owned = false;

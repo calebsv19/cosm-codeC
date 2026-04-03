@@ -55,3 +55,11 @@ Last updated: 2026-04-02
   - `W0` complete (canonical shared wrapper contract frozen)
   - `W1` complete for `ide` (typed context/dispatch contract landed in `src/app/ide_app_main.c`)
   - `W2` complete for `ide` (wrapper-level structured lifecycle failure reporting is now normalized in `src/app/ide_app_main.c`)
+  - `W3` complete:
+    - `S0` baseline freeze + verification rerun complete
+    - `S1` typed runtime-loop seam definition complete (`ide_app_runtime_loop_adapter(...)`)
+    - `S2` typed run-loop handoff cutover complete (`ide_app_runtime_loop_handoff_ctx(...)`)
+    - `S3` seam diagnostics/ownership hardening complete
+    - `S4` closeout complete (tracker/docs sync + commit packaging)
+  - next focus:
+    - optional targeted extraction only where high-value (`W4+`), otherwise maintain current wrapper contract as reference baseline.
