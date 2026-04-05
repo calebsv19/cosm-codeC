@@ -1,6 +1,6 @@
 # ide Current Truth
 
-Last updated: 2026-04-02
+Last updated: 2026-04-04
 
 ## Scaffold Migration Status
 - `IDE-S0` through `IDE-S5` scaffold migration slices are complete.
@@ -85,7 +85,7 @@ Last updated: 2026-04-02
   - `make -C ide package-desktop-copy-desktop`
   - `make -C ide package-desktop-remove`
   - `make -C ide package-desktop-refresh`
-- `/Users/<user>/Desktop/IDE.app/Contents/MacOS/ide-launcher --print-config`
+- `/Users/<user>/Desktop/codeC.app/Contents/MacOS/ide-launcher --print-config`
 - `W1` verification rerun (2026-04-02):
   - `make -C ide`
   - `make -C ide run-headless-smoke`
@@ -153,6 +153,46 @@ Legacy verification lanes are preserved:
 - launcher diagnostics now include:
   - `--print-config` for non-interactive root inspection
   - startup logging to `~/Library/Logs/IDE/launcher.log` (with tmp fallback)
+
+## Release Readiness Snapshot
+- `IDE-RL0` complete:
+  - release contract locked in `makefile`:
+    - `RELEASE_PRODUCT_NAME := codeC`
+    - `RELEASE_PROGRAM_KEY := ide`
+    - `RELEASE_BUNDLE_ID := com.cosm.codec`
+  - canonical version source present:
+    - `VERSION` (`0.1.0`)
+- `IDE-RL1` complete:
+  - portable dylib closure script is active:
+    - `tools/packaging/macos/bundle-dylibs.sh`
+  - launcher runtime hardening is active:
+    - writable runtime root (`~/Library/Application Support/IDE/runtime`, tmp fallback)
+    - runtime Vulkan ICD generation (`vk/MoltenVK_icd.json`)
+    - runtime env exports (`VK_ICD_FILENAMES`, `VK_DRIVER_FILES`)
+  - transitive `@rpath` closure was fixed for image/decode stack (`libjxl_cms`, `libsharpyuv`, `libwebp` chain)
+  - release bundle audit enforces no unresolved `@rpath` links.
+- `IDE-RL2` complete:
+  - signing/notary/staple/verify passed.
+  - accepted notary id:
+    - `2d41d9a4-061d-4bb5-b863-1f4356e79ddf`
+  - trust evidence:
+    - `spctl --assess --type execute --verbose=2 dist/codeC.app`
+      - `accepted`
+      - `source=Notarized Developer ID`
+- `IDE-RL3` complete:
+  - release artifacts:
+    - `build/release/codeC-0.1.0-macOS-stable.zip`
+    - `build/release/codeC-0.1.0-macOS-stable.zip.sha256`
+    - `build/release/codeC-0.1.0-macOS-stable.manifest.txt`
+  - Desktop copy refreshed to:
+    - `/Users/calebsv/Desktop/codeC.app`
+- `IDE-RL4` complete:
+  - Finder launch/log evidence confirms app progresses past dyld into runtime:
+    - `[TimerHUD] IDE profiling DISABLED ...`
+    - `[TaskJSON] File is empty or corrupt; resetting to empty task list.`
+- `IDE-RL5` complete:
+  - one-shot release command succeeds:
+    - `make -C ide release-distribute APPLE_SIGN_IDENTITY="Developer ID Application: ... (J4ZR8UWD8G)" APPLE_NOTARY_PROFILE="cosm-notary"`
 
 ## Defaults vs Runtime Persistence (Current)
 - tracked defaults remain in source-controlled lanes (for example project-shipped defaults such as `timerhud/ide/settings.json`).

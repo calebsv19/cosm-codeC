@@ -29,7 +29,7 @@ This means:
 3. analysis/index residual lane migration: complete
 4. Phase 4 hardening/guardrails and closure gate: complete
 5. Phase 5 carry-forward hardening/observability closure: complete
-6. Phase 6 desktop packaging (`IDE.app`) and standalone launch flow: complete
+6. Phase 6 desktop packaging (`codeC.app`) and standalone launch flow: complete
 
 ## Validation Baseline
 

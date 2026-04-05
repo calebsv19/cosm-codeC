@@ -1,6 +1,6 @@
 # ide Future Intent
 
-Last updated: 2026-04-02
+Last updated: 2026-04-04
 
 ## Scaffold Alignment Targets
 - keep `ide` on the required scaffold floor (`docs/src/include/tests/build`) while preserving current editor/runtime behavior.
@@ -50,6 +50,11 @@ Last updated: 2026-04-02
 - packaging parity pass is now landed:
   - IDE now includes full `package-desktop*` target parity (`remove` + `refresh` included).
   - launcher diagnostics are aligned with packaging contract (`--print-config` + startup log file).
+- release readiness lane is now complete:
+  - `IDE-RL0` through `IDE-RL5` complete on 2026-04-04
+  - full release target parity is active:
+    - `release-contract`, `release-bundle-audit`, `release-sign`, `release-notarize`, `release-staple`, `release-verify-notarized`, `release-artifact`, `release-distribute`
+  - notarized distribution for `codeC.app` is now the baseline path.
 - next focus is routine maintenance and subsystem improvements; no additional scaffold/font baseline migration lane is pending for `ide`.
 - cross-program wrapper initiative state:
   - `W0` complete (canonical shared wrapper contract frozen)
@@ -63,3 +68,8 @@ Last updated: 2026-04-02
     - `S4` closeout complete (tracker/docs sync + commit packaging)
   - next focus:
     - optional targeted extraction only where high-value (`W4+`), otherwise maintain current wrapper contract as reference baseline.
+
+## Release Lane Follow-Up
+- keep release lane stable and reuse this as template for remaining apps.
+- preserve bundler behavior that resolves transitive `@rpath` dylibs; do not regress to direct-only dependency copying.
+- routine next step for `ide` release lane is maintenance only (no open RL blockers).

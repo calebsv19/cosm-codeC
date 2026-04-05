@@ -6,9 +6,39 @@ APP_CONTENTS_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 RES_DIR="$APP_CONTENTS_DIR/Resources"
 LOG_DIR="${HOME}/Library/Logs/IDE"
 LOG_FILE="$LOG_DIR/launcher.log"
+RUNTIME_DIR_DEFAULT="${HOME}/Library/Application Support/IDE/runtime"
+RUNTIME_DIR="${IDE_RUNTIME_DIR:-$RUNTIME_DIR_DEFAULT}"
+if ! mkdir -p "$RUNTIME_DIR" 2>/dev/null; then
+    RUNTIME_DIR="${TMPDIR:-/tmp}/IDE/runtime"
+    mkdir -p "$RUNTIME_DIR" 2>/dev/null || true
+fi
+mkdir -p "$RUNTIME_DIR/vk" "$RUNTIME_DIR/config/shared/shaders" 2>/dev/null || true
+
+if [ -L "$RUNTIME_DIR/vk_renderer" ] || [ ! -e "$RUNTIME_DIR/vk_renderer" ]; then
+    ln -sfn "$RES_DIR/vk_renderer" "$RUNTIME_DIR/vk_renderer"
+fi
+if [ -L "$RUNTIME_DIR/config/shared/shaders/vk_renderer" ] || [ ! -e "$RUNTIME_DIR/config/shared/shaders/vk_renderer" ]; then
+    ln -sfn "$RES_DIR/vk_renderer" "$RUNTIME_DIR/config/shared/shaders/vk_renderer"
+fi
 
 export IDE_RESOURCE_ROOT="${IDE_RESOURCE_ROOT:-$RES_DIR}"
-export VK_RENDERER_SHADER_ROOT="${VK_RENDERER_SHADER_ROOT:-$RES_DIR/vk_renderer}"
+export IDE_RUNTIME_DIR="$RUNTIME_DIR"
+export VK_RENDERER_SHADER_ROOT="${VK_RENDERER_SHADER_ROOT:-$RUNTIME_DIR/vk_renderer}"
+
+MOLTENVK_DYLIB="$APP_CONTENTS_DIR/Frameworks/libMoltenVK.dylib"
+ICD_FILE="$RUNTIME_DIR/vk/MoltenVK_icd.json"
+cat >"$ICD_FILE" <<EOF
+{
+  "file_format_version": "1.0.0",
+  "ICD": {
+    "library_path": "$MOLTENVK_DYLIB",
+    "api_version": "1.3.0"
+  }
+}
+EOF
+export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-$ICD_FILE}"
+export VK_DRIVER_FILES="${VK_DRIVER_FILES:-$ICD_FILE}"
+export MOLTENVK_DYLIB
 
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 if ! touch "$LOG_FILE" 2>/dev/null; then
@@ -20,22 +50,34 @@ if [ "${1:-}" = "--print-config" ]; then
     echo "APP_CONTENTS_DIR=$APP_CONTENTS_DIR"
     echo "RES_DIR=$RES_DIR"
     echo "LOG_FILE=$LOG_FILE"
+    echo "IDE_RUNTIME_DIR=$IDE_RUNTIME_DIR"
     echo "IDE_RESOURCE_ROOT=$IDE_RESOURCE_ROOT"
     echo "VK_RENDERER_SHADER_ROOT=$VK_RENDERER_SHADER_ROOT"
+    echo "VK_ICD_FILENAMES=$VK_ICD_FILENAMES"
+    echo "VK_DRIVER_FILES=$VK_DRIVER_FILES"
+    echo "MOLTENVK_DYLIB=$MOLTENVK_DYLIB"
     exit 0
 fi
 
 if [ "${1:-}" = "--self-test" ]; then
     [ -x "$SCRIPT_DIR/ide-bin" ] || { echo "missing: ide-bin" >&2; exit 1; }
     [ -x "$SCRIPT_DIR/idebridge" ] || { echo "missing: idebridge" >&2; exit 1; }
+    [ -f "$APP_CONTENTS_DIR/Frameworks/libvulkan.1.dylib" ] || { echo "missing: bundled libvulkan" >&2; exit 1; }
+    [ -f "$APP_CONTENTS_DIR/Frameworks/libMoltenVK.dylib" ] || { echo "missing: bundled libMoltenVK" >&2; exit 1; }
     [ -f "$RES_DIR/include/fonts/Lato/Lato-Regular.ttf" ] || { echo "missing: bundled Lato font" >&2; exit 1; }
     [ -f "$RES_DIR/vk_renderer/shaders/textured.vert.spv" ] || { echo "missing: bundled shader" >&2; exit 1; }
+    [ -f "$ICD_FILE" ] || { echo "missing: runtime MoltenVK_icd.json" >&2; exit 1; }
     echo "self-test: ok"
     echo "LOG_FILE=$LOG_FILE"
+    echo "IDE_RUNTIME_DIR=$IDE_RUNTIME_DIR"
     echo "IDE_RESOURCE_ROOT=$IDE_RESOURCE_ROOT"
     echo "VK_RENDERER_SHADER_ROOT=$VK_RENDERER_SHADER_ROOT"
+    echo "VK_ICD_FILENAMES=$VK_ICD_FILENAMES"
+    echo "VK_DRIVER_FILES=$VK_DRIVER_FILES"
+    echo "MOLTENVK_DYLIB=$MOLTENVK_DYLIB"
     exit 0
 fi
 
-printf '%s launch begin pid=%s resource_root=%s shader_root=%s args=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$$" "$IDE_RESOURCE_ROOT" "$VK_RENDERER_SHADER_ROOT" "$*" >>"$LOG_FILE" 2>/dev/null || true
+printf '%s launch begin pid=%s cwd=%s runtime_dir=%s resource_root=%s shader_root=%s args=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$$" "$RUNTIME_DIR" "$IDE_RUNTIME_DIR" "$IDE_RESOURCE_ROOT" "$VK_RENDERER_SHADER_ROOT" "$*" >>"$LOG_FILE" 2>/dev/null || true
+cd "$RUNTIME_DIR"
 exec "$SCRIPT_DIR/ide-bin" "$@" >>"$LOG_FILE" 2>&1

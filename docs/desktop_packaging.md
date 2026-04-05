@@ -10,7 +10,7 @@ make package-desktop
 
 Output:
 
-- `dist/IDE.app`
+- `dist/codeC.app`
 
 ## Validate Package (Automated)
 
@@ -36,15 +36,15 @@ make package-desktop-open
 
 Default desktop destination:
 
-- `$(HOME)/Desktop/IDE.app`
+- `$(HOME)/Desktop/codeC.app`
 
 ## Finder Manual Verification
 
 1. Build package with `make package-desktop-self-test`.
 2. Refresh Desktop copy with `make package-desktop-refresh`.
 3. Print runtime launch config:
-   - `/Users/<user>/Desktop/IDE.app/Contents/MacOS/ide-launcher --print-config`
-4. Launch by double-clicking `IDE.app` (or `open /Users/<user>/Desktop/IDE.app`).
+   - `/Users/<user>/Desktop/codeC.app/Contents/MacOS/ide-launcher --print-config`
+4. Launch by double-clicking `codeC.app` (or `open /Users/<user>/Desktop/codeC.app`).
 4. Confirm:
    - app opens successfully
    - UI font renders correctly
@@ -67,3 +67,23 @@ Launcher diagnostics:
 - startup logs append to `~/Library/Logs/IDE/launcher.log` (fallback: `${TMPDIR}/ide-launcher.log`)
 
 At runtime, IDE path resolution still supports explicit overrides (for debugging/development).
+
+## Release Distribution Flow
+
+Developer ID + notarized distribution lane:
+
+```sh
+make release-contract
+make release-bundle-audit
+make release-verify-signed APPLE_SIGN_IDENTITY="Developer ID Application: <Name> (<TEAMID>)"
+make release-notarize APPLE_SIGN_IDENTITY="Developer ID Application: <Name> (<TEAMID>)" APPLE_NOTARY_PROFILE="<profile>"
+make release-staple
+make release-verify-notarized
+make release-artifact
+```
+
+One-shot lane:
+
+```sh
+make release-distribute APPLE_SIGN_IDENTITY="Developer ID Application: <Name> (<TEAMID>)" APPLE_NOTARY_PROFILE="<profile>"
+```
