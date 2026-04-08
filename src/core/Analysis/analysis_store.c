@@ -64,6 +64,34 @@ static DiagnosticSeverity map_severity(DiagKind kind) {
     }
 }
 
+static DiagnosticCategory map_category(int category_id) {
+    switch (category_id) {
+        case FISICS_DIAG_CATEGORY_ANALYSIS: return DIAG_CATEGORY_ANALYSIS;
+        case FISICS_DIAG_CATEGORY_PARSER: return DIAG_CATEGORY_PARSER;
+        case FISICS_DIAG_CATEGORY_SEMANTIC: return DIAG_CATEGORY_SEMANTIC;
+        case FISICS_DIAG_CATEGORY_PREPROCESSOR: return DIAG_CATEGORY_PREPROCESSOR;
+        case FISICS_DIAG_CATEGORY_LEXER: return DIAG_CATEGORY_LEXER;
+        case FISICS_DIAG_CATEGORY_CODEGEN: return DIAG_CATEGORY_CODEGEN;
+        case FISICS_DIAG_CATEGORY_BUILD: return DIAG_CATEGORY_BUILD;
+        case FISICS_DIAG_CATEGORY_UNKNOWN:
+        default: return DIAG_CATEGORY_UNKNOWN;
+    }
+}
+
+static int map_fisics_category(DiagnosticCategory category) {
+    switch (category) {
+        case DIAG_CATEGORY_ANALYSIS: return FISICS_DIAG_CATEGORY_ANALYSIS;
+        case DIAG_CATEGORY_PARSER: return FISICS_DIAG_CATEGORY_PARSER;
+        case DIAG_CATEGORY_SEMANTIC: return FISICS_DIAG_CATEGORY_SEMANTIC;
+        case DIAG_CATEGORY_PREPROCESSOR: return FISICS_DIAG_CATEGORY_PREPROCESSOR;
+        case DIAG_CATEGORY_LEXER: return FISICS_DIAG_CATEGORY_LEXER;
+        case DIAG_CATEGORY_CODEGEN: return FISICS_DIAG_CATEGORY_CODEGEN;
+        case DIAG_CATEGORY_BUILD: return FISICS_DIAG_CATEGORY_BUILD;
+        case DIAG_CATEGORY_UNKNOWN:
+        default: return FISICS_DIAG_CATEGORY_UNKNOWN;
+    }
+}
+
 static void analysis_store_upsert_locked(const char* filePath,
                                          const FisicsDiagnostic* fisicsDiags,
                                          size_t diagCount) {
@@ -113,6 +141,8 @@ static void analysis_store_upsert_locked(const char* filePath,
                               : "(no message)";
             entry.diags[i].message = strdup(msg);
             entry.diags[i].severity = map_severity(fisicsDiags[i].kind);
+            entry.diags[i].category = map_category(fisicsDiags[i].category_id);
+            entry.diags[i].codeId = fisicsDiags[i].code_id;
         }
     }
 
@@ -192,11 +222,13 @@ static void analysis_store_flatten_to_engine_locked(void) {
     for (size_t i = 0; i < g_file_count; ++i) {
         AnalysisFileDiagnostics* f = &g_files[i];
         for (int d = 0; d < f->count; ++d) {
-            addDiagnostic(f->diags[d].filePath ? f->diags[d].filePath : f->path,
-                          f->diags[d].line,
-                          f->diags[d].column,
-                          f->diags[d].message ? f->diags[d].message : "(no message)",
-                          f->diags[d].severity);
+            addDiagnosticWithMeta(f->diags[d].filePath ? f->diags[d].filePath : f->path,
+                                  f->diags[d].line,
+                                  f->diags[d].column,
+                                  f->diags[d].message ? f->diags[d].message : "(no message)",
+                                  f->diags[d].severity,
+                                  f->diags[d].category,
+                                  f->diags[d].codeId);
         }
     }
 }
@@ -241,6 +273,8 @@ void analysis_store_save(const char* workspaceRoot) {
             json_object_object_add(jd, "line", json_object_new_int(f->diags[d].line));
             json_object_object_add(jd, "col", json_object_new_int(f->diags[d].column));
             json_object_object_add(jd, "severity", json_object_new_int(f->diags[d].severity));
+            json_object_object_add(jd, "category", json_object_new_int((int)f->diags[d].category));
+            json_object_object_add(jd, "code_id", json_object_new_int(f->diags[d].codeId));
             json_object_object_add(jd, "message", json_object_new_string(f->diags[d].message ? f->diags[d].message : ""));
             json_object_array_add(diags, jd);
         }
@@ -319,10 +353,12 @@ void analysis_store_load(const char* workspaceRoot) {
         for (size_t d = 0; d < dcount; ++d) {
             json_object* jd = json_object_array_get_idx(jdiags, d);
             if (!jd) continue;
-            json_object* jline=NULL,* jcol=NULL,* jsev=NULL,* jmsg=NULL;
+            json_object* jline=NULL,* jcol=NULL,* jsev=NULL,* jmsg=NULL,* jcat=NULL,* jcode=NULL;
             json_object_object_get_ex(jd, "line", &jline);
             json_object_object_get_ex(jd, "col", &jcol);
             json_object_object_get_ex(jd, "severity", &jsev);
+            json_object_object_get_ex(jd, "category", &jcat);
+            json_object_object_get_ex(jd, "code_id", &jcode);
             json_object_object_get_ex(jd, "message", &jmsg);
             tmp[d].file_path = (char*)pathStr;
             tmp[d].line = jline ? json_object_get_int(jline) : 0;
@@ -331,6 +367,13 @@ void analysis_store_load(const char* workspaceRoot) {
             tmp[d].kind = (sev == DIAG_SEVERITY_WARNING) ? DIAG_WARNING
                        : (sev == DIAG_SEVERITY_INFO) ? DIAG_NOTE
                        : DIAG_ERROR;
+            tmp[d].severity_id = (sev == DIAG_SEVERITY_WARNING) ? FISICS_DIAG_SEVERITY_WARNING
+                               : (sev == DIAG_SEVERITY_INFO) ? FISICS_DIAG_SEVERITY_INFO
+                               : FISICS_DIAG_SEVERITY_ERROR;
+            tmp[d].category_id = map_fisics_category(
+                jcat ? (DiagnosticCategory)json_object_get_int(jcat) : DIAG_CATEGORY_UNKNOWN);
+            tmp[d].code_id = jcode ? json_object_get_int(jcode) : 0;
+            tmp[d].code = tmp[d].code_id;
             if (jmsg) {
                 const char* m = json_object_get_string(jmsg);
                 tmp[d].message = m ? strdup(m) : NULL;

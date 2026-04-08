@@ -67,6 +67,8 @@ static bool g_update_library_index = false;
 static int g_analysis_progress_total = 0;
 static int g_analysis_progress_done = 0;
 static bool g_contract_warning_emitted = false;
+static bool g_symbol_capability_warning_emitted = false;
+static bool g_token_capability_warning_emitted = false;
 static bool g_parent_link_warning_emitted = false;
 
 static bool should_suppress_frontend_stderr(void) {
@@ -300,11 +302,39 @@ static void analyze_file_with_active_flags(const char* file_path) {
             g_parent_link_warning_emitted = true;
         }
     }
+    if (!degraded_contract && !g_symbol_capability_warning_emitted) {
+        char capability_warning[256];
+        if (fisics_contract_should_warn_missing_capability(&res,
+                                                           FISICS_CONTRACT_CAP_SYMBOLS,
+                                                           "symbols",
+                                                           capability_warning,
+                                                           sizeof(capability_warning))) {
+            fprintf(stderr,
+                    "[analysis] capability gate: %s\n",
+                    capability_warning[0] ? capability_warning : "symbols capability missing");
+            g_symbol_capability_warning_emitted = true;
+        }
+    }
+    if (!degraded_contract && !g_token_capability_warning_emitted) {
+        char capability_warning[256];
+        if (fisics_contract_should_warn_missing_capability(&res,
+                                                           FISICS_CONTRACT_CAP_TOKENS,
+                                                           "tokens",
+                                                           capability_warning,
+                                                           sizeof(capability_warning))) {
+            fprintf(stderr,
+                    "[analysis] capability gate: %s\n",
+                    capability_warning[0] ? capability_warning : "tokens capability missing");
+            g_token_capability_warning_emitted = true;
+        }
+    }
 
-    const FisicsSymbol* symbols = degraded_contract ? NULL : res.symbols;
-    size_t symbol_count = degraded_contract ? 0u : res.symbol_count;
-    const FisicsTokenSpan* tokens = degraded_contract ? NULL : res.tokens;
-    size_t token_count = degraded_contract ? 0u : res.token_count;
+    const bool symbols_enabled = fisics_contract_symbols_enabled(&res, degraded_contract);
+    const bool tokens_enabled = fisics_contract_tokens_enabled(&res, degraded_contract);
+    const FisicsSymbol* symbols = symbols_enabled ? res.symbols : NULL;
+    size_t symbol_count = symbols_enabled ? res.symbol_count : 0u;
+    const FisicsTokenSpan* tokens = tokens_enabled ? res.tokens : NULL;
+    size_t token_count = tokens_enabled ? res.token_count : 0u;
 
     analysis_store_upsert(file_path, res.diagnostics, res.diag_count);
     analysis_symbols_store_upsert(file_path, symbols, symbol_count);
@@ -407,6 +437,8 @@ void analysis_scan_workspace(const char* root) {
     if (!root || !*root) return;
     analysis_store_clear();
     g_contract_warning_emitted = false;
+    g_symbol_capability_warning_emitted = false;
+    g_token_capability_warning_emitted = false;
     g_parent_link_warning_emitted = false;
     g_analysis_progress_total = count_scannable_files_in_dir(root);
     g_analysis_progress_done = 0;
@@ -429,6 +461,8 @@ void analysis_scan_workspace_with_flags(const char* root, const BuildFlagSet* fl
     analysis_store_clear();
     include_graph_clear();
     g_contract_warning_emitted = false;
+    g_symbol_capability_warning_emitted = false;
+    g_token_capability_warning_emitted = false;
     g_parent_link_warning_emitted = false;
     g_analysis_progress_total = count_scannable_files_in_dir(root);
     g_analysis_progress_done = 0;
@@ -460,6 +494,8 @@ void analysis_scan_files_with_flags(const char* root,
     g_activeWorkspaceRoot = root;
     g_update_library_index = true;
     g_contract_warning_emitted = false;
+    g_symbol_capability_warning_emitted = false;
+    g_token_capability_warning_emitted = false;
     g_parent_link_warning_emitted = false;
     g_analysis_progress_total = count_scannable_files_in_list(files, file_count);
     g_analysis_progress_done = 0;

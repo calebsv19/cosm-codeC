@@ -19,3 +19,7 @@ Current security posture:
 Contract lane note:
 
 - `symbols` IPC responses include stable identity fields (`stable_id`) and, for contract `1.2.x` producers, additive ownership link identity (`parent_stable_id`).
+- `diagnostics` IPC responses preserve additive taxonomy metadata for contract `1.3.x` producers:
+  - `severity_id`, `category_id`, `code_id`
+  - legacy fields remain present for backward compatibility consumers
+- For contract `1.4.x`, optional IPC analysis lanes (for example symbols/tokens) are gated by producer-advertised contract capability flags.

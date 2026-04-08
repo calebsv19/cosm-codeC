@@ -268,8 +268,15 @@ int main(void) {
              "%s",
              IDE_FISICS_CONTRACT_ID);
     fallback_result.contract.contract_major = 1;
-    fallback_result.contract.contract_minor = 2;
+    fallback_result.contract.contract_minor = 4;
     fallback_result.contract.contract_patch = 0;
+    fallback_result.contract.capabilities =
+        FISICS_CONTRACT_CAP_DIAGNOSTICS |
+        FISICS_CONTRACT_CAP_INCLUDES |
+        FISICS_CONTRACT_CAP_SYMBOLS |
+        FISICS_CONTRACT_CAP_TOKENS |
+        FISICS_CONTRACT_CAP_SYMBOL_PARENT_STABLE_ID |
+        FISICS_CONTRACT_CAP_DIAGNOSTIC_TAXONOMY;
     fallback_result.symbols = &fallback_symbol;
     fallback_result.symbol_count = 1;
 
@@ -285,6 +292,25 @@ int main(void) {
                                                          fallback_warning,
                                                          sizeof(fallback_warning))) {
         fprintf(stderr, "unexpected parent link fallback warning when parent_stable_id present\n");
+        return 1;
+    }
+
+    fallback_result.contract.capabilities &= ~FISICS_CONTRACT_CAP_SYMBOLS;
+    if (!fisics_contract_should_warn_missing_capability(&fallback_result,
+                                                        FISICS_CONTRACT_CAP_SYMBOLS,
+                                                        "symbols",
+                                                        fallback_warning,
+                                                        sizeof(fallback_warning))) {
+        fprintf(stderr, "expected missing symbols capability warning for contract 1.4+\n");
+        return 1;
+    }
+    fallback_result.contract.capabilities |= FISICS_CONTRACT_CAP_SYMBOLS;
+    if (fisics_contract_should_warn_missing_capability(&fallback_result,
+                                                       FISICS_CONTRACT_CAP_SYMBOLS,
+                                                       "symbols",
+                                                       fallback_warning,
+                                                       sizeof(fallback_warning))) {
+        fprintf(stderr, "unexpected symbols capability warning when capability present\n");
         return 1;
     }
 

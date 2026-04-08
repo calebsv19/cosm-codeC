@@ -536,7 +536,13 @@ static json_object* build_diag_result(json_object* args, const char* project_roo
         json_object_object_add(d, "endLine", json_object_new_int(dg->line));
         json_object_object_add(d, "endCol", json_object_new_int(dg->column + 1));
         json_object_object_add(d, "message", json_object_new_string(dg->message ? dg->message : ""));
-        add_diag_taxonomy_fields(d, sev, "analysis", "", 0);
+        char code_text[32];
+        snprintf(code_text, sizeof(code_text), "%d", dg->codeId);
+        add_diag_taxonomy_fields(d,
+                                 sev,
+                                 diagnostic_category_name(dg->category),
+                                 dg->codeId ? code_text : "",
+                                 dg->codeId);
         json_object_object_add(d, "source", json_object_new_string("analysis"));
         json_object_array_add(arr, d);
         returned++;

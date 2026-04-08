@@ -34,6 +34,8 @@ typedef struct {
 static TokenCache g_tokens = {0};
 static SymbolCache g_symbols = {0};
 static bool g_contract_warning_emitted = false;
+static bool g_symbol_capability_warning_emitted = false;
+static bool g_token_capability_warning_emitted = false;
 static bool g_parent_link_warning_emitted = false;
 
 static LibraryBucketKind map_origin(FisicsIncludeOrigin origin) {
@@ -206,11 +208,39 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
             g_parent_link_warning_emitted = true;
         }
     }
+    if (!degraded_contract && !g_symbol_capability_warning_emitted) {
+        char capability_warning[256];
+        if (fisics_contract_should_warn_missing_capability(&result,
+                                                           FISICS_CONTRACT_CAP_SYMBOLS,
+                                                           "symbols",
+                                                           capability_warning,
+                                                           sizeof(capability_warning))) {
+            fprintf(stderr,
+                    "[analysis] capability gate: %s\n",
+                    capability_warning[0] ? capability_warning : "symbols capability missing");
+            g_symbol_capability_warning_emitted = true;
+        }
+    }
+    if (!degraded_contract && !g_token_capability_warning_emitted) {
+        char capability_warning[256];
+        if (fisics_contract_should_warn_missing_capability(&result,
+                                                           FISICS_CONTRACT_CAP_TOKENS,
+                                                           "tokens",
+                                                           capability_warning,
+                                                           sizeof(capability_warning))) {
+            fprintf(stderr,
+                    "[analysis] capability gate: %s\n",
+                    capability_warning[0] ? capability_warning : "tokens capability missing");
+            g_token_capability_warning_emitted = true;
+        }
+    }
 
-    const FisicsSymbol* symbols = degraded_contract ? NULL : result.symbols;
-    size_t symbol_count = degraded_contract ? 0u : result.symbol_count;
-    const FisicsTokenSpan* tokens = degraded_contract ? NULL : result.tokens;
-    size_t token_count = degraded_contract ? 0u : result.token_count;
+    const bool symbols_enabled = fisics_contract_symbols_enabled(&result, degraded_contract);
+    const bool tokens_enabled = fisics_contract_tokens_enabled(&result, degraded_contract);
+    const FisicsSymbol* symbols = symbols_enabled ? result.symbols : NULL;
+    size_t symbol_count = symbols_enabled ? result.symbol_count : 0u;
+    const FisicsTokenSpan* tokens = tokens_enabled ? result.tokens : NULL;
+    size_t token_count = tokens_enabled ? result.token_count : 0u;
 
     analysis_store_upsert(filePath, result.diagnostics, result.diag_count);
     analysis_symbols_store_upsert(filePath, symbols, symbol_count);

@@ -10,6 +10,20 @@
 static Diagnostic diagnostics[MAX_DIAGNOSTICS];
 static int diagnosticCount = 0;
 
+const char* diagnostic_category_name(DiagnosticCategory category) {
+    switch (category) {
+        case DIAG_CATEGORY_BUILD: return "build";
+        case DIAG_CATEGORY_ANALYSIS: return "analysis";
+        case DIAG_CATEGORY_PARSER: return "parser";
+        case DIAG_CATEGORY_SEMANTIC: return "semantic";
+        case DIAG_CATEGORY_PREPROCESSOR: return "preprocessor";
+        case DIAG_CATEGORY_LEXER: return "lexer";
+        case DIAG_CATEGORY_CODEGEN: return "codegen";
+        case DIAG_CATEGORY_UNKNOWN:
+        default: return "unknown";
+    }
+}
+
 void initDiagnosticsEngine() {
     diagnosticCount = 0;
 }
@@ -19,6 +33,16 @@ void clearDiagnostics() {
 }
 
 void addDiagnostic(const char* file, int line, int col, const char* msg, DiagnosticSeverity severity) {
+    addDiagnosticWithMeta(file, line, col, msg, severity, DIAG_CATEGORY_UNKNOWN, 0);
+}
+
+void addDiagnosticWithMeta(const char* file,
+                           int line,
+                           int col,
+                           const char* msg,
+                           DiagnosticSeverity severity,
+                           DiagnosticCategory category,
+                           int codeId) {
     if (diagnosticCount >= MAX_DIAGNOSTICS) return;
 
     diagnostics[diagnosticCount].filePath = strdup(file);
@@ -26,6 +50,8 @@ void addDiagnostic(const char* file, int line, int col, const char* msg, Diagnos
     diagnostics[diagnosticCount].column = col;
     diagnostics[diagnosticCount].message = strdup(msg);
     diagnostics[diagnosticCount].severity = severity;
+    diagnostics[diagnosticCount].category = category;
+    diagnostics[diagnosticCount].codeId = codeId;
 
     diagnosticCount++;
 }
@@ -57,6 +83,8 @@ void diagnostics_save(const char* workspaceRoot) {
         json_object_object_add(obj, "line", json_object_new_int(d->line));
         json_object_object_add(obj, "col", json_object_new_int(d->column));
         json_object_object_add(obj, "severity", json_object_new_int(d->severity));
+        json_object_object_add(obj, "category", json_object_new_int((int)d->category));
+        json_object_object_add(obj, "code_id", json_object_new_int(d->codeId));
         json_object_object_add(obj, "message", json_object_new_string(d->message ? d->message : ""));
         json_object_array_add(arr, obj);
     }
@@ -110,17 +138,23 @@ void diagnostics_load(const char* workspaceRoot) {
         json_object* jline = NULL;
         json_object* jcol = NULL;
         json_object* jsev = NULL;
+        json_object* jcat = NULL;
+        json_object* jcode = NULL;
         json_object* jmsg = NULL;
         if (json_object_object_get_ex(obj, "file", &jfile) &&
             json_object_object_get_ex(obj, "line", &jline) &&
             json_object_object_get_ex(obj, "col", &jcol) &&
             json_object_object_get_ex(obj, "severity", &jsev) &&
             json_object_object_get_ex(obj, "message", &jmsg)) {
-            addDiagnostic(json_object_get_string(jfile),
-                          json_object_get_int(jline),
-                          json_object_get_int(jcol),
-                          json_object_get_string(jmsg),
-                          (DiagnosticSeverity)json_object_get_int(jsev));
+            json_object_object_get_ex(obj, "category", &jcat);
+            json_object_object_get_ex(obj, "code_id", &jcode);
+            addDiagnosticWithMeta(json_object_get_string(jfile),
+                                  json_object_get_int(jline),
+                                  json_object_get_int(jcol),
+                                  json_object_get_string(jmsg),
+                                  (DiagnosticSeverity)json_object_get_int(jsev),
+                                  jcat ? (DiagnosticCategory)json_object_get_int(jcat) : DIAG_CATEGORY_UNKNOWN,
+                                  jcode ? json_object_get_int(jcode) : 0);
         }
     }
     json_object_put(root);

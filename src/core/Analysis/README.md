@@ -36,3 +36,11 @@ Contract boundary note:
 - For contract `1.2.x`, symbol graph ownership can include `parent_stable_id`:
   - when present, IDE should prefer it for parent/owner linkage
   - when missing, IDE stays in normal mode and logs a one-time fallback warning while using name/kind ownership matching
+- For contract `1.3.x`, diagnostics include additive taxonomy identity metadata:
+  - `severity_id` (stable enum lane: info/warning/error)
+  - `category_id` (stable enum lane: analysis/parser/semantic/preprocessor/lexer/codegen/build)
+  - `code_id` (stable numeric identity, mirrors diagnostic `code`)
+  - when missing, IDE degrades safely to legacy `kind` + textual/category heuristics
+- For contract `1.4.x`, producers advertise explicit `capabilities` flags:
+  - IDE gates optional lanes (for example symbols/tokens) from advertised flags instead of relying only on inferred minor-version behavior.
+  - Missing optional capabilities do not force full degraded mode; incompatible contract id/major still does.
