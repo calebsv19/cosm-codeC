@@ -17,6 +17,7 @@
 #include "core/Analysis/include_path_resolver.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/fisics_frontend_guard.h"
+#include "core/Analysis/fisics_contract_validation.h"
 #include "core/Analysis/analysis_job.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 
@@ -65,6 +66,8 @@ static const char* g_activeWorkspaceRoot = NULL;
 static bool g_update_library_index = false;
 static int g_analysis_progress_total = 0;
 static int g_analysis_progress_done = 0;
+static bool g_contract_warning_emitted = false;
+static bool g_parent_link_warning_emitted = false;
 
 static bool should_suppress_frontend_stderr(void) {
     return !analysis_frontend_logs_enabled();
@@ -278,9 +281,34 @@ static void analyze_file_with_active_flags(const char* file_path) {
         return;
     }
 
+    char contract_warning[256];
+    bool degraded_contract = fisics_contract_should_degrade(&res, contract_warning, sizeof(contract_warning));
+    if (degraded_contract && !g_contract_warning_emitted) {
+        fprintf(stderr,
+                "[analysis] degraded contract mode enabled: %s\n",
+                contract_warning[0] ? contract_warning : "unknown contract mismatch");
+        g_contract_warning_emitted = true;
+    }
+    if (!degraded_contract && !g_parent_link_warning_emitted) {
+        char parent_link_warning[256];
+        if (fisics_contract_should_warn_parent_link_fallback(&res,
+                                                             parent_link_warning,
+                                                             sizeof(parent_link_warning))) {
+            fprintf(stderr,
+                    "[analysis] symbol graph fallback: %s\n",
+                    parent_link_warning[0] ? parent_link_warning : "missing parent_stable_id");
+            g_parent_link_warning_emitted = true;
+        }
+    }
+
+    const FisicsSymbol* symbols = degraded_contract ? NULL : res.symbols;
+    size_t symbol_count = degraded_contract ? 0u : res.symbol_count;
+    const FisicsTokenSpan* tokens = degraded_contract ? NULL : res.tokens;
+    size_t token_count = degraded_contract ? 0u : res.token_count;
+
     analysis_store_upsert(file_path, res.diagnostics, res.diag_count);
-    analysis_symbols_store_upsert(file_path, res.symbols, res.symbol_count);
-    analysis_token_store_upsert(file_path, res.tokens, res.token_count);
+    analysis_symbols_store_upsert(file_path, symbols, symbol_count);
+    analysis_token_store_upsert(file_path, tokens, token_count);
     include_graph_replace_from_result(file_path, res.includes, res.include_count, g_activeWorkspaceRoot);
     if (g_update_library_index) {
         library_index_remove_source(file_path);
@@ -299,6 +327,9 @@ static void analyze_file_with_active_flags(const char* file_path) {
         }
     }
 
+    size_t diag_count = res.diag_count;
+    size_t log_symbol_count = symbol_count;
+    size_t include_count = res.include_count;
     fisics_free_analysis_result(&res);
     free(buf);
 
@@ -309,9 +340,9 @@ static void analyze_file_with_active_flags(const char* file_path) {
                g_analysis_progress_done,
                file_path,
                ok ? "ok" : "failed",
-               res.diag_count,
-               res.symbol_count,
-               res.include_count);
+               diag_count,
+               log_symbol_count,
+               include_count);
     }
     analysis_job_maybe_throttle();
 }
@@ -375,6 +406,8 @@ static void scan_dir(const char* root) {
 void analysis_scan_workspace(const char* root) {
     if (!root || !*root) return;
     analysis_store_clear();
+    g_contract_warning_emitted = false;
+    g_parent_link_warning_emitted = false;
     g_analysis_progress_total = count_scannable_files_in_dir(root);
     g_analysis_progress_done = 0;
     analysis_job_report_progress(0, g_analysis_progress_total);
@@ -395,6 +428,8 @@ void analysis_scan_workspace_with_flags(const char* root, const BuildFlagSet* fl
     if (!root || !*root || !flags) return;
     analysis_store_clear();
     include_graph_clear();
+    g_contract_warning_emitted = false;
+    g_parent_link_warning_emitted = false;
     g_analysis_progress_total = count_scannable_files_in_dir(root);
     g_analysis_progress_done = 0;
     analysis_job_report_progress(0, g_analysis_progress_total);
@@ -424,6 +459,8 @@ void analysis_scan_files_with_flags(const char* root,
     g_activeFlags = flags;
     g_activeWorkspaceRoot = root;
     g_update_library_index = true;
+    g_contract_warning_emitted = false;
+    g_parent_link_warning_emitted = false;
     g_analysis_progress_total = count_scannable_files_in_list(files, file_count);
     g_analysis_progress_done = 0;
     analysis_job_report_progress(0, g_analysis_progress_total);

@@ -19,8 +19,20 @@ metadata that powers diagnostics, symbols, tokens, and the Libraries panel.
 | `library_index.*` + `library_index_build.c` | Builds the library/include usage index shown in the Libraries panel. |
 | `project_scan.*` | Performs full or incremental scans across the workspace. |
 | `fisics_bridge.*` | Bridges the IDE to the Fisics frontend for actual analysis passes. |
+| `fisics_contract_validation.h` | Validates compiler contract id/version metadata and triggers degraded-mode safeguards when incompatible payloads are seen. |
 | `fisics_frontend_guard.*` | Serializes access to the frontend so concurrent callers do not corrupt shared state. |
 
 Artifacts are persisted under `<workspace>/ide_files/`. On startup the IDE
 loads whatever still matches the current workspace/build fingerprint, then
 schedules a fresh analysis pass to reconcile the cache with disk.
+
+Contract boundary note:
+
+- The IDE consumes `fisiCs` analysis data through a versioned contract lane (`fisiCs.analysis.contract`).
+- When contract major compatibility fails, IDE analysis ingestion enters degraded mode:
+  - diagnostics/includes are still consumed
+  - symbols/tokens are dropped for safety
+  - a warning is emitted
+- For contract `1.2.x`, symbol graph ownership can include `parent_stable_id`:
+  - when present, IDE should prefer it for parent/owner linkage
+  - when missing, IDE stays in normal mode and logs a one-time fallback warning while using name/kind ownership matching

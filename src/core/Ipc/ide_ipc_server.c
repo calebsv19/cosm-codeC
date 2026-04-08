@@ -2,6 +2,7 @@
 #include "core/BuildSystem/build_diagnostics.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/Analysis/analysis_symbols_store.h"
+#include "core/Analysis/analysis_token_store.h"
 #include "core/Analysis/library_index.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "core/Ipc/ide_ipc_edit_apply.h"
@@ -391,6 +392,26 @@ static const char* symbol_kind_name(FisicsSymbolKind kind) {
     }
 }
 
+static const char* token_kind_name(FisicsTokenKind kind) {
+    switch (kind) {
+        case FISICS_TOK_IDENTIFIER: return "identifier";
+        case FISICS_TOK_KEYWORD: return "keyword";
+        case FISICS_TOK_NUMBER: return "number";
+        case FISICS_TOK_STRING: return "string";
+        case FISICS_TOK_CHAR: return "char";
+        case FISICS_TOK_OPERATOR: return "operator";
+        case FISICS_TOK_PUNCT: return "punct";
+        case FISICS_TOK_COMMENT: return "comment";
+        case FISICS_TOK_WHITESPACE: return "whitespace";
+        default: return "unknown";
+    }
+}
+
+static void symbol_stable_id_hex(uint64_t value, char out[19]) {
+    if (!out) return;
+    snprintf(out, 19, "0x%016llx", (unsigned long long)value);
+}
+
 static const char* normalize_or_project_path(const char* input,
                                              const char* project_root,
                                              char* out,
@@ -409,6 +430,44 @@ static const char* normalize_or_project_path(const char* input,
 static bool symbol_is_top_level(const FisicsSymbol* sym) {
     if (!sym) return false;
     return (!sym->parent_name || !sym->parent_name[0]);
+}
+
+typedef enum {
+    DIAG_TAXONOMY_INFO = 0,
+    DIAG_TAXONOMY_WARNING = 1,
+    DIAG_TAXONOMY_ERROR = 2
+} DiagTaxonomySeverity;
+
+static const char* diag_severity_legacy_name(DiagTaxonomySeverity sev) {
+    switch (sev) {
+        case DIAG_TAXONOMY_ERROR: return "error";
+        case DIAG_TAXONOMY_WARNING: return "warn";
+        default: return "info";
+    }
+}
+
+static const char* diag_severity_normalized_name(DiagTaxonomySeverity sev) {
+    switch (sev) {
+        case DIAG_TAXONOMY_ERROR: return "error";
+        case DIAG_TAXONOMY_WARNING: return "warning";
+        default: return "info";
+    }
+}
+
+static void add_diag_taxonomy_fields(json_object* d,
+                                     DiagTaxonomySeverity sev,
+                                     const char* category,
+                                     const char* code_text,
+                                     int code_id) {
+    if (!d) return;
+    const char* safe_category = (category && category[0]) ? category : "unknown";
+    const char* safe_code = (code_text && code_text[0]) ? code_text : "";
+    json_object_object_add(d, "severity", json_object_new_string(diag_severity_legacy_name(sev)));
+    json_object_object_add(d, "severity_name", json_object_new_string(diag_severity_normalized_name(sev)));
+    json_object_object_add(d, "severity_id", json_object_new_int((int)sev));
+    json_object_object_add(d, "category", json_object_new_string(safe_category));
+    json_object_object_add(d, "code", json_object_new_string(safe_code));
+    json_object_object_add(d, "code_id", json_object_new_int(code_id));
 }
 
 static json_object* build_diag_result(json_object* args, const char* project_root) {
@@ -446,9 +505,12 @@ static json_object* build_diag_result(json_object* args, const char* project_roo
         json_object_object_add(d, "col", json_object_new_int(build[i].col));
         json_object_object_add(d, "endLine", json_object_new_int(build[i].line));
         json_object_object_add(d, "endCol", json_object_new_int(build[i].col + 1));
-        json_object_object_add(d, "severity", json_object_new_string(build[i].isError ? "error" : "warn"));
         json_object_object_add(d, "message", json_object_new_string(build[i].message));
-        json_object_object_add(d, "code", json_object_new_string(""));
+        add_diag_taxonomy_fields(d,
+                                 build[i].isError ? DIAG_TAXONOMY_ERROR : DIAG_TAXONOMY_WARNING,
+                                 "build",
+                                 "",
+                                 0);
         json_object_object_add(d, "source", json_object_new_string("build"));
         json_object_array_add(arr, d);
         returned++;
@@ -464,18 +526,17 @@ static json_object* build_diag_result(json_object* args, const char* project_roo
         else info++;
 
         if (max_items >= 0 && returned >= max_items) continue;
-        const char* sev = "info";
-        if (dg->severity == DIAG_SEVERITY_ERROR) sev = "error";
-        else if (dg->severity == DIAG_SEVERITY_WARNING) sev = "warn";
+        DiagTaxonomySeverity sev = DIAG_TAXONOMY_INFO;
+        if (dg->severity == DIAG_SEVERITY_ERROR) sev = DIAG_TAXONOMY_ERROR;
+        else if (dg->severity == DIAG_SEVERITY_WARNING) sev = DIAG_TAXONOMY_WARNING;
         json_object* d = json_object_new_object();
         json_object_object_add(d, "file", json_object_new_string(dg->filePath ? dg->filePath : ""));
         json_object_object_add(d, "line", json_object_new_int(dg->line));
         json_object_object_add(d, "col", json_object_new_int(dg->column));
         json_object_object_add(d, "endLine", json_object_new_int(dg->line));
         json_object_object_add(d, "endCol", json_object_new_int(dg->column + 1));
-        json_object_object_add(d, "severity", json_object_new_string(sev));
         json_object_object_add(d, "message", json_object_new_string(dg->message ? dg->message : ""));
-        json_object_object_add(d, "code", json_object_new_string(""));
+        add_diag_taxonomy_fields(d, sev, "analysis", "", 0);
         json_object_object_add(d, "source", json_object_new_string("analysis"));
         json_object_array_add(arr, d);
         returned++;
@@ -541,6 +602,12 @@ static json_object* build_symbol_result(json_object* args, const char* project_r
             json_object_object_add(s, "kind", json_object_new_string(symbol_kind_name(sym->kind)));
             json_object_object_add(s, "kind_id", json_object_new_int((int)sym->kind));
             json_object_object_add(s, "name", json_object_new_string(sym->name ? sym->name : ""));
+            char stable_id_hex[19];
+            symbol_stable_id_hex(sym->stable_id, stable_id_hex);
+            json_object_object_add(s, "stable_id", json_object_new_string(stable_id_hex));
+            char parent_stable_id_hex[19];
+            symbol_stable_id_hex(sym->parent_stable_id, parent_stable_id_hex);
+            json_object_object_add(s, "parent_stable_id", json_object_new_string(parent_stable_id_hex));
             json_object_object_add(s, "file", json_object_new_string(sym->file_path ? sym->file_path :
                                                                      (file_entry->path ? file_entry->path : "")));
             json_object_object_add(s, "start_line", json_object_new_int(sym->start_line));
@@ -580,6 +647,58 @@ static json_object* build_symbol_result(json_object* args, const char* project_r
     analysis_symbols_store_unlock();
 
     json_object_object_add(result, "symbols", arr);
+    json_object_object_add(result, "total_count", json_object_new_int(total));
+    json_object_object_add(result, "returned_count", json_object_new_int(returned));
+    json_object_object_add(result, "truncated", json_object_new_boolean(max_items >= 0 && returned < total));
+    return result;
+}
+
+static json_object* build_token_result(json_object* args, const char* project_root) {
+    int max_items = -1;
+    char file_filter[1024] = {0};
+    if (args) {
+        json_object* jmax = NULL;
+        json_object* jfile = NULL;
+        if (json_object_object_get_ex(args, "max", &jmax) &&
+            jmax && json_object_is_type(jmax, json_type_int)) {
+            max_items = json_object_get_int(jmax);
+            if (max_items < 0) max_items = -1;
+        }
+        if (json_object_object_get_ex(args, "file", &jfile) &&
+            jfile && json_object_is_type(jfile, json_type_string)) {
+            normalize_or_project_path(json_object_get_string(jfile), project_root, file_filter, sizeof(file_filter));
+        }
+    }
+
+    json_object* result = json_object_new_object();
+    json_object* arr = json_object_new_array();
+
+    int total = 0;
+    int returned = 0;
+    size_t file_count = analysis_token_store_file_count();
+    for (size_t fi = 0; fi < file_count; ++fi) {
+        const AnalysisFileTokens* file_entry = analysis_token_store_file_at(fi);
+        if (!file_entry) continue;
+        const char* file_path = file_entry->path ? file_entry->path : "";
+        if (file_filter[0] && strcmp(file_path, file_filter) != 0) continue;
+        for (size_t ti = 0; ti < file_entry->count; ++ti) {
+            const FisicsTokenSpan* tok = &file_entry->spans[ti];
+            total++;
+            if (max_items >= 0 && returned >= max_items) continue;
+
+            json_object* t = json_object_new_object();
+            json_object_object_add(t, "file", json_object_new_string(file_path));
+            json_object_object_add(t, "line", json_object_new_int(tok->line));
+            json_object_object_add(t, "column", json_object_new_int(tok->column));
+            json_object_object_add(t, "length", json_object_new_int(tok->length));
+            json_object_object_add(t, "kind", json_object_new_string(token_kind_name(tok->kind)));
+            json_object_object_add(t, "kind_id", json_object_new_int((int)tok->kind));
+            json_object_array_add(arr, t);
+            returned++;
+        }
+    }
+
+    json_object_object_add(result, "tokens", arr);
     json_object_object_add(result, "total_count", json_object_new_int(total));
     json_object_object_add(result, "returned_count", json_object_new_int(returned));
     json_object_object_add(result, "truncated", json_object_new_boolean(max_items >= 0 && returned < total));
@@ -1704,6 +1823,13 @@ static char* handle_request_payload(const char* payload) {
         str_copy(project_root, sizeof(project_root), g_server.project_root);
         pthread_mutex_unlock(&g_server.lock);
         json_object* result = build_symbol_result(j_args, project_root);
+        out = build_response_json(req_id, true, result, NULL);
+    } else if (strcmp(cmd, "tokens") == 0) {
+        pthread_mutex_lock(&g_server.lock);
+        char project_root[sizeof(g_server.project_root)];
+        str_copy(project_root, sizeof(project_root), g_server.project_root);
+        pthread_mutex_unlock(&g_server.lock);
+        json_object* result = build_token_result(j_args, project_root);
         out = build_response_json(req_id, true, result, NULL);
     } else if (strcmp(cmd, "includes") == 0) {
         json_object* result = build_includes_result(j_args);

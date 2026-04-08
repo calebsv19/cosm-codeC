@@ -24,3 +24,8 @@ run target live in `~/.custom_c_ide/config.ini`.
 Workspace-local state is stored under `<workspace>/ide_files/`. That includes
 session data, tasks, build output, and the persisted analysis artifacts that
 the IDE warms on startup before scheduling a fresh analysis pass.
+
+The analysis lane consumes compiler output through the versioned
+`fisiCs.analysis.contract` boundary. When a contract-major mismatch is
+detected, the IDE degrades safely (diagnostics/includes remain available while
+symbol/token ingestion is suppressed).

@@ -2,6 +2,7 @@
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/BuildSystem/build_diagnostics.h"
 #include "core/Analysis/analysis_symbols_store.h"
+#include "core/Analysis/analysis_token_store.h"
 
 #include <json-c/json.h>
 #include <stdbool.h>
@@ -166,6 +167,7 @@ int main(void) {
     clearDiagnostics();
     build_diagnostics_clear();
     analysis_symbols_store_clear();
+    analysis_token_store_clear();
 
     addDiagnostic("/tmp/proj/src/a.c", 12, 4, "unused variable", DIAG_SEVERITY_WARNING);
     addDiagnostic("/tmp/proj/src/a.c", 19, 2, "null dereference", DIAG_SEVERITY_ERROR);
@@ -183,6 +185,7 @@ int main(void) {
     syms[0].end_col = 1;
     syms[0].kind = FISICS_SYMBOL_FUNCTION;
     syms[0].return_type = "int";
+    syms[0].stable_id = 0x1111111111111111ULL;
 
     syms[1].name = "field_a";
     syms[1].file_path = "/tmp/proj/src/a.c";
@@ -193,8 +196,20 @@ int main(void) {
     syms[1].kind = FISICS_SYMBOL_FIELD;
     syms[1].parent_name = "MyStruct";
     syms[1].parent_kind = FISICS_SYMBOL_STRUCT;
+    syms[1].stable_id = 0x2222222222222222ULL;
 
     analysis_symbols_store_upsert("/tmp/proj/src/a.c", syms, 2);
+    FisicsTokenSpan toks[2];
+    memset(toks, 0, sizeof(toks));
+    toks[0].line = 1;
+    toks[0].column = 1;
+    toks[0].length = 3;
+    toks[0].kind = FISICS_TOK_IDENTIFIER;
+    toks[1].line = 1;
+    toks[1].column = 5;
+    toks[1].length = 3;
+    toks[1].kind = FISICS_TOK_KEYWORD;
+    analysis_token_store_upsert("/tmp/proj/src/a.c", toks, 2);
 
     if (!ide_ipc_start("/tmp/proj")) {
         fprintf(stderr, "failed to start IPC server\n");
@@ -246,6 +261,93 @@ int main(void) {
         ide_ipc_stop();
         return 1;
     }
+    json_object* jdiags = NULL;
+    json_object_object_get_ex(result, "diagnostics", &jdiags);
+    if (!jdiags || !json_object_is_type(jdiags, json_type_array) || json_object_array_length(jdiags) != 2) {
+        fprintf(stderr, "diag diagnostics array mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* jdiag0 = json_object_array_get_idx(jdiags, 0);
+    json_object* jsev = NULL;
+    json_object* jsevName = NULL;
+    json_object* jsevId = NULL;
+    json_object* jcat = NULL;
+    json_object* jcodeId = NULL;
+    json_object_object_get_ex(jdiag0, "severity", &jsev);
+    json_object_object_get_ex(jdiag0, "severity_name", &jsevName);
+    json_object_object_get_ex(jdiag0, "severity_id", &jsevId);
+    json_object_object_get_ex(jdiag0, "category", &jcat);
+    json_object_object_get_ex(jdiag0, "code_id", &jcodeId);
+    const char* sev0 = jsev ? json_object_get_string(jsev) : NULL;
+    const char* sevName0 = jsevName ? json_object_get_string(jsevName) : NULL;
+    const char* cat0 = jcat ? json_object_get_string(jcat) : NULL;
+    if (!sev0 || !sevName0 || !cat0 || !jsevId || !jcodeId) {
+        fprintf(stderr, "diag taxonomy fields missing\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    if (strcmp(sev0, "warn") != 0 ||
+        strcmp(sevName0, "warning") != 0 ||
+        strcmp(cat0, "build") != 0 ||
+        json_object_get_int(jsevId) != 1 ||
+        json_object_get_int(jcodeId) != 0) {
+        fprintf(stderr, "diag taxonomy values mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object_put(root);
+
+    const char* tokens_req = "{\"id\":\"t1\",\"proto\":1,\"cmd\":\"tokens\",\"args\":{\"file\":\"src/a.c\",\"max\":1}}";
+    if (send_and_recv(socket_path, tokens_req, response, sizeof(response)) != 0) {
+        fprintf(stderr, "tokens request failed\n");
+        ide_ipc_stop();
+        return 1;
+    }
+    root = NULL;
+    if (expect_ok_with_result(response, &root) != 0) {
+        fprintf(stderr, "tokens response invalid: %s\n", response);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object_object_get_ex(root, "result", &result);
+    json_object_object_get_ex(result, "total_count", &j);
+    if (!j || json_object_get_int(j) != 2) {
+        fprintf(stderr, "tokens total_count mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object_object_get_ex(result, "returned_count", &j);
+    if (!j || json_object_get_int(j) != 1) {
+        fprintf(stderr, "tokens returned_count mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* jtokens = NULL;
+    json_object_object_get_ex(result, "tokens", &jtokens);
+    if (!jtokens || !json_object_is_type(jtokens, json_type_array) || json_object_array_length(jtokens) != 1) {
+        fprintf(stderr, "tokens array shape mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* jtok0 = json_object_array_get_idx(jtokens, 0);
+    json_object* jkind = NULL;
+    json_object* jkindId = NULL;
+    json_object_object_get_ex(jtok0, "kind", &jkind);
+    json_object_object_get_ex(jtok0, "kind_id", &jkindId);
+    const char* kind_name = jkind ? json_object_get_string(jkind) : NULL;
+    if (!kind_name || strcmp(kind_name, "identifier") != 0 || !jkindId || json_object_get_int(jkindId) != (int)FISICS_TOK_IDENTIFIER) {
+        fprintf(stderr, "tokens kind mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
     json_object_put(root);
 
     const char* symbols_req = "{\"id\":\"s1\",\"proto\":1,\"cmd\":\"symbols\",\"args\":{\"file\":\"src/a.c\",\"top_level_only\":true}}";
@@ -264,6 +366,32 @@ int main(void) {
     json_object_object_get_ex(result, "total_count", &j);
     if (!j || json_object_get_int(j) != 1) {
         fprintf(stderr, "symbols top_level_only mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* jreturned = NULL;
+    json_object_object_get_ex(result, "returned_count", &jreturned);
+    if (!jreturned || json_object_get_int(jreturned) != 1) {
+        fprintf(stderr, "symbols returned_count mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* jsyms = NULL;
+    json_object_object_get_ex(result, "symbols", &jsyms);
+    if (!jsyms || !json_object_is_type(jsyms, json_type_array) || json_object_array_length(jsyms) != 1) {
+        fprintf(stderr, "symbols array shape mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* jfirst = json_object_array_get_idx(jsyms, 0);
+    json_object* jstable = NULL;
+    json_object_object_get_ex(jfirst, "stable_id", &jstable);
+    const char* stable = jstable ? json_object_get_string(jstable) : NULL;
+    if (!stable || strcmp(stable, "0x1111111111111111") != 0) {
+        fprintf(stderr, "symbols stable_id mismatch\n");
         json_object_put(root);
         ide_ipc_stop();
         return 1;
@@ -327,6 +455,7 @@ int main(void) {
 
     ide_ipc_stop();
     analysis_symbols_store_clear();
+    analysis_token_store_clear();
 
     printf("idebridge_phase2_check: ok\n");
     return 0;

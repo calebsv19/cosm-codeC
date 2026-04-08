@@ -15,3 +15,7 @@ Current security posture:
 - supported platforms verify same-UID peer credentials on the Unix socket
 - patch application is confined to existing files under the active workspace
 - build execution now uses non-shell command handling rather than raw shell strings
+
+Contract lane note:
+
+- `symbols` IPC responses include stable identity fields (`stable_id`) and, for contract `1.2.x` producers, additive ownership link identity (`parent_stable_id`).

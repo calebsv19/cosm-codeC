@@ -11,6 +11,7 @@
 #include "core/Analysis/include_graph.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/fisics_frontend_guard.h"
+#include "core/Analysis/fisics_contract_validation.h"
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/Analysis/include_path_resolver.h"
@@ -32,6 +33,8 @@ typedef struct {
 
 static TokenCache g_tokens = {0};
 static SymbolCache g_symbols = {0};
+static bool g_contract_warning_emitted = false;
+static bool g_parent_link_warning_emitted = false;
 
 static LibraryBucketKind map_origin(FisicsIncludeOrigin origin) {
     switch (origin) {
@@ -184,9 +187,34 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
     fisics_frontend_guard_unlock();
     (void)ok; // ok may be false but still yield diagnostics
 
+    char contract_warning[256];
+    bool degraded_contract = fisics_contract_should_degrade(&result, contract_warning, sizeof(contract_warning));
+    if (degraded_contract && !g_contract_warning_emitted) {
+        fprintf(stderr,
+                "[analysis] degraded contract mode enabled: %s\n",
+                contract_warning[0] ? contract_warning : "unknown contract mismatch");
+        g_contract_warning_emitted = true;
+    }
+    if (!degraded_contract && !g_parent_link_warning_emitted) {
+        char parent_link_warning[256];
+        if (fisics_contract_should_warn_parent_link_fallback(&result,
+                                                             parent_link_warning,
+                                                             sizeof(parent_link_warning))) {
+            fprintf(stderr,
+                    "[analysis] symbol graph fallback: %s\n",
+                    parent_link_warning[0] ? parent_link_warning : "missing parent_stable_id");
+            g_parent_link_warning_emitted = true;
+        }
+    }
+
+    const FisicsSymbol* symbols = degraded_contract ? NULL : result.symbols;
+    size_t symbol_count = degraded_contract ? 0u : result.symbol_count;
+    const FisicsTokenSpan* tokens = degraded_contract ? NULL : result.tokens;
+    size_t token_count = degraded_contract ? 0u : result.token_count;
+
     analysis_store_upsert(filePath, result.diagnostics, result.diag_count);
-    analysis_symbols_store_upsert(filePath, result.symbols, result.symbol_count);
-    analysis_token_store_upsert(filePath, result.tokens, result.token_count);
+    analysis_symbols_store_upsert(filePath, symbols, symbol_count);
+    analysis_token_store_upsert(filePath, tokens, token_count);
     include_graph_replace_from_result(filePath, result.includes, result.include_count, projectPath);
     library_index_remove_source(filePath);
     for (size_t i = 0; i < result.include_count; ++i) {
@@ -206,8 +234,8 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
     loop_events_emit_symbol_tree_updated(projectPath, 0u, analysis_symbols_store_combined_stamp());
     loop_events_emit_diagnostics_updated(projectPath, 0u, analysis_store_combined_stamp());
 
-    cache_tokens(filePath, result.tokens, result.token_count);
-    cache_symbols(filePath, result.symbols, result.symbol_count);
+    cache_tokens(filePath, tokens, token_count);
+    cache_symbols(filePath, symbols, symbol_count);
 
     fisics_free_analysis_result(&result);
     free_build_flag_set(&flagsSet);

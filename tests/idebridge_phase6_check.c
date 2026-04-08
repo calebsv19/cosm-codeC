@@ -1,6 +1,8 @@
 #include "core/Ipc/ide_ipc_server.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/Analysis/library_index.h"
+#include "core/Analysis/analysis_symbols_store.h"
+#include "core/Analysis/fisics_contract_validation.h"
 
 #include <json-c/json.h>
 #include <stdbool.h>
@@ -135,6 +137,45 @@ static int expect_error_code(const char* response, const char* code) {
     return rc;
 }
 
+static int expect_symbol_parent_stable_id(const char* response,
+                                          const char* symbol_name,
+                                          const char* parent_stable_id) {
+    json_object* root = json_tokener_parse(response);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root) json_object_put(root);
+        return -1;
+    }
+    json_object *ok=NULL,*result=NULL,*symbols=NULL;
+    int rc = -1;
+    if (json_object_object_get_ex(root, "ok", &ok) &&
+        json_object_get_boolean(ok) &&
+        json_object_object_get_ex(root, "result", &result) &&
+        result &&
+        json_object_object_get_ex(result, "symbols", &symbols) &&
+        symbols &&
+        json_object_is_type(symbols, json_type_array)) {
+        size_t len = json_object_array_length(symbols);
+        for (size_t i = 0; i < len; ++i) {
+            json_object* sym = json_object_array_get_idx(symbols, i);
+            if (!sym) continue;
+            json_object* jname = NULL;
+            json_object* jparent = NULL;
+            json_object_object_get_ex(sym, "name", &jname);
+            json_object_object_get_ex(sym, "parent_stable_id", &jparent);
+            const char* got_name = jname ? json_object_get_string(jname) : NULL;
+            const char* got_parent = jparent ? json_object_get_string(jparent) : NULL;
+            if (got_name && got_parent &&
+                strcmp(got_name, symbol_name) == 0 &&
+                strcmp(got_parent, parent_stable_id) == 0) {
+                rc = 0;
+                break;
+            }
+        }
+    }
+    json_object_put(root);
+    return rc;
+}
+
 static int write_file(const char* path, const char* text) {
     FILE* f = fopen(path, "wb");
     if (!f) return -1;
@@ -185,6 +226,68 @@ int main(void) {
     clearDiagnostics();
     addDiagnostic(main_c, 1, 1, "phase6 warn", DIAG_SEVERITY_WARNING);
 
+    FisicsSymbol phase6_symbols[2];
+    memset(phase6_symbols, 0, sizeof(phase6_symbols));
+
+    phase6_symbols[0].name = "MyStruct";
+    phase6_symbols[0].file_path = main_c;
+    phase6_symbols[0].start_line = 1;
+    phase6_symbols[0].start_col = 1;
+    phase6_symbols[0].end_line = 4;
+    phase6_symbols[0].end_col = 1;
+    phase6_symbols[0].kind = FISICS_SYMBOL_STRUCT;
+    phase6_symbols[0].stable_id = 0x1111111111111111ULL;
+    phase6_symbols[0].is_definition = true;
+
+    phase6_symbols[1].name = "value";
+    phase6_symbols[1].file_path = main_c;
+    phase6_symbols[1].start_line = 2;
+    phase6_symbols[1].start_col = 5;
+    phase6_symbols[1].end_line = 2;
+    phase6_symbols[1].end_col = 10;
+    phase6_symbols[1].kind = FISICS_SYMBOL_FIELD;
+    phase6_symbols[1].parent_name = "MyStruct";
+    phase6_symbols[1].parent_kind = FISICS_SYMBOL_STRUCT;
+    phase6_symbols[1].stable_id = 0x2222222222222222ULL;
+    phase6_symbols[1].parent_stable_id = 0x1111111111111111ULL;
+    phase6_symbols[1].is_definition = true;
+
+    analysis_symbols_store_upsert(main_c, phase6_symbols, 2);
+
+    FisicsSymbol fallback_symbol;
+    memset(&fallback_symbol, 0, sizeof(fallback_symbol));
+    fallback_symbol.name = "field_a";
+    fallback_symbol.kind = FISICS_SYMBOL_FIELD;
+    fallback_symbol.parent_name = "MyStruct";
+    fallback_symbol.parent_kind = FISICS_SYMBOL_STRUCT;
+
+    FisicsAnalysisResult fallback_result;
+    memset(&fallback_result, 0, sizeof(fallback_result));
+    snprintf(fallback_result.contract.contract_id,
+             sizeof(fallback_result.contract.contract_id),
+             "%s",
+             IDE_FISICS_CONTRACT_ID);
+    fallback_result.contract.contract_major = 1;
+    fallback_result.contract.contract_minor = 2;
+    fallback_result.contract.contract_patch = 0;
+    fallback_result.symbols = &fallback_symbol;
+    fallback_result.symbol_count = 1;
+
+    char fallback_warning[256];
+    if (!fisics_contract_should_warn_parent_link_fallback(&fallback_result,
+                                                          fallback_warning,
+                                                          sizeof(fallback_warning))) {
+        fprintf(stderr, "expected parent link fallback warning for missing parent_stable_id\n");
+        return 1;
+    }
+    fallback_symbol.parent_stable_id = 0x1111111111111111ULL;
+    if (fisics_contract_should_warn_parent_link_fallback(&fallback_result,
+                                                         fallback_warning,
+                                                         sizeof(fallback_warning))) {
+        fprintf(stderr, "unexpected parent link fallback warning when parent_stable_id present\n");
+        return 1;
+    }
+
     library_index_begin(workspace);
     library_index_add_include(main_c, "stdio.h", "/usr/include/stdio.h", LIB_INCLUDE_KIND_SYSTEM, LIB_BUCKET_SYSTEM, 1, 1);
     library_index_finalize();
@@ -223,6 +326,18 @@ int main(void) {
     if (send_then_recv(socket_path, "{\"id\":\"s1\",\"proto\":1,\"cmd\":\"symbols\",\"args\":{}}", false, response, sizeof(response)) != 0 ||
         expect_ok_with_result(response, "symbols") != 0) {
         fprintf(stderr, "symbols failed: %s\n", response);
+        ide_ipc_stop();
+        return 1;
+    }
+    if (expect_symbol_parent_stable_id(response, "value", "0x1111111111111111") != 0) {
+        fprintf(stderr, "symbols missing expected parent_stable_id: %s\n", response);
+        ide_ipc_stop();
+        return 1;
+    }
+
+    if (send_then_recv(socket_path, "{\"id\":\"t1\",\"proto\":1,\"cmd\":\"tokens\",\"args\":{}}", false, response, sizeof(response)) != 0 ||
+        expect_ok_with_result(response, "tokens") != 0) {
+        fprintf(stderr, "tokens failed: %s\n", response);
         ide_ipc_stop();
         return 1;
     }

@@ -17,6 +17,8 @@ Start here for public IDE documentation.
 - `docs/current_architecture_status.md`
 - `docs/desktop_packaging.md`
   - includes full `package-desktop*` flow, launcher `--print-config`, and launcher logfile checks
+- `docs/compiler_contract_integration.md`
+  - versioned `fisiCs` compiler contract boundary, compatibility behavior, and degraded-mode policy
 
 ## Private Planning Docs
 - Active private scaffold docs live in:

@@ -84,6 +84,28 @@ static char* dup_str(const char* s) {
     return out;
 }
 
+static void format_u64_hex(uint64_t value, char out[19]) {
+    if (!out) return;
+    snprintf(out, 19, "0x%016llx", (unsigned long long)value);
+}
+
+static uint64_t parse_json_u64(json_object* value) {
+    if (!value) return 0;
+    if (json_object_is_type(value, json_type_int)) {
+        long long raw = json_object_get_int64(value);
+        return raw < 0 ? 0 : (uint64_t)raw;
+    }
+    if (json_object_is_type(value, json_type_string)) {
+        const char* text = json_object_get_string(value);
+        if (!text || !*text) return 0;
+        char* end = NULL;
+        unsigned long long parsed = strtoull(text, &end, 0);
+        if (!end || *end != '\0') return 0;
+        return (uint64_t)parsed;
+    }
+    return 0;
+}
+
 static bool clone_symbol(FisicsSymbol* dst, const FisicsSymbol* src) {
     if (!dst || !src) return false;
     *dst = *src;
@@ -265,6 +287,12 @@ void analysis_symbols_store_save(const char* workspaceRoot) {
             json_object_object_add(js, "end_col", json_object_new_int(sym->end_col));
             json_object_object_add(js, "kind", json_object_new_int(sym->kind));
             json_object_object_add(js, "parent_kind", json_object_new_int(sym->parent_kind));
+            char stable_id_hex[19];
+            format_u64_hex(sym->stable_id, stable_id_hex);
+            json_object_object_add(js, "stable_id", json_object_new_string(stable_id_hex));
+            char parent_stable_id_hex[19];
+            format_u64_hex(sym->parent_stable_id, parent_stable_id_hex);
+            json_object_object_add(js, "parent_stable_id", json_object_new_string(parent_stable_id_hex));
             json_object_object_add(js, "is_definition", json_object_new_int(sym->is_definition ? 1 : 0));
             json_object_object_add(js, "is_variadic", json_object_new_int(sym->is_variadic ? 1 : 0));
             json_object_object_add(js, "return_type", json_string_or_empty(sym->return_type));
@@ -350,6 +378,7 @@ void analysis_symbols_store_load(const char* workspaceRoot) {
             json_object* jname=NULL,* jfile=NULL,* jparent=NULL,* jret=NULL;
             json_object* jsl=NULL,* jsc=NULL,* jel=NULL,* jec=NULL;
             json_object* jkind=NULL,* jparentKind=NULL,* jdef=NULL,* jvar=NULL;
+            json_object* jstableId=NULL,* jparentStableId=NULL;
             json_object* jptypes=NULL,* jpnames=NULL,* jpcount=NULL;
             json_object_object_get_ex(js, "name", &jname);
             json_object_object_get_ex(js, "file_path", &jfile);
@@ -361,6 +390,8 @@ void analysis_symbols_store_load(const char* workspaceRoot) {
             json_object_object_get_ex(js, "end_col", &jec);
             json_object_object_get_ex(js, "kind", &jkind);
             json_object_object_get_ex(js, "parent_kind", &jparentKind);
+            json_object_object_get_ex(js, "stable_id", &jstableId);
+            json_object_object_get_ex(js, "parent_stable_id", &jparentStableId);
             json_object_object_get_ex(js, "is_definition", &jdef);
             json_object_object_get_ex(js, "is_variadic", &jvar);
             json_object_object_get_ex(js, "param_types", &jptypes);
@@ -377,6 +408,8 @@ void analysis_symbols_store_load(const char* workspaceRoot) {
             tmp[s].end_col = jec ? json_object_get_int(jec) : 0;
             tmp[s].kind = jkind ? (FisicsSymbolKind)json_object_get_int(jkind) : FISICS_SYMBOL_UNKNOWN;
             tmp[s].parent_kind = jparentKind ? (FisicsSymbolKind)json_object_get_int(jparentKind) : FISICS_SYMBOL_UNKNOWN;
+            tmp[s].stable_id = parse_json_u64(jstableId);
+            tmp[s].parent_stable_id = parse_json_u64(jparentStableId);
             tmp[s].is_definition = jdef ? (json_object_get_int(jdef) != 0) : false;
             tmp[s].is_variadic = jvar ? (json_object_get_int(jvar) != 0) : false;
             tmp[s].param_count = jpcount ? (size_t)json_object_get_int(jpcount) : 0;

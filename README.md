@@ -21,6 +21,9 @@ developed as part of a broader ecosystem for simulation, compiler development, a
 - **Diagnostics panel**  
   Analysis diagnostics per file (grouped, collapsible, multi-select, double-click to jump).
 
+- **Versioned compiler contract lane**  
+  IDE analysis ingestion consumes `fisiCs` frontend output via a versioned contract (`fisiCs.analysis.contract`) with degraded-mode safety on major-version mismatches.
+
 - **Git panel**  
   Shows changes grouped by status and a collapsible git log. Scrollable, selectable entries.
 

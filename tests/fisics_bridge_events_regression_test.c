@@ -107,10 +107,17 @@ bool fisics_analyze_buffer(const char* file_path,
                            const FisicsFrontendOptions* opts,
                            FisicsAnalysisResult* out) {
     (void)source;
-    (void)length;
     (void)opts;
     if (!out) return false;
     memset(out, 0, sizeof(*out));
+    snprintf(out->contract.contract_id, sizeof(out->contract.contract_id), "%s", "fisiCs.analysis.contract");
+    out->contract.contract_major = 1;
+    out->contract.contract_minor = 0;
+    out->contract.contract_patch = 0;
+    snprintf(out->contract.producer_name, sizeof(out->contract.producer_name), "%s", "fisiCs");
+    snprintf(out->contract.producer_version, sizeof(out->contract.producer_version), "%s", "test");
+    out->contract.mode = FISICS_ANALYSIS_MODE_LENIENT;
+    out->contract.source_length = (uint64_t)length;
 
     out->diagnostics = (FisicsDiagnostic*)calloc(1, sizeof(FisicsDiagnostic));
     out->tokens = (FisicsTokenSpan*)calloc(1, sizeof(FisicsTokenSpan));
