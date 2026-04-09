@@ -184,6 +184,8 @@ static const char* getDefaultWorkspacePath(void) {
 }
 
 static void loadInitialWorkspace(void) {
+    static char workspaceFallbackMessage[1200];
+    static char workspaceUnavailableMessage[1200];
     const char* requestedPath = getWorkspacePath();
     const char* defaultPath = getDefaultWorkspacePath();
     const char* finalPath = NULL;
@@ -199,19 +201,26 @@ static void loadInitialWorkspace(void) {
         if (pathIsDirectory(defaultPath)) {
             finalPath = defaultPath;
             pathChanged = true;
+            snprintf(workspaceFallbackMessage,
+                     sizeof(workspaceFallbackMessage),
+                     "Stored workspace unavailable. Switched to default workspace root: %s",
+                     finalPath);
+            enqueuePopup(POPUP_TYPE_WARNING, workspaceFallbackMessage);
         }
     }
 
     if (!finalPath) {
         fprintf(stderr, "[Workspace] No valid workspace directory available.\n");
+        snprintf(workspaceUnavailableMessage,
+                 sizeof(workspaceUnavailableMessage),
+                 "No valid workspace root available. Use Cmd/Ctrl+B to select a workspace root.");
+        enqueuePopup(POPUP_TYPE_ERROR, workspaceUnavailableMessage);
         projectRoot = NULL;
         return;
     }
 
-    setWorkspacePath(finalPath);
-    snprintf(projectPath, sizeof(projectPath), "%s", getWorkspacePath());
+    ide_apply_workspace_root_input(finalPath, pathChanged);
     ensureIdeFilesDir(projectPath);
-    setWorkspaceWatchPath(projectPath);
     resetGitStatusWatcher();
     build_diagnostics_load(projectPath);
     diagnostics_load(projectPath);
@@ -224,7 +233,6 @@ static void loadInitialWorkspace(void) {
     }
 
     if (pathChanged) {
-        saveWorkspacePreference(projectPath);
         if (savedRunTarget && savedRunTarget[0]) {
             saveRunTargetPreference(savedRunTarget);
         } else {

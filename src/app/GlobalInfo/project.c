@@ -42,6 +42,20 @@ static void resolveDefaultWorkspacePath(char* out, size_t out_cap) {
     }
 }
 
+void ide_apply_workspace_root_input(const char* path, bool persistPreference) {
+    if (!path || !path[0]) {
+        return;
+    }
+
+    setWorkspacePath(path);
+    snprintf(projectPath, sizeof(projectPath), "%s", getWorkspacePath());
+    setWorkspaceWatchPath(projectPath);
+
+    if (persistPreference) {
+        saveWorkspacePreference(projectPath);
+    }
+}
+
 
 void initProjectPaths(void) {
     // Set project root (IDE directory) to current working directory
@@ -60,9 +74,7 @@ void initProjectPaths(void) {
         chosenPath = defaultProjectPath;
     }
 
-    setWorkspacePath(chosenPath);
-    snprintf(projectPath, sizeof(projectPath), "%s", getWorkspacePath());
-    setWorkspaceWatchPath(projectPath);
+    ide_apply_workspace_root_input(chosenPath, false);
 
 }
 

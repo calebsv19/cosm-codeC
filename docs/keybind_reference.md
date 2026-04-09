@@ -15,6 +15,8 @@ This file is the current keybind map based on active input handlers.
 | `Ctrl+1` | Switch editor tab (`COMMAND_SWITCH_TAB`) | `src/core/InputManager/input_keyboard.c` |
 | `Ctrl+R` | Toggle control panel visibility (`COMMAND_TOGGLE_CONTROL_PANEL`) | `src/core/InputManager/input_keyboard.c` |
 | `Ctrl+T` | Toggle tool panel visibility (`COMMAND_TOGGLE_TOOL_PANEL`) | `src/core/InputManager/input_keyboard.c` |
+| `Ctrl/Cmd+L` | Global workspace-root chooser (native folder chooser) | `src/core/InputManager/input_keyboard.c`, `src/ide/Panes/MenuBar/command_menu_bar.c` |
+| `Ctrl/Cmd+Shift+L` | Global typed workspace-root prompt | `src/core/InputManager/input_keyboard.c`, `src/ide/Panes/MenuBar/command_menu_bar.c` |
 | `Ctrl/Cmd +` | Increase shared font zoom step | `src/core/InputManager/input_keyboard.c` |
 | `Ctrl/Cmd -` | Decrease shared font zoom step | `src/core/InputManager/input_keyboard.c` |
 | `Ctrl/Cmd 0` | Reset shared font zoom step | `src/core/InputManager/input_keyboard.c` |
@@ -34,11 +36,13 @@ This file is the current keybind map based on active input handlers.
 
 | Keybind | Behavior | Source |
 | --- | --- | --- |
-| `Ctrl+B` | Build project | `src/ide/Panes/MenuBar/input_menu_bar.c` |
+| `Ctrl/Cmd+B` | Choose workspace root (input root) via native folder chooser | `src/ide/Panes/MenuBar/input_menu_bar.c`, `src/ide/Panes/MenuBar/command_menu_bar.c` |
+| `Ctrl/Cmd+Shift+B` | Build project | `src/ide/Panes/MenuBar/input_menu_bar.c` |
 | `Ctrl+R` | Run executable | `src/ide/Panes/MenuBar/input_menu_bar.c` |
 | `Ctrl+D` | Debug executable | `src/ide/Panes/MenuBar/input_menu_bar.c` |
 | `Ctrl+S` | Save file | `src/ide/Panes/MenuBar/input_menu_bar.c` |
-| `Ctrl+L` | Choose workspace | `src/ide/Panes/MenuBar/input_menu_bar.c` |
+| `Ctrl/Cmd+L` | Choose workspace root (input root) via native folder chooser (also global) | `src/core/InputManager/input_keyboard.c`, `src/ide/Panes/MenuBar/input_menu_bar.c`, `src/ide/Panes/MenuBar/command_menu_bar.c` |
+| `Ctrl/Cmd+Shift+L` | Open typed workspace-root prompt (`Workspace Root (Input Root):`, also global) | `src/core/InputManager/input_keyboard.c`, `src/ide/Panes/MenuBar/input_menu_bar.c`, `src/ide/Panes/MenuBar/command_menu_bar.c` |
 
 Note: global `Ctrl+R` is handled first, so menu-bar `Ctrl+R` can be shadowed by global routing.
 

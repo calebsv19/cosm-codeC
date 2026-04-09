@@ -42,6 +42,7 @@ void queueProjectRefresh(unsigned int analysisReasonMask);
 
 
 void initProjectPaths(void);
+void ide_apply_workspace_root_input(const char* path, bool persistPreference);
 
 // --- Project Management API ---
 

@@ -15,14 +15,28 @@ static inline bool isPointInRect(int x, int y, SDL_Rect rect) {
 void handleMenuBarKeyboardInput(UIPane* pane, SDL_Event* event) {
     SDL_Keycode key = event->key.keysym.sym;
     Uint16 mod = event->key.keysym.mod;
+    bool ctrl_or_cmd = (mod & (KMOD_CTRL | KMOD_GUI)) != 0;
+    bool shift = (mod & KMOD_SHIFT) != 0;
 
-    if (mod & KMOD_CTRL) {
+    if (ctrl_or_cmd) {
         switch (key) {
-            case SDLK_b: CMD(COMMAND_BUILD_PROJECT); break;
+            case SDLK_b:
+                if (shift) {
+                    CMD(COMMAND_BUILD_PROJECT);
+                } else {
+                    CMD(COMMAND_CHOOSE_WORKSPACE);
+                }
+                break;
             case SDLK_r: CMD(COMMAND_RUN_EXECUTABLE); break;
             case SDLK_d: CMD(COMMAND_DEBUG_EXECUTABLE); break;
             case SDLK_s: CMD(COMMAND_SAVE_FILE); break;
-            case SDLK_l: CMD(COMMAND_CHOOSE_WORKSPACE); break;
+            case SDLK_l:
+                if (shift) {
+                    CMD(COMMAND_CHOOSE_WORKSPACE_TYPED);
+                } else {
+                    CMD(COMMAND_CHOOSE_WORKSPACE);
+                }
+                break;
         }
     }
 }

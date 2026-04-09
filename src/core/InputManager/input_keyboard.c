@@ -82,6 +82,14 @@ void handleKeyboardInput(SDL_Event* event,
     bool ctrl_or_cmd = (mod & (KMOD_CTRL | KMOD_GUI)) != 0;
     bool shift = (mod & KMOD_SHIFT) != 0;
 
+    // Workspace-root chooser shortcuts are global by policy:
+    // they should work regardless of focused pane.
+    if (ctrl_or_cmd && key == SDLK_l) {
+        InputCommand cmd = shift ? COMMAND_CHOOSE_WORKSPACE_TYPED : COMMAND_CHOOSE_WORKSPACE;
+        enqueueTargetedCommand(uiState ? uiState->menuBar : NULL, cmd, (SDL_Keymod)mod);
+        return;
+    }
+
     if (ctrl_or_cmd && !global_shortcut_text_capture_active()) {
         bool zoom_handled = false;
         bool zoom_changed = false;

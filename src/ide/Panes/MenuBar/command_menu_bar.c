@@ -136,6 +136,43 @@ static bool resolveWorkspaceCandidate(const char* candidate, char* outAbs, size_
     return true;
 }
 
+static bool chooseWorkspaceRootNative(char* outPath, size_t outPathSize) {
+#if defined(__APPLE__)
+    const char* script =
+        "/usr/bin/osascript -e 'POSIX path of (choose folder with prompt \"Choose codeC Workspace Root\")'";
+    FILE* pipe = NULL;
+    char buffer[PATH_MAX];
+    size_t len = 0u;
+
+    if (!outPath || outPathSize == 0u) return false;
+    outPath[0] = '\0';
+
+    pipe = popen(script, "r");
+    if (!pipe) return false;
+
+    if (!fgets(buffer, sizeof(buffer), pipe)) {
+        (void)pclose(pipe);
+        return false;
+    }
+    (void)pclose(pipe);
+
+    len = strlen(buffer);
+    while (len > 0u && (buffer[len - 1u] == '\n' || buffer[len - 1u] == '\r')) {
+        buffer[--len] = '\0';
+    }
+    if (len == 0u) return false;
+
+    if (!resolveWorkspaceCandidate(buffer, outPath, outPathSize)) {
+        return false;
+    }
+    return true;
+#else
+    (void)outPath;
+    (void)outPathSize;
+    return false;
+#endif
+}
+
 static bool validateWorkspacePath(const char* candidate, void* context) {
     WorkspaceSelectionContext* ctx = (WorkspaceSelectionContext*)context;
     if (!ctx) return false;
@@ -230,15 +267,12 @@ static void applyWorkspaceSelection(const char* oldValue, const char* newValue, 
         }
     }
 
-    setWorkspacePath(finalPath);
-    snprintf(projectPath, sizeof(projectPath), "%s", getWorkspacePath());
-    setWorkspaceWatchPath(projectPath);
+    ide_apply_workspace_root_input(finalPath, true);
     suppressWorkspaceWatchRefreshForMs(4000);
     setRunTargetPath(NULL);
     saveRunTargetPreference(NULL);
-    saveWorkspacePreference(projectPath);
     queueProjectRefresh(ANALYSIS_REASON_WORKSPACE_RELOAD);
-    printf("[Workspace] Reloading workspace: %s\n", projectPath);
+    printf("[Workspace Root] Reloading input root: %s\n", projectPath);
 }
 
 static void promptWorkspaceSelection(void) {
@@ -246,7 +280,7 @@ static void promptWorkspaceSelection(void) {
     workspaceSelectionContext.preserveOpenFiles = false;
     const char* current = getWorkspacePath();
     beginRenameWithPrompt(
-        "Workspace Directory:",
+        "Workspace Root (Input Root):",
         "Provide a valid directory path",
         current && current[0] ? current : projectPath,
         applyWorkspaceSelection,
@@ -254,6 +288,20 @@ static void promptWorkspaceSelection(void) {
         &workspaceSelectionContext,
         true
     );
+}
+
+static void chooseWorkspaceRootNativeOnly(void) {
+    char selectedPath[PATH_MAX];
+    WorkspaceSelectionContext context;
+
+    if (!chooseWorkspaceRootNative(selectedPath, sizeof(selectedPath))) {
+        return;
+    }
+
+    memset(&context, 0, sizeof(context));
+    snprintf(context.resolvedPath, sizeof(context.resolvedPath), "%s", selectedPath);
+    context.preserveOpenFiles = false;
+    applyWorkspaceSelection(NULL, selectedPath, &context);
 }
 
 void handleMenuBarCommand(UIPane* pane, InputCommandMetadata meta) {
@@ -331,6 +379,10 @@ void handleMenuBarCommand(UIPane* pane, InputCommandMetadata meta) {
             break;
 
         case COMMAND_CHOOSE_WORKSPACE:
+            chooseWorkspaceRootNativeOnly();
+            break;
+
+        case COMMAND_CHOOSE_WORKSPACE_TYPED:
             promptWorkspaceSelection();
             break;
 

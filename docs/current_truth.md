@@ -1,6 +1,6 @@
 # ide Current Truth
 
-Last updated: 2026-04-04
+Last updated: 2026-04-08
 
 ## Scaffold Migration Status
 - `IDE-S0` through `IDE-S5` scaffold migration slices are complete.
@@ -26,6 +26,26 @@ Last updated: 2026-04-04
 - repo/program directory: `ide`
 - canonical symbol/file prefix: `ide`
 - private planning bucket: `docs/private_program_docs/ide/`
+- release/product identity: `codeC`
+
+## Data Path Contract (Current)
+- `P5` data-path contract refinement lane is complete (2026-04-08).
+- IDE `Workspace Root` is the authoritative `input_root` for project scanning, reload, and workspace-local derived data.
+- workspace-root apply is normalized through a canonical helper:
+  - `ide_apply_workspace_root_input(...)` in `src/app/GlobalInfo/project.c`
+  - used by startup workspace resolution and interactive workspace selection flows.
+- workspace-root chooser keybinds:
+  - `Cmd/Ctrl+B`: native folder chooser
+  - `Cmd/Ctrl+L`: global native folder chooser
+  - `Cmd/Ctrl+Shift+L`: global typed workspace-root prompt
+  - `Cmd/Ctrl+Shift+B`: build
+- startup fallback messaging:
+  - if persisted workspace path is unavailable, IDE warns and auto-falls back to default workspace root.
+  - if no valid workspace exists, IDE surfaces an in-app error popup instructing workspace selection.
+- compatibility is preserved for persisted workspace preferences in:
+  - `~/.custom_c_ide/config.ini` via `workspace_prefs.c`.
+- workspace-derived artifacts remain under:
+  - `<workspace>/ide_files/*`
 
 ## Top-Level Layout (Current)
 - required scaffold floor:
