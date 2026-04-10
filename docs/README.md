@@ -22,6 +22,6 @@ Start here for public IDE documentation.
 
 ## Private Planning Docs
 - Active private scaffold docs live in:
-  - `../docs/private_program_docs/ide/`
+  - `../../docs/private_program_docs/ide/`
 - historical private docs migrated from this lane are under:
-  - `../docs/private_program_docs/ide/program_docs_migrated/`
+  - `../../docs/private_program_docs/ide/program_docs_migrated/`

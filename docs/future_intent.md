@@ -1,6 +1,6 @@
 # ide Future Intent
 
-Last updated: 2026-04-04
+Last updated: 2026-04-10
 
 ## Scaffold Alignment Targets
 - keep `ide` on the required scaffold floor (`docs/src/include/tests/build`) while preserving current editor/runtime behavior.
@@ -39,7 +39,7 @@ Last updated: 2026-04-04
 ## Migration Mode
 - execute bounded, phase-based rollout (`IDE-S1` -> `IDE-S5`) with verification at each phase.
 - use non-destructive structure changes (copy -> verify -> remove).
-- keep public docs (`ide/docs/`) and private execution docs (`docs/private_program_docs/ide/`) synchronized per phase.
+- keep public docs (`ide/docs/`) and private execution docs (`../../docs/private_program_docs/ide/`) synchronized per phase.
 
 ## Current Migration Note
 - `IDE-S3` lifecycle/symbol wrapper lock is now landed.

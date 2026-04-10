@@ -85,7 +85,7 @@ Public docs are organized under:
 
 Private migration/planning docs are in the workspace private bucket:
 
-- `docs/private_program_docs/ide/`
+- `../docs/private_program_docs/ide/`
 
 ### Build & Run
 

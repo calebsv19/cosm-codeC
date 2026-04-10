@@ -1,6 +1,6 @@
 # ide Current Truth
 
-Last updated: 2026-04-08
+Last updated: 2026-04-10
 
 ## Scaffold Migration Status
 - `IDE-S0` through `IDE-S5` scaffold migration slices are complete.
@@ -25,7 +25,7 @@ Last updated: 2026-04-08
 ## Program Identity
 - repo/program directory: `ide`
 - canonical symbol/file prefix: `ide`
-- private planning bucket: `docs/private_program_docs/ide/`
+- private planning bucket: `../../docs/private_program_docs/ide/`
 - release/product identity: `codeC`
 
 ## Data Path Contract (Current)
@@ -46,6 +46,11 @@ Last updated: 2026-04-08
   - `~/.custom_c_ide/config.ini` via `workspace_prefs.c`.
 - workspace-derived artifacts remain under:
   - `<workspace>/ide_files/*`
+
+## Doc Sync Pass State
+- latest pass: 2026-04-10 (docs-only reconciliation)
+- public docs paths to workspace-private `ide` bucket were normalized for `ide/docs/*` relative depth
+- current in-flight worktree drift includes helper-extraction seams in IPC/editor/control-panel/terminal/project lanes and should be treated as active, not finalized
 
 ## Top-Level Layout (Current)
 - required scaffold floor:

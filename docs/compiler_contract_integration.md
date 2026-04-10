@@ -12,7 +12,7 @@ This IDE consumes compiler analysis from `fisiCs` through a versioned data contr
 
 The authoritative contract specification lives in:
 
-- `../fisiCs/docs/compiler_ide_data_contract.md`
+- `../../fisiCs/docs/compiler_ide_data_contract.md`
 
 ## Compatibility Behavior
 
