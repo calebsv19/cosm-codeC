@@ -1,6 +1,6 @@
 # ide Current Truth
 
-Last updated: 2026-04-10
+Last updated: 2026-04-25
 
 ## Scaffold Migration Status
 - `IDE-S0` through `IDE-S5` scaffold migration slices are complete.
@@ -110,6 +110,10 @@ Last updated: 2026-04-10
   - `make -C ide package-desktop-copy-desktop`
   - `make -C ide package-desktop-remove`
   - `make -C ide package-desktop-refresh`
+  - optional icon-input packaging:
+    - default local icon store is `tools/packaging/macos/local_app_icon/AppIcon.icns` and `tools/packaging/macos/local_app_icon/AppIcon.iconset`
+    - `PACKAGE_APP_ICON_SRC=/absolute/path/to/*.icns`
+    - `PACKAGE_APP_ICONSET_SRC=/absolute/path/to/*.iconset`
 - `/Users/<user>/Desktop/codeC.app/Contents/MacOS/ide-launcher --print-config`
 - `W1` verification rerun (2026-04-02):
   - `make -C ide`
@@ -118,6 +122,15 @@ Last updated: 2026-04-10
 - `W2` verification rerun (2026-04-02):
   - `make -C ide clean && make -C ide`
   - `make -C ide run-headless-smoke` (outside-sandbox for IPC bind checks)
+
+## Desktop packaging icon contract
+- default local packaging icon store:
+  - `tools/packaging/macos/local_app_icon/AppIcon.icns`
+  - `tools/packaging/macos/local_app_icon/AppIcon.iconset`
+- when icon input is provided, packaged bundles carry `Contents/Resources/AppIcon.icns`
+- bundle plist declares `CFBundleIconFile=AppIcon`
+- the local packaging icon store is gitignored and treated as a local distribution asset lane
+- Desktop and release refresh copy paths use `ditto` to preserve signed bundle integrity
   - `make -C ide visual-harness`
   - `make -C ide test-stable` (outside-sandbox for IPC bind checks)
 - `W3-S0/S1` verification rerun (2026-04-02):

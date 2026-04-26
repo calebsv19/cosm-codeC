@@ -174,6 +174,12 @@
   PACKAGE_MACOS_DIR := $(PACKAGE_CONTENTS_DIR)/MacOS
   PACKAGE_RESOURCES_DIR := $(PACKAGE_CONTENTS_DIR)/Resources
   PACKAGE_FRAMEWORKS_DIR := $(PACKAGE_CONTENTS_DIR)/Frameworks
+  PACKAGE_APP_ICON_NAME := AppIcon
+  PACKAGE_APP_ICON_FILE := $(PACKAGE_APP_ICON_NAME).icns
+  PACKAGE_LOCAL_ICON_DIR := tools/packaging/macos/local_app_icon
+  PACKAGE_APP_ICON_SRC ?= $(PACKAGE_LOCAL_ICON_DIR)/$(PACKAGE_APP_ICON_FILE)
+  PACKAGE_APP_ICONSET_SRC ?= $(PACKAGE_LOCAL_ICON_DIR)/$(PACKAGE_APP_ICON_NAME).iconset
+  PACKAGE_BUNDLED_ICON_PATH := $(PACKAGE_RESOURCES_DIR)/$(PACKAGE_APP_ICON_FILE)
   PACKAGE_INFO_PLIST_SRC := tools/packaging/macos/Info.plist
   PACKAGE_LAUNCHER_SRC := tools/packaging/macos/ide-launcher
   PACKAGE_DYLIB_BUNDLER := tools/packaging/macos/bundle-dylibs.sh
@@ -390,6 +396,15 @@ package-desktop:
 	@cp -R include/fonts $(PACKAGE_RESOURCES_DIR)/include/
 	@mkdir -p $(PACKAGE_RESOURCES_DIR)/shared/assets
 	@cp -R third_party/codework_shared/assets/fonts $(PACKAGE_RESOURCES_DIR)/shared/assets/
+	@if [ -f "$(PACKAGE_APP_ICON_SRC)" ]; then \
+		cp "$(PACKAGE_APP_ICON_SRC)" "$(PACKAGE_BUNDLED_ICON_PATH)"; \
+		echo "Bundled app icon from $(PACKAGE_APP_ICON_SRC)"; \
+	elif [ -d "$(PACKAGE_APP_ICONSET_SRC)" ]; then \
+		iconutil -c icns "$(PACKAGE_APP_ICONSET_SRC)" -o "$(PACKAGE_BUNDLED_ICON_PATH)"; \
+		echo "Bundled app icon from $(PACKAGE_APP_ICONSET_SRC)"; \
+	else \
+		echo "Warning: no app icon input found; continuing without bundled AppIcon.icns"; \
+	fi
 	@mkdir -p $(PACKAGE_RESOURCES_DIR)/vk_renderer
 	@cp -R third_party/codework_shared/vk_renderer/shaders $(PACKAGE_RESOURCES_DIR)/vk_renderer/
 	@$(MAKE) package-desktop-sign-adhoc
@@ -412,7 +427,7 @@ package-desktop-sign-adhoc:
 package-desktop-copy-desktop: package-desktop
 	@mkdir -p "$$(dirname "$(DESKTOP_APP_DIR)")"
 	@rm -rf "$(DESKTOP_APP_DIR)"
-	@cp -R "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
+	@/usr/bin/ditto "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
 	@echo "Copied $(PACKAGE_APP_NAME) to $(DESKTOP_APP_DIR)"
 
 # Convenience target for post-edit desktop deployment flow.
@@ -429,6 +444,9 @@ package-desktop-smoke: package-desktop
 	@test -f $(PACKAGE_CONTENTS_DIR)/Info.plist || (echo "Missing Info.plist"; exit 1)
 	@test -f $(PACKAGE_FRAMEWORKS_DIR)/libvulkan.1.dylib || (echo "Missing bundled libvulkan"; exit 1)
 	@test -f $(PACKAGE_FRAMEWORKS_DIR)/libMoltenVK.dylib || (echo "Missing bundled libMoltenVK"; exit 1)
+	@if [ -f "$(PACKAGE_APP_ICON_SRC)" ] || [ -d "$(PACKAGE_APP_ICONSET_SRC)" ]; then \
+		test -f "$(PACKAGE_BUNDLED_ICON_PATH)" || (echo "Missing bundled AppIcon.icns"; exit 1); \
+	fi
 	@test -f $(PACKAGE_RESOURCES_DIR)/include/fonts/Lato/Lato-Regular.ttf || (echo "Missing bundled Lato"; exit 1)
 	@test -f $(PACKAGE_RESOURCES_DIR)/vk_renderer/shaders/textured.vert.spv || (echo "Missing bundled shaders"; exit 1)
 	@echo "package-desktop-smoke passed."
@@ -444,7 +462,7 @@ package-desktop-remove:
 package-desktop-refresh: package-desktop
 	@mkdir -p "$$(dirname "$(DESKTOP_APP_DIR)")"
 	@rm -rf "$(DESKTOP_APP_DIR)"
-	@cp -R "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
+	@/usr/bin/ditto "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
 	@echo "Refreshed $(PACKAGE_APP_NAME) at $(DESKTOP_APP_DIR)"
 
 release-contract:
@@ -562,7 +580,7 @@ release-distribute: release-artifact
 release-desktop-refresh: release-distribute
 	@mkdir -p "$$(dirname "$(DESKTOP_APP_DIR)")"
 	@rm -rf "$(DESKTOP_APP_DIR)"
-	@cp -R "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
+	@/usr/bin/ditto "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
 	@spctl --assess --type execute --verbose=2 "$(DESKTOP_APP_DIR)"
 	@echo "release-desktop-refresh passed."
 

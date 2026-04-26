@@ -1,5 +1,7 @@
 # Desktop Packaging
 
+Last updated: 2026-04-25
+
 This IDE can now be packaged as a macOS app bundle so it can be launched from Finder/Desktop without relying on repository cwd.
 
 ## Build Package
@@ -38,6 +40,20 @@ Default desktop destination:
 
 - `$(HOME)/Desktop/codeC.app`
 
+Optional icon inputs:
+
+```sh
+make package-desktop-refresh PACKAGE_APP_ICON_SRC="/absolute/path/to/codec.icns"
+make package-desktop-refresh PACKAGE_APP_ICONSET_SRC="/absolute/path/to/codec.iconset"
+```
+
+Default local icon store:
+
+- `ide/tools/packaging/macos/local_app_icon/AppIcon.icns`
+- `ide/tools/packaging/macos/local_app_icon/AppIcon.iconset`
+
+Plain `make -C ide package-desktop-refresh` and `package-desktop-self-test` now look in that local store first. The local icon store is gitignored so refreshed icon copies do not dirty the normal repo worktree.
+
 ## Finder Manual Verification
 
 1. Build package with `make package-desktop-self-test`.
@@ -65,6 +81,10 @@ Launcher diagnostics:
 - `--self-test` validates required bundle files and prints resolved roots
 - `--print-config` prints resolved roots/log file without launching UI
 - startup logs append to `~/Library/Logs/IDE/launcher.log` (fallback: `${TMPDIR}/ide-launcher.log`)
+- when icon inputs are provided, packaging bundles `Contents/Resources/AppIcon.icns` and declares `CFBundleIconFile=AppIcon`
+
+Note:
+- a fresh clone will still need an `AppIcon.icns` copied into `tools/packaging/macos/local_app_icon/` before plain packaging picks it up, because that lane is intentionally ignored.
 
 At runtime, IDE path resolution still supports explicit overrides (for debugging/development).
 

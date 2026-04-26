@@ -24,3 +24,4 @@
 
 # Local-only source sandbox
 src/Project/
+tools/packaging/macos/local_app_icon/
