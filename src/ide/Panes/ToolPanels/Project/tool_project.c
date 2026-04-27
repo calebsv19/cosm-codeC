@@ -19,6 +19,8 @@
 #include "ide/UI/panel_metrics.h"
 #include "ide/UI/panel_text_edit.h"
 #include "ide/UI/row_activation.h"
+#include "tool_project_run_target_helpers.h"
+#include "tool_project_tree_snapshot_helpers.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -149,16 +151,7 @@ static void setSelectedDirectory(DirEntry* entry) {
 
 static void clearRunTargetSelection(void) {
     char* runTargetPath = project_run_target_path_buffer();
-    runTargetPath[0] = '\0';
-    setRunTargetPath(NULL);
-    saveRunTargetPreference(NULL);
-}
-
-static bool entryIsExecutableFile(const DirEntry* entry) {
-    if (!entry || entry->type != ENTRY_FILE || !entry->path) return false;
-    struct stat st;
-    if (stat(entry->path, &st) != 0) return false;
-    return S_ISREG(st.st_mode) && (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH));
+    project_run_target_clear(runTargetPath, PROJECT_PATH_BUFFER_CAP);
 }
 
 static void setSelectedFile(DirEntry* entry) {
@@ -170,88 +163,6 @@ static void setSelectedFile(DirEntry* entry) {
     } else {
         state->selected_file_path[0] = '\0';
     }
-}
-
-typedef struct ProjectTextBuilder {
-    char* data;
-    size_t len;
-    size_t cap;
-} ProjectTextBuilder;
-
-static bool project_builder_reserve(ProjectTextBuilder* b, size_t extra) {
-    if (!b) return false;
-    size_t need = b->len + extra + 1;
-    if (need <= b->cap) return true;
-    size_t nextCap = b->cap > 0 ? b->cap : 256;
-    while (nextCap < need) nextCap *= 2;
-    char* next = (char*)realloc(b->data, nextCap);
-    if (!next) return false;
-    b->data = next;
-    b->cap = nextCap;
-    return true;
-}
-
-static bool project_builder_append(ProjectTextBuilder* b, const char* text) {
-    if (!b || !text) return false;
-    size_t n = strlen(text);
-    if (!project_builder_reserve(b, n)) return false;
-    memcpy(b->data + b->len, text, n);
-    b->len += n;
-    b->data[b->len] = '\0';
-    return true;
-}
-
-static bool project_builder_append_char(ProjectTextBuilder* b, char ch) {
-    if (!project_builder_reserve(b, 1)) return false;
-    b->data[b->len++] = ch;
-    b->data[b->len] = '\0';
-    return true;
-}
-
-static const char* project_display_name(const DirEntry* entry) {
-    if (!entry || !entry->path) return "";
-    const char* slash = strrchr(entry->path, '/');
-    return slash ? (slash + 1) : entry->path;
-}
-
-static bool project_snapshot_skip_entry(const DirEntry* entry) {
-    if (!entry) return true;
-    const char* name = project_display_name(entry);
-    if (!name || !name[0]) return true;
-    if (entry->parent == NULL) return false;
-    if (name[0] == '.' && strcmp(name, "..") != 0) return true;
-    if (entry->type == ENTRY_FILE) {
-        const char* ext = strrchr(name, '.');
-        if (ext && (strcmp(ext, ".o") == 0 ||
-                    strcmp(ext, ".obj") == 0 ||
-                    strcmp(ext, ".out") == 0)) {
-            return true;
-        }
-        if (strcmp(name, "last_build") == 0) return true;
-    }
-    return false;
-}
-
-static bool project_append_visible_entry(ProjectTextBuilder* b, const DirEntry* entry, int depth) {
-    if (!b || !entry) return true;
-    if (project_snapshot_skip_entry(entry)) return true;
-
-    const char* name = project_display_name(entry);
-    for (int i = 0; i < depth; ++i) {
-        if (!project_builder_append(b, "  ")) return false;
-    }
-    if (entry->type == ENTRY_FOLDER) {
-        if (!project_builder_append(b, entry->isExpanded ? "[-] " : "[+] ")) return false;
-    }
-    if (!project_builder_append(b, name ? name : "")) return false;
-    if (!project_builder_append_char(b, '\n')) return false;
-
-    if (entry->type == ENTRY_FOLDER && entry->isExpanded) {
-        for (int i = 0; i < entry->childCount; ++i) {
-            if (!project_append_visible_entry(b, entry->children[i], depth + 1)) return false;
-        }
-    }
-    return true;
 }
 
 void project_select_all_visible_entries(void) {
@@ -270,7 +181,7 @@ bool project_copy_visible_entries_to_clipboard(void) {
     ProjectPanelState* state = project_panel_state_internal();
     if (!projectRoot) return false;
     if (!state->select_all_visible && hoveredEntry) {
-        const char* name = project_display_name(hoveredEntry);
+        const char* name = project_tree_display_name(hoveredEntry);
         char line[1024];
         if (hoveredEntry->type == ENTRY_FOLDER) {
             snprintf(line, sizeof(line), "%s%s",
@@ -282,16 +193,15 @@ bool project_copy_visible_entries_to_clipboard(void) {
         return clipboard_copy_text(line);
     }
 
-    ProjectTextBuilder b = {0};
-    if (!project_builder_reserve(&b, 512)) return false;
-    b.data[0] = '\0';
-    if (!project_append_visible_entry(&b, projectRoot, 0) || b.len == 0) {
-        free(b.data);
+    char* snapshot = NULL;
+    size_t snapshot_len = 0;
+    if (!project_tree_build_visible_snapshot(projectRoot, &snapshot, &snapshot_len) || snapshot_len == 0) {
+        free(snapshot);
         return false;
     }
     state->select_all_visible = false;
-    bool ok = clipboard_copy_text(b.data);
-    free(b.data);
+    bool ok = clipboard_copy_text(snapshot);
+    free(snapshot);
     return ok;
 }
 
@@ -341,65 +251,9 @@ void selectFileEntry(DirEntry* entry) {
     }
 }
 
-static DirEntry* findNewestExecutableRecursive(DirEntry* entry, time_t* newestTime) {
-    if (!entry) return NULL;
-    DirEntry* best = NULL;
-
-    if (entry->type == ENTRY_FILE && entry->path) {
-        struct stat st;
-        if (stat(entry->path, &st) == 0) {
-            if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) {
-                if (st.st_mtime >= *newestTime) {
-                    *newestTime = st.st_mtime;
-                    best = entry;
-                }
-            }
-        }
-    }
-
-    if (entry->type == ENTRY_FOLDER) {
-        for (int i = 0; i < entry->childCount; ++i) {
-            DirEntry* candidate = findNewestExecutableRecursive(entry->children[i], newestTime);
-            if (candidate) {
-                best = candidate;
-            }
-        }
-    }
-
-    return best;
-}
-
 static void updateRunTargetSelection(DirEntry* entry) {
     char* runTargetPath = project_run_target_path_buffer();
-    if (!entry) {
-        clearRunTargetSelection();
-        return;
-    }
-
-    if (entry->type == ENTRY_FILE) {
-        if (!entryIsExecutableFile(entry)) {
-            clearRunTargetSelection();
-            return;
-        }
-        if (strcmp(runTargetPath, entry->path) != 0) {
-            snprintf(runTargetPath, sizeof(runTargetPath), "%s", entry->path);
-            setRunTargetPath(runTargetPath);
-            saveRunTargetPreference(runTargetPath);
-        }
-    } else {
-        time_t newestTime = 0;
-        DirEntry* newest = findNewestExecutableRecursive(entry, &newestTime);
-
-        if (newest && newest->path) {
-            if (strcmp(runTargetPath, newest->path) != 0) {
-                snprintf(runTargetPath, sizeof(runTargetPath), "%s", newest->path);
-                setRunTargetPath(runTargetPath);
-                saveRunTargetPreference(runTargetPath);
-            }
-        } else {
-            clearRunTargetSelection();
-        }
-    }
+    project_run_target_update_from_entry(entry, runTargetPath, PROJECT_PATH_BUFFER_CAP);
 }
 
 void restoreRunTargetSelection(void) {

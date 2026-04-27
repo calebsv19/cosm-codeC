@@ -8,6 +8,7 @@
 #include "ide/Panes/Editor/editor_view_state.h"
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "ide/Panes/Editor/editor_edit_transaction_core.h"
+#include "engine/Render/render_font.h"
 
 #include "ide/Panes/Editor/Input/input_editor.h" // for &editorInputHandler
 
@@ -36,8 +37,26 @@
 #define EDITOR_LINE_NUMBER_GUTTER_W 28
 #define EDITOR_TEXT_LEFT_INSET 6
 
-#define EDITOR_LINE_HEIGHT EDITOR_TEXT_ROW_ADVANCE
-#define EDITOR_CONTENT_TOP_PADDING EDITOR_TEXT_FIRST_LINE_INSET
+static inline int editor_line_height_px(void) {
+    int point_size = getUIFontPointSizeByTier(CORE_FONT_TEXT_SIZE_CAPTION);
+    int line_height = (point_size > 0) ? (point_size + 4) : EDITOR_TEXT_ROW_ADVANCE;
+    if (line_height < EDITOR_TEXT_ROW_ADVANCE) {
+        line_height = EDITOR_TEXT_ROW_ADVANCE;
+    }
+    return line_height;
+}
+
+static inline int editor_content_top_padding_px(void) {
+    int line_height = editor_line_height_px();
+    int padding = line_height + 1;
+    if (padding < EDITOR_TEXT_FIRST_LINE_INSET) {
+        padding = EDITOR_TEXT_FIRST_LINE_INSET;
+    }
+    return padding;
+}
+
+#define EDITOR_LINE_HEIGHT editor_line_height_px()
+#define EDITOR_CONTENT_TOP_PADDING editor_content_top_padding_px()
 
 
 

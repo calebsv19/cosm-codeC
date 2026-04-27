@@ -7,6 +7,7 @@
 #include "ide/Panes/PaneInfo/pane.h"
 
 #include <SDL2/SDL_ttf.h>
+#include <math.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -32,8 +33,11 @@ typedef struct TextCacheEntry {
     size_t text_len;
     uint32_t text_hash;
     char* text;
-    int width;
-    int height;
+    int texture_width;
+    int texture_height;
+    int draw_width;
+    int draw_height;
+    float raster_scale;
     size_t bytes_estimate;
 #if USE_VULKAN
     VkRendererTexture texture;
@@ -45,6 +49,42 @@ typedef struct TextCacheEntry {
 static TextCacheEntry s_text_cache[TEXT_CACHE_BUCKETS * TEXT_CACHE_WAYS];
 static uint64_t s_text_cache_tick = 1;
 static size_t s_text_cache_bytes = 0;
+
+static float text_scale_for_renderer(SDL_Renderer* renderer) {
+#if USE_VULKAN
+    VkRenderer* vk = (VkRenderer*)renderer;
+    float logical_w = 0.0f;
+    float logical_h = 0.0f;
+    float scale_x = 1.0f;
+    float scale_y = 1.0f;
+    if (!vk) {
+        return 1.0f;
+    }
+    logical_w = vk->draw_state.logical_size[0];
+    logical_h = vk->draw_state.logical_size[1];
+    if (logical_w > 0.0f) {
+        scale_x = (float)vk->context.swapchain.extent.width / logical_w;
+    }
+    if (logical_h > 0.0f) {
+        scale_y = (float)vk->context.swapchain.extent.height / logical_h;
+    }
+    if (scale_x < 1.0f) scale_x = 1.0f;
+    if (scale_y < 1.0f) scale_y = 1.0f;
+    return (scale_x > scale_y) ? scale_x : scale_y;
+#else
+    (void)renderer;
+    return 1.0f;
+#endif
+}
+
+#if USE_VULKAN
+static VkFilter text_upload_filter_for_scale(float raster_scale) {
+    if (raster_scale > 1.0f) {
+        return VK_FILTER_NEAREST;
+    }
+    return VK_FILTER_LINEAR;
+}
+#endif
 
 static uint32_t text_cache_hash_bytes(const char* text, size_t len) {
     uint32_t h = 2166136261u;
@@ -156,15 +196,27 @@ static bool text_cache_get(SDL_Renderer* renderer,
                            SDL_Color color,
                            bool utf8,
                            TextCacheEntry** out_entry) {
+    float render_scale = 1.0f;
+    float raster_scale = 1.0f;
+    TTF_Font* raster_font = NULL;
     if (!renderer || !font || !text || text[0] == '\0') return false;
     size_t text_len = strlen(text);
     if (text_len == 0 || text_len > TEXT_CACHE_MAX_TEXT_LEN) return false;
+
+    render_scale = text_scale_for_renderer(renderer);
+    raster_font = getRasterizedFontForScale(font, render_scale, &raster_scale);
+    if (!raster_font) {
+        raster_font = font;
+    }
+    if (raster_scale < 1.0f) {
+        raster_scale = 1.0f;
+    }
 
     uint32_t color_rgba = text_cache_pack_color(color);
     uint32_t text_hash = text_cache_hash_bytes(text, text_len);
     bool hit = false;
     TextCacheEntry* slot = text_cache_find_or_slot(
-        renderer, font, text, text_len, color_rgba, utf8, text_hash, &hit);
+        renderer, raster_font, text, text_len, color_rgba, utf8, text_hash, &hit);
     if (!slot) return false;
 
     if (hit) {
@@ -174,20 +226,25 @@ static bool text_cache_get(SDL_Renderer* renderer,
     }
 
     SDL_Surface* surface =
-        utf8 ? TTF_RenderUTF8_Blended(font, text, color)
-             : TTF_RenderText_Blended(font, text, color);
+        utf8 ? TTF_RenderUTF8_Blended(raster_font, text, color)
+             : TTF_RenderText_Blended(raster_font, text, color);
     if (!surface) return false;
 
     text_cache_destroy_entry(slot);
     slot->renderer = renderer;
-    slot->font = font;
+    slot->font = raster_font;
     slot->color_rgba = color_rgba;
     slot->utf8 = utf8;
     slot->text_len = text_len;
     slot->text_hash = text_hash;
     slot->last_used = s_text_cache_tick++;
-    slot->width = surface->w;
-    slot->height = surface->h;
+    slot->texture_width = surface->w;
+    slot->texture_height = surface->h;
+    slot->raster_scale = raster_scale;
+    slot->draw_width = (int)lroundf((float)surface->w / raster_scale);
+    slot->draw_height = (int)lroundf((float)surface->h / raster_scale);
+    if (slot->draw_width < 1) slot->draw_width = 1;
+    if (slot->draw_height < 1) slot->draw_height = 1;
     slot->bytes_estimate = (size_t)surface->w * (size_t)surface->h * 4u;
     if (!text_cache_ensure_space(slot->bytes_estimate)) {
         memset(slot, 0, sizeof(*slot));
@@ -205,7 +262,7 @@ static bool text_cache_get(SDL_Renderer* renderer,
 #if USE_VULKAN
     VkRendererTexture tex = {0};
     VkResult up = vk_renderer_upload_sdl_surface_with_filter(
-        renderer, surface, &tex, VK_FILTER_LINEAR);
+        renderer, surface, &tex, text_upload_filter_for_scale(raster_scale));
     SDL_FreeSurface(surface);
     if (up != VK_SUCCESS) {
         text_cache_destroy_entry(slot);
@@ -233,9 +290,9 @@ static void text_cache_draw_entry(SDL_Renderer* renderer,
                                   int y,
                                   bool bold) {
     if (!renderer || !entry || !entry->valid) return;
-    SDL_Rect dst = {x, y, entry->width, entry->height};
+    SDL_Rect dst = {x, y, entry->draw_width, entry->draw_height};
 #if USE_VULKAN
-    SDL_Rect src = {0, 0, entry->width, entry->height};
+    SDL_Rect src = {0, 0, entry->texture_width, entry->texture_height};
     vk_renderer_draw_texture(renderer, &entry->texture, &src, &dst);
     if (bold) {
         dst.x += 1;
@@ -250,6 +307,31 @@ static void text_cache_draw_entry(SDL_Renderer* renderer,
 #endif
 }
 
+static SDL_Rect text_cache_map_visible_to_src(const TextCacheEntry* entry,
+                                              SDL_Rect dst,
+                                              SDL_Rect vis) {
+    SDL_Rect src = {0, 0, 0, 0};
+    float sx = 1.0f;
+    float sy = 1.0f;
+    if (!entry || entry->draw_width <= 0 || entry->draw_height <= 0 ||
+        entry->texture_width <= 0 || entry->texture_height <= 0) {
+        return src;
+    }
+    sx = (float)entry->texture_width / (float)entry->draw_width;
+    sy = (float)entry->texture_height / (float)entry->draw_height;
+    src.x = (int)floorf((float)(vis.x - dst.x) * sx);
+    src.y = (int)floorf((float)(vis.y - dst.y) * sy);
+    src.w = (int)ceilf((float)vis.w * sx);
+    src.h = (int)ceilf((float)vis.h * sy);
+    if (src.x < 0) src.x = 0;
+    if (src.y < 0) src.y = 0;
+    if (src.x + src.w > entry->texture_width) src.w = entry->texture_width - src.x;
+    if (src.y + src.h > entry->texture_height) src.h = entry->texture_height - src.y;
+    if (src.w < 0) src.w = 0;
+    if (src.h < 0) src.h = 0;
+    return src;
+}
+
 static void text_cache_draw_entry_clipped(SDL_Renderer* renderer,
                                           const TextCacheEntry* entry,
                                           int x,
@@ -262,44 +344,32 @@ static void text_cache_draw_entry_clipped(SDL_Renderer* renderer,
         return;
     }
 
-    SDL_Rect dst = {x, y, entry->width, entry->height};
+    SDL_Rect dst = {x, y, entry->draw_width, entry->draw_height};
     SDL_Rect vis = {0, 0, 0, 0};
     if (!SDL_IntersectRect(&dst, clipRect, &vis)) return;
 
-    SDL_Rect src = {
-        vis.x - dst.x,
-        vis.y - dst.y,
-        vis.w,
-        vis.h
-    };
+    SDL_Rect src = text_cache_map_visible_to_src(entry, dst, vis);
+    if (src.w <= 0 || src.h <= 0) return;
 
 #if USE_VULKAN
     vk_renderer_draw_texture(renderer, &entry->texture, &src, &vis);
     if (bold) {
-        SDL_Rect dst2 = { x + 1, y, entry->width, entry->height };
+        SDL_Rect dst2 = { x + 1, y, entry->draw_width, entry->draw_height };
         SDL_Rect vis2 = {0, 0, 0, 0};
         if (SDL_IntersectRect(&dst2, clipRect, &vis2)) {
-            SDL_Rect src2 = {
-                vis2.x - dst2.x,
-                vis2.y - dst2.y,
-                vis2.w,
-                vis2.h
-            };
+            SDL_Rect src2 = text_cache_map_visible_to_src(entry, dst2, vis2);
+            if (src2.w <= 0 || src2.h <= 0) return;
             vk_renderer_draw_texture(renderer, &entry->texture, &src2, &vis2);
         }
     }
 #else
     SDL_RenderCopy(renderer, entry->texture, &src, &vis);
     if (bold) {
-        SDL_Rect dst2 = { x + 1, y, entry->width, entry->height };
+        SDL_Rect dst2 = { x + 1, y, entry->draw_width, entry->draw_height };
         SDL_Rect vis2 = {0, 0, 0, 0};
         if (SDL_IntersectRect(&dst2, clipRect, &vis2)) {
-            SDL_Rect src2 = {
-                vis2.x - dst2.x,
-                vis2.y - dst2.y,
-                vis2.w,
-                vis2.h
-            };
+            SDL_Rect src2 = text_cache_map_visible_to_src(entry, dst2, vis2);
+            if (src2.w <= 0 || src2.h <= 0) return;
             SDL_RenderCopy(renderer, entry->texture, &src2, &vis2);
         }
     }
@@ -386,6 +456,15 @@ void drawTextWithFont(int x, int y, const char* text, TTF_Font* font) {
     if (!ctx || !ctx->renderer) return;
 
     SDL_Renderer* renderer = ctx->renderer;
+    float render_scale = text_scale_for_renderer(renderer);
+    float raster_scale = 1.0f;
+    TTF_Font* raster_font = getRasterizedFontForScale(font, render_scale, &raster_scale);
+    if (!raster_font) {
+        raster_font = font;
+    }
+    if (raster_scale < 1.0f) {
+        raster_scale = 1.0f;
+    }
 
     SDL_Color color = resolve_default_text_color();
     TextCacheEntry* cached = NULL;
@@ -395,23 +474,37 @@ void drawTextWithFont(int x, int y, const char* text, TTF_Font* font) {
     }
 
 #if USE_VULKAN
-    SDL_Surface* surface = TTF_RenderText_Blended(font, text, color);
+    SDL_Surface* surface = TTF_RenderText_Blended(raster_font, text, color);
     if (!surface) return;
     VkRendererTexture vkTexture = {0};
     SDL_Rect srcRect = {0, 0, surface->w, surface->h};
-    SDL_Rect dst = {x, y, surface->w, surface->h};
+    SDL_Rect dst = {
+        x,
+        y,
+        (int)lroundf((float)surface->w / raster_scale),
+        (int)lroundf((float)surface->h / raster_scale)
+    };
+    if (dst.w < 1) dst.w = 1;
+    if (dst.h < 1) dst.h = 1;
     if (vk_renderer_upload_sdl_surface_with_filter(
-            renderer, surface, &vkTexture, VK_FILTER_LINEAR) == VK_SUCCESS) {
+            renderer, surface, &vkTexture, text_upload_filter_for_scale(raster_scale)) == VK_SUCCESS) {
         vk_renderer_draw_texture(renderer, &vkTexture, &srcRect, &dst);
         vk_renderer_queue_texture_destroy(renderer, &vkTexture);
     }
     SDL_FreeSurface(surface);
 #else
-    SDL_Surface* surface = TTF_RenderText_Blended(font, text, color);
+    SDL_Surface* surface = TTF_RenderText_Blended(raster_font, text, color);
     if (!surface) return;
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
     if (texture) {
-        SDL_Rect dst = {x, y, surface->w, surface->h};
+        SDL_Rect dst = {
+            x,
+            y,
+            (int)lroundf((float)surface->w / raster_scale),
+            (int)lroundf((float)surface->h / raster_scale)
+        };
+        if (dst.w < 1) dst.w = 1;
+        if (dst.h < 1) dst.h = 1;
         SDL_RenderCopy(renderer, texture, NULL, &dst);
         SDL_DestroyTexture(texture);
     }
@@ -428,6 +521,15 @@ void drawTextUTF8WithFontColor(int x, int y, const char* text, TTF_Font* font,
     if (!ctx || !ctx->renderer) return;
 
     SDL_Renderer* renderer = ctx->renderer;
+    float render_scale = text_scale_for_renderer(renderer);
+    float raster_scale = 1.0f;
+    TTF_Font* raster_font = getRasterizedFontForScale(font, render_scale, &raster_scale);
+    if (!raster_font) {
+        raster_font = font;
+    }
+    if (raster_scale < 1.0f) {
+        raster_scale = 1.0f;
+    }
     TextCacheEntry* cached = NULL;
     if (text_cache_get(renderer, font, text, color, true, &cached)) {
         text_cache_draw_entry(renderer, cached, x, y, bold);
@@ -435,13 +537,20 @@ void drawTextUTF8WithFontColor(int x, int y, const char* text, TTF_Font* font,
     }
 
 #if USE_VULKAN
-    SDL_Surface* surface = TTF_RenderUTF8_Blended(font, text, color);
+    SDL_Surface* surface = TTF_RenderUTF8_Blended(raster_font, text, color);
     if (!surface) return;
     VkRendererTexture vkTexture = {0};
     SDL_Rect srcRect = {0, 0, surface->w, surface->h};
-    SDL_Rect dst = {x, y, surface->w, surface->h};
+    SDL_Rect dst = {
+        x,
+        y,
+        (int)lroundf((float)surface->w / raster_scale),
+        (int)lroundf((float)surface->h / raster_scale)
+    };
+    if (dst.w < 1) dst.w = 1;
+    if (dst.h < 1) dst.h = 1;
     if (vk_renderer_upload_sdl_surface_with_filter(renderer, surface, &vkTexture,
-                                                   VK_FILTER_LINEAR) == VK_SUCCESS) {
+                                                   text_upload_filter_for_scale(raster_scale)) == VK_SUCCESS) {
         vk_renderer_draw_texture(renderer, &vkTexture, &srcRect, &dst);
         if (bold) {
             SDL_Rect dst2 = dst;
@@ -452,11 +561,18 @@ void drawTextUTF8WithFontColor(int x, int y, const char* text, TTF_Font* font,
     }
     SDL_FreeSurface(surface);
 #else
-    SDL_Surface* surface = TTF_RenderUTF8_Blended(font, text, color);
+    SDL_Surface* surface = TTF_RenderUTF8_Blended(raster_font, text, color);
     if (!surface) return;
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
     if (texture) {
-        SDL_Rect dst = {x, y, surface->w, surface->h};
+        SDL_Rect dst = {
+            x,
+            y,
+            (int)lroundf((float)surface->w / raster_scale),
+            (int)lroundf((float)surface->h / raster_scale)
+        };
+        if (dst.w < 1) dst.w = 1;
+        if (dst.h < 1) dst.h = 1;
         SDL_RenderCopy(renderer, texture, NULL, &dst);
         if (bold) {
             SDL_Rect dst2 = dst;

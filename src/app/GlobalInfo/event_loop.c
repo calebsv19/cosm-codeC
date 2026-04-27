@@ -7,6 +7,7 @@
 
 
 #include "event_loop.h"
+#include "event_loop_diag_helpers.h"
 #include "system_control.h"
 #include "core_state.h"
 
@@ -49,7 +50,6 @@
 #include "core/LoopJobs/mainthread_jobs.h"
 #include "core/LoopKernel/mainthread_context.h"
 #include "core/LoopKernel/mainthread_kernel.h"
-#include "core/LoopDiagnostics/loop_diag_config.h"
 #include "core/LoopTime/loop_time.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "core/Ipc/ide_ipc_server.h"
@@ -89,80 +89,8 @@ static int s_git_watcher_timer_id = -1;
 static uint64_t s_latest_applied_analysis_run_id = 0;
 static uint64_t s_analysis_progress_stamp = 0;
 static uint64_t s_analysis_status_stamp = 0;
-static bool s_loop_diag_initialized = false;
-static bool s_loop_diag_enabled = false;
-static bool s_loop_diag_json_output = false;
-static int s_loop_max_wait_ms_override = -1;
 static bool s_event_budget_initialized = false;
 static int s_event_budget_per_frame = 128;
-
-typedef struct LoopRuntimeDiag {
-    Uint32 periodStartMs;
-    Uint64 frames;
-    Uint64 waitCalls;
-    Uint64 blockedMs;
-    Uint64 activeMs;
-    Uint64 wakeDelta;
-    Uint64 timerFiredDelta;
-    uint32_t queueDepthPeak;
-    uint32_t queueDepthLast;
-    uint64_t jobsScheduledDelta;
-    uint64_t jobsCoalescedDelta;
-    uint64_t resultsAppliedDelta;
-    uint64_t resultsStaleDroppedDelta;
-    uint64_t editTxnStartsDelta;
-    uint64_t editTxnCommitsDelta;
-    uint64_t editTxnDebounceCommitsDelta;
-    uint64_t editTxnBoundaryCommitsDelta;
-    uint32_t eventQueueDepthPeak;
-    uint32_t eventQueueDepthLast;
-    uint64_t eventsEnqueuedDelta;
-    uint64_t eventsProcessedDelta;
-    uint64_t eventsDeferredDelta;
-    uint64_t eventsDroppedOverflowDelta;
-    uint64_t eventsEmitSymbolsDelta;
-    uint64_t eventsEmitDiagnosticsDelta;
-    uint64_t eventsEmitAnalysisProgressDelta;
-    uint64_t eventsEmitAnalysisStatusDelta;
-    uint64_t eventsEmitLibraryIndexDelta;
-    uint64_t eventsEmitAnalysisFinishedDelta;
-    uint64_t eventsDispatchSymbolsDelta;
-    uint64_t eventsDispatchDiagnosticsDelta;
-    uint64_t eventsDispatchAnalysisProgressDelta;
-    uint64_t eventsDispatchAnalysisStatusDelta;
-    uint64_t eventsDispatchLibraryIndexDelta;
-    uint64_t eventsDispatchAnalysisFinishedDelta;
-    uint64_t staleDropsSymbolsDelta;
-    uint64_t staleDropsDiagnosticsDelta;
-    uint64_t staleDropsAnalysisProgressDelta;
-    uint64_t staleDropsAnalysisStatusDelta;
-    uint64_t staleDropsAnalysisFinishedDelta;
-    uint32_t lastWakeReceived;
-    uint32_t lastTimerFired;
-    uint64_t lastJobsScheduled;
-    uint64_t lastJobsCoalesced;
-    uint64_t lastResultsApplied;
-    uint64_t lastResultsStaleDropped;
-    uint64_t lastEditTxnStarts;
-    uint64_t lastEditTxnCommits;
-    uint64_t lastEditTxnDebounceCommits;
-    uint64_t lastEditTxnBoundaryCommits;
-    uint64_t lastEventsEnqueued;
-    uint64_t lastEventsProcessed;
-    uint64_t lastEventsDeferred;
-    uint64_t lastEventsDroppedOverflow;
-} LoopRuntimeDiag;
-
-static LoopRuntimeDiag s_loop_diag = {0};
-
-static void init_loop_diag_config(void) {
-    if (s_loop_diag_initialized) return;
-    LoopDiagConfig cfg = loop_diag_config_from_env();
-    s_loop_diag_enabled = cfg.enabled;
-    s_loop_diag_json_output = cfg.json_output;
-    s_loop_max_wait_ms_override = cfg.max_wait_ms_override;
-    s_loop_diag_initialized = true;
-}
 
 static int event_budget_per_frame(void) {
     if (s_event_budget_initialized) return s_event_budget_per_frame;
@@ -208,286 +136,6 @@ static void ensure_loop_timers_registered(void) {
     s_loop_timers_registered = true;
 }
 
-static void loop_diag_tick(uint64_t frameStartNs, uint64_t blockedNs, bool didWaitCall) {
-    init_loop_diag_config();
-    if (!s_loop_diag_enabled) return;
-
-    uint64_t nowNs = loop_time_now_ns();
-    Uint32 nowMs = (Uint32)(nowNs / 1000000ULL);
-    if (s_loop_diag.periodStartMs == 0) {
-        s_loop_diag.periodStartMs = nowMs;
-        MainThreadWakeStats wake = {0};
-        mainthread_wake_snapshot(&wake);
-        s_loop_diag.lastWakeReceived = wake.received;
-        MainThreadTimerSchedulerStats timerStats = {0};
-        mainthread_timer_scheduler_snapshot(&timerStats);
-        s_loop_diag.lastTimerFired = timerStats.fired_count;
-        AnalysisSchedulerCounters schedulerCounters = {0};
-        analysis_scheduler_counters_snapshot(&schedulerCounters);
-        s_loop_diag.lastJobsScheduled = schedulerCounters.jobs_scheduled;
-        s_loop_diag.lastJobsCoalesced = schedulerCounters.jobs_coalesced_replaced;
-        CompletedResultsQueueStats resultStats = {0};
-        completed_results_queue_snapshot(&resultStats);
-        s_loop_diag.lastResultsApplied = resultStats.results_applied;
-        s_loop_diag.lastResultsStaleDropped = resultStats.results_stale_dropped;
-        EditorEditTransactionSnapshot editTxn = {0};
-        editor_edit_transaction_snapshot(&editTxn);
-        s_loop_diag.lastEditTxnStarts = editTxn.starts;
-        s_loop_diag.lastEditTxnCommits = editTxn.commits;
-        s_loop_diag.lastEditTxnDebounceCommits = editTxn.debounce_commits;
-        s_loop_diag.lastEditTxnBoundaryCommits = editTxn.boundary_commits;
-        LoopEventsStats eventStats = {0};
-        loop_events_snapshot(&eventStats);
-        s_loop_diag.lastEventsEnqueued = eventStats.events_enqueued;
-        s_loop_diag.lastEventsProcessed = eventStats.events_processed;
-        s_loop_diag.lastEventsDeferred = eventStats.events_deferred;
-        s_loop_diag.lastEventsDroppedOverflow = eventStats.events_dropped_overflow;
-    }
-
-    uint64_t frameElapsedNs = loop_time_diff_ns(nowNs, frameStartNs);
-    uint64_t activeNs = (frameElapsedNs > blockedNs) ? (frameElapsedNs - blockedNs) : 0;
-    Uint32 blockedMs = (Uint32)(blockedNs / 1000000ULL);
-    Uint32 activeMs = (Uint32)(activeNs / 1000000ULL);
-
-    s_loop_diag.frames++;
-    s_loop_diag.blockedMs += blockedMs;
-    s_loop_diag.activeMs += activeMs;
-    if (didWaitCall) s_loop_diag.waitCalls++;
-
-    MainThreadWakeStats wake = {0};
-    mainthread_wake_snapshot(&wake);
-    if (wake.received >= s_loop_diag.lastWakeReceived) {
-        s_loop_diag.wakeDelta += (wake.received - s_loop_diag.lastWakeReceived);
-    }
-    s_loop_diag.lastWakeReceived = wake.received;
-
-    MainThreadTimerSchedulerStats timerStats = {0};
-    mainthread_timer_scheduler_snapshot(&timerStats);
-    if (timerStats.fired_count >= s_loop_diag.lastTimerFired) {
-        s_loop_diag.timerFiredDelta += (timerStats.fired_count - s_loop_diag.lastTimerFired);
-    }
-    s_loop_diag.lastTimerFired = timerStats.fired_count;
-
-    CompletedResultsQueueStats resultStats = {0};
-    completed_results_queue_snapshot(&resultStats);
-    s_loop_diag.queueDepthLast = resultStats.total_depth;
-    if (resultStats.total_depth > s_loop_diag.queueDepthPeak) {
-        s_loop_diag.queueDepthPeak = resultStats.total_depth;
-    }
-    if (resultStats.results_applied >= s_loop_diag.lastResultsApplied) {
-        s_loop_diag.resultsAppliedDelta += (resultStats.results_applied - s_loop_diag.lastResultsApplied);
-    }
-    s_loop_diag.lastResultsApplied = resultStats.results_applied;
-    if (resultStats.results_stale_dropped >= s_loop_diag.lastResultsStaleDropped) {
-        s_loop_diag.resultsStaleDroppedDelta +=
-            (resultStats.results_stale_dropped - s_loop_diag.lastResultsStaleDropped);
-    }
-    s_loop_diag.lastResultsStaleDropped = resultStats.results_stale_dropped;
-
-    EditorEditTransactionSnapshot editTxn = {0};
-    editor_edit_transaction_snapshot(&editTxn);
-    if (editTxn.starts >= s_loop_diag.lastEditTxnStarts) {
-        s_loop_diag.editTxnStartsDelta += (editTxn.starts - s_loop_diag.lastEditTxnStarts);
-    }
-    s_loop_diag.lastEditTxnStarts = editTxn.starts;
-    if (editTxn.commits >= s_loop_diag.lastEditTxnCommits) {
-        s_loop_diag.editTxnCommitsDelta += (editTxn.commits - s_loop_diag.lastEditTxnCommits);
-    }
-    s_loop_diag.lastEditTxnCommits = editTxn.commits;
-    if (editTxn.debounce_commits >= s_loop_diag.lastEditTxnDebounceCommits) {
-        s_loop_diag.editTxnDebounceCommitsDelta +=
-            (editTxn.debounce_commits - s_loop_diag.lastEditTxnDebounceCommits);
-    }
-    s_loop_diag.lastEditTxnDebounceCommits = editTxn.debounce_commits;
-    if (editTxn.boundary_commits >= s_loop_diag.lastEditTxnBoundaryCommits) {
-        s_loop_diag.editTxnBoundaryCommitsDelta +=
-            (editTxn.boundary_commits - s_loop_diag.lastEditTxnBoundaryCommits);
-    }
-    s_loop_diag.lastEditTxnBoundaryCommits = editTxn.boundary_commits;
-
-    LoopEventsStats eventStats = {0};
-    loop_events_snapshot(&eventStats);
-    s_loop_diag.eventQueueDepthLast = eventStats.depth;
-    if (eventStats.depth > s_loop_diag.eventQueueDepthPeak) {
-        s_loop_diag.eventQueueDepthPeak = eventStats.depth;
-    }
-    if (eventStats.events_enqueued >= s_loop_diag.lastEventsEnqueued) {
-        s_loop_diag.eventsEnqueuedDelta += (eventStats.events_enqueued - s_loop_diag.lastEventsEnqueued);
-    }
-    s_loop_diag.lastEventsEnqueued = eventStats.events_enqueued;
-    if (eventStats.events_processed >= s_loop_diag.lastEventsProcessed) {
-        s_loop_diag.eventsProcessedDelta += (eventStats.events_processed - s_loop_diag.lastEventsProcessed);
-    }
-    s_loop_diag.lastEventsProcessed = eventStats.events_processed;
-    if (eventStats.events_deferred >= s_loop_diag.lastEventsDeferred) {
-        s_loop_diag.eventsDeferredDelta += (eventStats.events_deferred - s_loop_diag.lastEventsDeferred);
-    }
-    s_loop_diag.lastEventsDeferred = eventStats.events_deferred;
-    if (eventStats.events_dropped_overflow >= s_loop_diag.lastEventsDroppedOverflow) {
-        s_loop_diag.eventsDroppedOverflowDelta +=
-            (eventStats.events_dropped_overflow - s_loop_diag.lastEventsDroppedOverflow);
-    }
-    s_loop_diag.lastEventsDroppedOverflow = eventStats.events_dropped_overflow;
-
-    AnalysisSchedulerCounters schedulerCounters = {0};
-    analysis_scheduler_counters_snapshot(&schedulerCounters);
-    if (schedulerCounters.jobs_scheduled >= s_loop_diag.lastJobsScheduled) {
-        s_loop_diag.jobsScheduledDelta +=
-            (schedulerCounters.jobs_scheduled - s_loop_diag.lastJobsScheduled);
-    }
-    s_loop_diag.lastJobsScheduled = schedulerCounters.jobs_scheduled;
-    if (schedulerCounters.jobs_coalesced_replaced >= s_loop_diag.lastJobsCoalesced) {
-        s_loop_diag.jobsCoalescedDelta +=
-            (schedulerCounters.jobs_coalesced_replaced - s_loop_diag.lastJobsCoalesced);
-    }
-    s_loop_diag.lastJobsCoalesced = schedulerCounters.jobs_coalesced_replaced;
-
-    Uint32 periodMs = nowMs - s_loop_diag.periodStartMs;
-    if (periodMs < 1000) return;
-
-    Uint64 totalMs = s_loop_diag.blockedMs + s_loop_diag.activeMs;
-    double blockedPct = (totalMs > 0) ? (100.0 * (double)s_loop_diag.blockedMs / (double)totalMs) : 0.0;
-    double activePct = (totalMs > 0) ? (100.0 * (double)s_loop_diag.activeMs / (double)totalMs) : 0.0;
-    if (s_loop_diag_json_output) {
-        printf("{\"tag\":\"LoopDiag\",\"schema\":1,\"period_ms\":%u,\"frames\":%llu,"
-               "\"wait_calls\":%llu,\"blocked_ms\":%llu,\"blocked_pct\":%.1f,"
-               "\"active_ms\":%llu,\"active_pct\":%.1f,\"wakes\":%llu,\"timers\":%llu,"
-               "\"results_queue\":{\"last\":%u,\"peak\":%u},"
-               "\"jobs\":{\"scheduled\":%llu,\"coalesced\":%llu},"
-               "\"results\":{\"applied\":%llu,\"stale_dropped\":%llu},"
-               "\"edit_txn\":{\"starts\":%llu,\"commits\":%llu,\"debounce_commits\":%llu,\"boundary_commits\":%llu},"
-               "\"events\":{\"queue_last\":%u,\"queue_peak\":%u,\"enqueued\":%llu,\"processed\":%llu,\"deferred\":%llu,\"dropped\":%llu,"
-               "\"emit\":{\"symbols\":%llu,\"diagnostics\":%llu,\"analysis_progress\":%llu,\"analysis_status\":%llu,\"library_index\":%llu,\"analysis_finished\":%llu},"
-               "\"dispatch\":{\"symbols\":%llu,\"diagnostics\":%llu,\"analysis_progress\":%llu,\"analysis_status\":%llu,\"library_index\":%llu,\"analysis_finished\":%llu}},"
-               "\"stale_by_kind\":{\"symbols\":%llu,\"diagnostics\":%llu,\"analysis_progress\":%llu,\"analysis_status\":%llu,\"analysis_finished\":%llu}}\n",
-               (unsigned int)periodMs,
-               (unsigned long long)s_loop_diag.frames,
-               (unsigned long long)s_loop_diag.waitCalls,
-               (unsigned long long)s_loop_diag.blockedMs,
-               blockedPct,
-               (unsigned long long)s_loop_diag.activeMs,
-               activePct,
-               (unsigned long long)s_loop_diag.wakeDelta,
-               (unsigned long long)s_loop_diag.timerFiredDelta,
-               s_loop_diag.queueDepthLast,
-               s_loop_diag.queueDepthPeak,
-               (unsigned long long)s_loop_diag.jobsScheduledDelta,
-               (unsigned long long)s_loop_diag.jobsCoalescedDelta,
-               (unsigned long long)s_loop_diag.resultsAppliedDelta,
-               (unsigned long long)s_loop_diag.resultsStaleDroppedDelta,
-               (unsigned long long)s_loop_diag.editTxnStartsDelta,
-               (unsigned long long)s_loop_diag.editTxnCommitsDelta,
-               (unsigned long long)s_loop_diag.editTxnDebounceCommitsDelta,
-               (unsigned long long)s_loop_diag.editTxnBoundaryCommitsDelta,
-               s_loop_diag.eventQueueDepthLast,
-               s_loop_diag.eventQueueDepthPeak,
-               (unsigned long long)s_loop_diag.eventsEnqueuedDelta,
-               (unsigned long long)s_loop_diag.eventsProcessedDelta,
-               (unsigned long long)s_loop_diag.eventsDeferredDelta,
-               (unsigned long long)s_loop_diag.eventsDroppedOverflowDelta,
-               (unsigned long long)s_loop_diag.eventsEmitSymbolsDelta,
-               (unsigned long long)s_loop_diag.eventsEmitDiagnosticsDelta,
-               (unsigned long long)s_loop_diag.eventsEmitAnalysisProgressDelta,
-               (unsigned long long)s_loop_diag.eventsEmitAnalysisStatusDelta,
-               (unsigned long long)s_loop_diag.eventsEmitLibraryIndexDelta,
-               (unsigned long long)s_loop_diag.eventsEmitAnalysisFinishedDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchSymbolsDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchDiagnosticsDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchAnalysisProgressDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchAnalysisStatusDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchLibraryIndexDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchAnalysisFinishedDelta,
-               (unsigned long long)s_loop_diag.staleDropsSymbolsDelta,
-               (unsigned long long)s_loop_diag.staleDropsDiagnosticsDelta,
-               (unsigned long long)s_loop_diag.staleDropsAnalysisProgressDelta,
-               (unsigned long long)s_loop_diag.staleDropsAnalysisStatusDelta,
-               (unsigned long long)s_loop_diag.staleDropsAnalysisFinishedDelta);
-    } else {
-        printf("[LoopDiag] period=%ums frames=%llu waits=%llu blocked=%llums(%.1f%%) active=%llums(%.1f%%) wakes=%llu timers=%llu q_last=%u q_peak=%u jobs=%llu coalesced=%llu applied=%llu stale_dropped=%llu edit_txn_starts=%llu commits=%llu debounce_commits=%llu boundary_commits=%llu ev_q_last=%u ev_q_peak=%u ev_enq=%llu ev_proc=%llu ev_deferred=%llu ev_dropped=%llu ev_emit[sym=%llu diag=%llu prog=%llu status=%llu idx=%llu fin=%llu] ev_dispatch[sym=%llu diag=%llu prog=%llu status=%llu idx=%llu fin=%llu] stale_by_kind[sym=%llu diag=%llu prog=%llu status=%llu fin=%llu]\n",
-               (unsigned int)periodMs,
-               (unsigned long long)s_loop_diag.frames,
-               (unsigned long long)s_loop_diag.waitCalls,
-               (unsigned long long)s_loop_diag.blockedMs,
-               blockedPct,
-               (unsigned long long)s_loop_diag.activeMs,
-               activePct,
-               (unsigned long long)s_loop_diag.wakeDelta,
-               (unsigned long long)s_loop_diag.timerFiredDelta,
-               s_loop_diag.queueDepthLast,
-               s_loop_diag.queueDepthPeak,
-               (unsigned long long)s_loop_diag.jobsScheduledDelta,
-               (unsigned long long)s_loop_diag.jobsCoalescedDelta,
-               (unsigned long long)s_loop_diag.resultsAppliedDelta,
-               (unsigned long long)s_loop_diag.resultsStaleDroppedDelta,
-               (unsigned long long)s_loop_diag.editTxnStartsDelta,
-               (unsigned long long)s_loop_diag.editTxnCommitsDelta,
-               (unsigned long long)s_loop_diag.editTxnDebounceCommitsDelta,
-               (unsigned long long)s_loop_diag.editTxnBoundaryCommitsDelta,
-               s_loop_diag.eventQueueDepthLast,
-               s_loop_diag.eventQueueDepthPeak,
-               (unsigned long long)s_loop_diag.eventsEnqueuedDelta,
-               (unsigned long long)s_loop_diag.eventsProcessedDelta,
-               (unsigned long long)s_loop_diag.eventsDeferredDelta,
-               (unsigned long long)s_loop_diag.eventsDroppedOverflowDelta,
-               (unsigned long long)s_loop_diag.eventsEmitSymbolsDelta,
-               (unsigned long long)s_loop_diag.eventsEmitDiagnosticsDelta,
-               (unsigned long long)s_loop_diag.eventsEmitAnalysisProgressDelta,
-               (unsigned long long)s_loop_diag.eventsEmitAnalysisStatusDelta,
-               (unsigned long long)s_loop_diag.eventsEmitLibraryIndexDelta,
-               (unsigned long long)s_loop_diag.eventsEmitAnalysisFinishedDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchSymbolsDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchDiagnosticsDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchAnalysisProgressDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchAnalysisStatusDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchLibraryIndexDelta,
-               (unsigned long long)s_loop_diag.eventsDispatchAnalysisFinishedDelta,
-               (unsigned long long)s_loop_diag.staleDropsSymbolsDelta,
-               (unsigned long long)s_loop_diag.staleDropsDiagnosticsDelta,
-               (unsigned long long)s_loop_diag.staleDropsAnalysisProgressDelta,
-               (unsigned long long)s_loop_diag.staleDropsAnalysisStatusDelta,
-               (unsigned long long)s_loop_diag.staleDropsAnalysisFinishedDelta);
-    }
-
-    s_loop_diag.periodStartMs = nowMs;
-    s_loop_diag.frames = 0;
-    s_loop_diag.waitCalls = 0;
-    s_loop_diag.blockedMs = 0;
-    s_loop_diag.activeMs = 0;
-    s_loop_diag.wakeDelta = 0;
-    s_loop_diag.timerFiredDelta = 0;
-    s_loop_diag.queueDepthPeak = 0;
-    s_loop_diag.jobsScheduledDelta = 0;
-    s_loop_diag.jobsCoalescedDelta = 0;
-    s_loop_diag.resultsAppliedDelta = 0;
-    s_loop_diag.resultsStaleDroppedDelta = 0;
-    s_loop_diag.editTxnStartsDelta = 0;
-    s_loop_diag.editTxnCommitsDelta = 0;
-    s_loop_diag.editTxnDebounceCommitsDelta = 0;
-    s_loop_diag.editTxnBoundaryCommitsDelta = 0;
-    s_loop_diag.eventQueueDepthPeak = 0;
-    s_loop_diag.eventsEnqueuedDelta = 0;
-    s_loop_diag.eventsProcessedDelta = 0;
-    s_loop_diag.eventsDeferredDelta = 0;
-    s_loop_diag.eventsDroppedOverflowDelta = 0;
-    s_loop_diag.eventsEmitSymbolsDelta = 0;
-    s_loop_diag.eventsEmitDiagnosticsDelta = 0;
-    s_loop_diag.eventsEmitAnalysisProgressDelta = 0;
-    s_loop_diag.eventsEmitAnalysisStatusDelta = 0;
-    s_loop_diag.eventsEmitLibraryIndexDelta = 0;
-    s_loop_diag.eventsEmitAnalysisFinishedDelta = 0;
-    s_loop_diag.eventsDispatchSymbolsDelta = 0;
-    s_loop_diag.eventsDispatchDiagnosticsDelta = 0;
-    s_loop_diag.eventsDispatchAnalysisProgressDelta = 0;
-    s_loop_diag.eventsDispatchAnalysisStatusDelta = 0;
-    s_loop_diag.eventsDispatchLibraryIndexDelta = 0;
-    s_loop_diag.eventsDispatchAnalysisFinishedDelta = 0;
-    s_loop_diag.staleDropsSymbolsDelta = 0;
-    s_loop_diag.staleDropsDiagnosticsDelta = 0;
-    s_loop_diag.staleDropsAnalysisProgressDelta = 0;
-    s_loop_diag.staleDropsAnalysisStatusDelta = 0;
-    s_loop_diag.staleDropsAnalysisFinishedDelta = 0;
-}
-
 static bool completed_result_is_stale(const CompletedResult* result) {
     if (!result || !result->has_document_revision) return false;
     if (!result->document_path[0]) return true;
@@ -496,86 +144,6 @@ static bool completed_result_is_stale(const CompletedResult* result) {
         return true;
     }
     return current_revision != result->document_revision;
-}
-
-static void loop_diag_note_event_emitted(IDEEventType type) {
-    switch (type) {
-        case IDE_EVENT_SYMBOL_TREE_UPDATED:
-            s_loop_diag.eventsEmitSymbolsDelta++;
-            break;
-        case IDE_EVENT_DIAGNOSTICS_UPDATED:
-            s_loop_diag.eventsEmitDiagnosticsDelta++;
-            break;
-        case IDE_EVENT_ANALYSIS_PROGRESS_UPDATED:
-            s_loop_diag.eventsEmitAnalysisProgressDelta++;
-            break;
-        case IDE_EVENT_ANALYSIS_STATUS_UPDATED:
-            s_loop_diag.eventsEmitAnalysisStatusDelta++;
-            break;
-        case IDE_EVENT_LIBRARY_INDEX_UPDATED:
-            s_loop_diag.eventsEmitLibraryIndexDelta++;
-            break;
-        case IDE_EVENT_ANALYSIS_RUN_FINISHED:
-            s_loop_diag.eventsEmitAnalysisFinishedDelta++;
-            break;
-        case IDE_EVENT_NONE:
-        case IDE_EVENT_DOCUMENT_EDITED:
-        case IDE_EVENT_DOCUMENT_REVISION_CHANGED:
-        default:
-            break;
-    }
-}
-
-static void loop_diag_note_event_dispatched(IDEEventType type) {
-    switch (type) {
-        case IDE_EVENT_SYMBOL_TREE_UPDATED:
-            s_loop_diag.eventsDispatchSymbolsDelta++;
-            break;
-        case IDE_EVENT_DIAGNOSTICS_UPDATED:
-            s_loop_diag.eventsDispatchDiagnosticsDelta++;
-            break;
-        case IDE_EVENT_ANALYSIS_PROGRESS_UPDATED:
-            s_loop_diag.eventsDispatchAnalysisProgressDelta++;
-            break;
-        case IDE_EVENT_ANALYSIS_STATUS_UPDATED:
-            s_loop_diag.eventsDispatchAnalysisStatusDelta++;
-            break;
-        case IDE_EVENT_LIBRARY_INDEX_UPDATED:
-            s_loop_diag.eventsDispatchLibraryIndexDelta++;
-            break;
-        case IDE_EVENT_ANALYSIS_RUN_FINISHED:
-            s_loop_diag.eventsDispatchAnalysisFinishedDelta++;
-            break;
-        case IDE_EVENT_NONE:
-        case IDE_EVENT_DOCUMENT_EDITED:
-        case IDE_EVENT_DOCUMENT_REVISION_CHANGED:
-        default:
-            break;
-    }
-}
-
-static void note_stale_drop_kind(CompletedResultKind kind) {
-    completed_results_queue_note_stale_dropped();
-    switch (kind) {
-        case COMPLETED_RESULT_SYMBOLS_UPDATED:
-            s_loop_diag.staleDropsSymbolsDelta++;
-            break;
-        case COMPLETED_RESULT_DIAGNOSTICS_UPDATED:
-            s_loop_diag.staleDropsDiagnosticsDelta++;
-            break;
-        case COMPLETED_RESULT_ANALYSIS_PROGRESS:
-            s_loop_diag.staleDropsAnalysisProgressDelta++;
-            break;
-        case COMPLETED_RESULT_ANALYSIS_STATUS_UPDATE:
-            s_loop_diag.staleDropsAnalysisStatusDelta++;
-            break;
-        case COMPLETED_RESULT_ANALYSIS_FINISHED:
-            s_loop_diag.staleDropsAnalysisFinishedDelta++;
-            break;
-        case COMPLETED_RESULT_NONE:
-        default:
-            break;
-    }
 }
 
 static void apply_completed_result(FrameContext* ctx, const CompletedResult* result) {
@@ -596,75 +164,75 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         result_run_id = result->payload.analysis_status_update.analysis_run_id;
     }
     if (result_run_id > 0 && result_run_id < s_latest_applied_analysis_run_id) {
-        note_stale_drop_kind(result->kind);
+        event_loop_diag_note_stale_drop_kind(result->kind);
         return;
     }
 
     if (result->kind == COMPLETED_RESULT_SYMBOLS_UPDATED) {
         const CompletedResultSymbolsUpdatedPayload* p = &result->payload.symbols_updated;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
-            note_stale_drop_kind(result->kind);
+            event_loop_diag_note_stale_drop_kind(result->kind);
             return;
         }
         if (analysis_symbols_store_combined_stamp() != p->symbols_stamp) {
-            note_stale_drop_kind(result->kind);
+            event_loop_diag_note_stale_drop_kind(result->kind);
             return;
         }
     } else if (result->kind == COMPLETED_RESULT_DIAGNOSTICS_UPDATED) {
         const CompletedResultDiagnosticsUpdatedPayload* p = &result->payload.diagnostics_updated;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
-            note_stale_drop_kind(result->kind);
+            event_loop_diag_note_stale_drop_kind(result->kind);
             return;
         }
         if (analysis_store_combined_stamp() != p->diagnostics_stamp) {
-            note_stale_drop_kind(result->kind);
+            event_loop_diag_note_stale_drop_kind(result->kind);
             return;
         }
     } else if (result->kind == COMPLETED_RESULT_ANALYSIS_PROGRESS) {
         const CompletedResultAnalysisProgressPayload* p = &result->payload.analysis_progress;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
-            note_stale_drop_kind(result->kind);
+            event_loop_diag_note_stale_drop_kind(result->kind);
             return;
         }
     } else if (result->kind == COMPLETED_RESULT_ANALYSIS_STATUS_UPDATE) {
         const CompletedResultAnalysisStatusUpdatePayload* p = &result->payload.analysis_status_update;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
-            note_stale_drop_kind(result->kind);
+            event_loop_diag_note_stale_drop_kind(result->kind);
             return;
         }
     } else if (result->kind == COMPLETED_RESULT_ANALYSIS_FINISHED) {
         const CompletedResultAnalysisFinishedPayload* p = &result->payload.analysis_finished;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
-            note_stale_drop_kind(result->kind);
+            event_loop_diag_note_stale_drop_kind(result->kind);
             return;
         }
         if (library_index_combined_stamp() != p->library_index_stamp) {
-            note_stale_drop_kind(result->kind);
+            event_loop_diag_note_stale_drop_kind(result->kind);
             return;
         }
     }
 
     if (completed_result_is_stale(result)) {
-        note_stale_drop_kind(result->kind);
+        event_loop_diag_note_stale_drop_kind(result->kind);
         return;
     }
 
     if (result->kind == COMPLETED_RESULT_ANALYSIS_FINISHED) {
         const CompletedResultAnalysisFinishedPayload* p = &result->payload.analysis_finished;
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
-            note_stale_drop_kind(result->kind);
+            event_loop_diag_note_stale_drop_kind(result->kind);
             return;
         }
         completed_results_queue_note_applied();
         if (loop_events_emit_library_index_updated(p->project_root,
                                                    p->analysis_run_id,
                                                    p->library_index_stamp)) {
-            loop_diag_note_event_emitted(IDE_EVENT_LIBRARY_INDEX_UPDATED);
+            event_loop_diag_note_event_emitted(IDE_EVENT_LIBRARY_INDEX_UPDATED);
         }
         if (loop_events_emit_analysis_run_finished(p->project_root,
                                                    p->analysis_run_id,
                                                    p->library_index_stamp)) {
-            loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_RUN_FINISHED);
+            event_loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_RUN_FINISHED);
         }
         if (result_run_id > s_latest_applied_analysis_run_id) {
             s_latest_applied_analysis_run_id = result_run_id;
@@ -674,7 +242,7 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         editor_sync_active_file_projection_mode();
         completed_results_queue_note_applied();
         if (loop_events_emit_symbol_tree_updated(p->project_root, p->analysis_run_id, p->symbols_stamp)) {
-            loop_diag_note_event_emitted(IDE_EVENT_SYMBOL_TREE_UPDATED);
+            event_loop_diag_note_event_emitted(IDE_EVENT_SYMBOL_TREE_UPDATED);
         }
         if (result_run_id > s_latest_applied_analysis_run_id) {
             s_latest_applied_analysis_run_id = result_run_id;
@@ -684,7 +252,7 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         analysis_store_flatten_to_engine();
         completed_results_queue_note_applied();
         if (loop_events_emit_diagnostics_updated(p->project_root, p->analysis_run_id, p->diagnostics_stamp)) {
-            loop_diag_note_event_emitted(IDE_EVENT_DIAGNOSTICS_UPDATED);
+            event_loop_diag_note_event_emitted(IDE_EVENT_DIAGNOSTICS_UPDATED);
         }
         if (result_run_id > s_latest_applied_analysis_run_id) {
             s_latest_applied_analysis_run_id = result_run_id;
@@ -697,7 +265,7 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         if (loop_events_emit_analysis_progress_updated(p->project_root,
                                                        p->analysis_run_id,
                                                        s_analysis_progress_stamp)) {
-            loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_PROGRESS_UPDATED);
+            event_loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_PROGRESS_UPDATED);
         }
         if (result_run_id > s_latest_applied_analysis_run_id) {
             s_latest_applied_analysis_run_id = result_run_id;
@@ -718,7 +286,7 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         if (loop_events_emit_analysis_status_updated(p->project_root,
                                                      p->analysis_run_id,
                                                      s_analysis_status_stamp)) {
-            loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_STATUS_UPDATED);
+            event_loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_STATUS_UPDATED);
         }
         if (result_run_id > s_latest_applied_analysis_run_id) {
             s_latest_applied_analysis_run_id = result_run_id;
@@ -755,7 +323,7 @@ static void invalidate_runtime_event_targets(const IDEEvent* event, FrameContext
 static void dispatch_runtime_event(const IDEEvent* event, void* user_data) {
     mainthread_context_assert_owner("event_loop.dispatch_runtime_event");
     if (event) {
-        loop_diag_note_event_dispatched(event->type);
+        event_loop_diag_note_event_dispatched(event->type);
     }
     if (event && event->type == IDE_EVENT_SYMBOL_TREE_UPDATED) {
         control_panel_note_symbol_store_updated(event->payload.analysis.project_root,
@@ -1059,10 +627,7 @@ static int compute_wait_timeout_ms(FrameContext* ctx) {
 
     if (timeoutMs < 0) timeoutMs = 500;
     if (!activeInteraction && timeoutMs > 500) timeoutMs = 500;
-    init_loop_diag_config();
-    if (s_loop_max_wait_ms_override > 0 && timeoutMs > s_loop_max_wait_ms_override) {
-        timeoutMs = s_loop_max_wait_ms_override;
-    }
+    timeoutMs = event_loop_diag_clamp_wait_timeout_ms(timeoutMs);
     return timeoutMs;
 }
 
@@ -1219,12 +784,12 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
         analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
         s_analysis_status_stamp++;
         if (loop_events_emit_analysis_status_updated(projectPath, 0u, s_analysis_status_stamp)) {
-            loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_STATUS_UPDATED);
+            event_loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_STATUS_UPDATED);
         }
         analysis_job_set_slow_mode_next_run(slow_mode);
         analysis_scheduler_request((AnalysisRefreshReason)reason_mask, force_full);
         if (loop_events_emit_library_index_updated(projectPath, 0u, library_index_combined_stamp())) {
-            loop_diag_note_event_emitted(IDE_EVENT_LIBRARY_INDEX_UPDATED);
+            event_loop_diag_note_event_emitted(IDE_EVENT_LIBRARY_INDEX_UPDATED);
         }
         initAssetManagerPanel();
         // Keep Git panel refresh bounded to watcher-observed changes.
@@ -1252,7 +817,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     if (!didRender) {
         blockedNs = wait_for_next_wake(ctx, &didWaitCall);
     }
-    loop_diag_tick(frameStartNs, blockedNs, didWaitCall);
+    event_loop_diag_tick(frameStartNs, blockedNs, didWaitCall);
 
     if (timerHudActive) ts_stop_timer("SystemLoop");
 }

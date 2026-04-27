@@ -1,4 +1,5 @@
 #include "terminal_grid.h"
+#include "terminal_grid_sgr_helpers.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -170,79 +171,6 @@ static void grid_alloc(TermGrid* grid, int rows, int cols) {
 
 static void clamp_cursor(TermGrid* grid);
 static void term_grid_restore_cursor(TermGrid* grid);
-
-static inline uint32_t pack_rgba(unsigned int r, unsigned int g, unsigned int b) {
-    return ((r & 0xFFu) << 24) | ((g & 0xFFu) << 16) | ((b & 0xFFu) << 8) | 0xFFu;
-}
-
-static uint32_t ansi16_color(unsigned int index) {
-    static const uint32_t base[16] = {
-        0x000000FFu, // black
-        0xAA0000FFu, // red
-        0x00AA00FFu, // green
-        0xAA5500FFu, // yellow
-        0x0000AAFFu, // blue
-        0xAA00AAFFu, // magenta
-        0x00AAAAFFu, // cyan
-        0xAAAAAAAAu, // white/gray
-        0x555555FFu, // bright black
-        0xFF5555FFu, // bright red
-        0x55FF55FFu, // bright green
-        0xFFFF55FFu, // bright yellow
-        0x5555FFFFu, // bright blue
-        0xFF55FFFFu, // bright magenta
-        0x55FFFFFFu, // bright cyan
-        0xFFFFFFFFu, // bright white
-    };
-    return base[index & 0x0Fu];
-}
-
-static uint32_t ansi256_color(int index) {
-    if (index < 0) index = 0;
-    if (index > 255) index = 255;
-
-    if (index < 16) {
-        return ansi16_color((unsigned int)index);
-    }
-
-    if (index <= 231) {
-        int n = index - 16;
-        int r = n / 36;
-        int g = (n / 6) % 6;
-        int b = n % 6;
-
-        unsigned int rr = (r == 0) ? 0u : (unsigned int)(55 + r * 40);
-        unsigned int gg = (g == 0) ? 0u : (unsigned int)(55 + g * 40);
-        unsigned int bb = (b == 0) ? 0u : (unsigned int)(55 + b * 40);
-        return pack_rgba(rr, gg, bb);
-    }
-
-    unsigned int v = (unsigned int)(8 + (index - 232) * 10);
-    return pack_rgba(v, v, v);
-}
-
-static void set_sgr_color(TermGrid* grid, int is_fg, uint32_t color) {
-    if (is_fg) {
-        grid->cur_fg = color;
-    } else {
-        grid->cur_bg = color;
-    }
-}
-
-static void reset_style(TermGrid* grid) {
-    grid->cur_fg = TERM_DEFAULT_FG;
-    grid->cur_bg = TERM_DEFAULT_BG;
-    grid->cur_attrs = 0;
-}
-
-static int parse_int(const char* s, int len) {
-    int v = 0;
-    for (int i = 0; i < len; ++i) {
-        if (!isdigit((unsigned char)s[i])) return v;
-        v = v * 10 + (s[i] - '0');
-    }
-    return v;
-}
 
 void term_grid_init(TermGrid* grid, int rows, int cols) {
     if (!grid) return;
@@ -624,7 +552,7 @@ static int utf8_feed_byte(TermGrid* grid, unsigned char byte, uint32_t* out_cp) 
 
 static void apply_sgr(TermGrid* grid, const int* params, int count) {
     if (!grid || count == 0) {
-        reset_style(grid);
+        term_grid_reset_style(grid, TERM_DEFAULT_FG, TERM_DEFAULT_BG);
         return;
     }
 
@@ -632,7 +560,7 @@ static void apply_sgr(TermGrid* grid, const int* params, int count) {
         int p = params[i];
 
         if (p == 0) {
-            reset_style(grid);
+            term_grid_reset_style(grid, TERM_DEFAULT_FG, TERM_DEFAULT_BG);
         } else if (p == 1) {
             grid->cur_attrs |= ATTR_BOLD;
         } else if (p == 4) {
@@ -646,13 +574,13 @@ static void apply_sgr(TermGrid* grid, const int* params, int count) {
         } else if (p == 49) {
             grid->cur_bg = TERM_DEFAULT_BG;
         } else if (p >= 30 && p <= 37) {
-            set_sgr_color(grid, 1, ansi16_color((unsigned int)(p - 30)));
+            term_grid_set_sgr_color(grid, 1, term_grid_ansi16_color((unsigned int)(p - 30)));
         } else if (p >= 40 && p <= 47) {
-            set_sgr_color(grid, 0, ansi16_color((unsigned int)(p - 40)));
+            term_grid_set_sgr_color(grid, 0, term_grid_ansi16_color((unsigned int)(p - 40)));
         } else if (p >= 90 && p <= 97) {
-            set_sgr_color(grid, 1, ansi16_color((unsigned int)(8 + (p - 90))));
+            term_grid_set_sgr_color(grid, 1, term_grid_ansi16_color((unsigned int)(8 + (p - 90))));
         } else if (p >= 100 && p <= 107) {
-            set_sgr_color(grid, 0, ansi16_color((unsigned int)(8 + (p - 100))));
+            term_grid_set_sgr_color(grid, 0, term_grid_ansi16_color((unsigned int)(8 + (p - 100))));
         } else if (p == 38 || p == 48) {
             int is_fg = (p == 38);
             if (i + 1 >= count) continue;
@@ -661,7 +589,7 @@ static void apply_sgr(TermGrid* grid, const int* params, int count) {
             if (mode == 5) {
                 if (i + 1 >= count) continue;
                 int idx = params[++i];
-                set_sgr_color(grid, is_fg, ansi256_color(idx));
+                term_grid_set_sgr_color(grid, is_fg, term_grid_ansi256_color(idx));
             } else if (mode == 2) {
                 if (i + 3 >= count) continue;
                 int r = params[++i];
@@ -670,7 +598,7 @@ static void apply_sgr(TermGrid* grid, const int* params, int count) {
                 if (r < 0) r = 0; else if (r > 255) r = 255;
                 if (g < 0) g = 0; else if (g > 255) g = 255;
                 if (b < 0) b = 0; else if (b > 255) b = 255;
-                set_sgr_color(grid, is_fg, pack_rgba((unsigned int)r, (unsigned int)g, (unsigned int)b));
+                term_grid_set_sgr_color(grid, is_fg, term_grid_pack_rgba((unsigned int)r, (unsigned int)g, (unsigned int)b));
             }
         }
     }
@@ -793,7 +721,7 @@ static void handle_csi(TermGrid* grid, const char* params, int paramLen, char co
     for (int i = 0; i <= plen; ++i) {
         if (i == plen || p[i] == ';') {
             if (count < (int)(sizeof(values) / sizeof(values[0]))) {
-                values[count++] = parse_int(p + start, i - start);
+                values[count++] = term_grid_parse_int(p + start, i - start);
             }
             start = i + 1;
         }

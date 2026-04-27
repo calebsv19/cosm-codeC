@@ -29,5 +29,6 @@ TTF_Font* getActiveFont();
 TTF_Font* getTerminalFont();
 TTF_Font* getUIFontByTier(CoreFontTextSizeTier tier);
 int getUIFontPointSizeByTier(CoreFontTextSizeTier tier);
+TTF_Font* getRasterizedFontForScale(TTF_Font* base_font, float scale, float* out_raster_scale);
 
 #endif
