@@ -1,5 +1,22 @@
 # ===== CONFIGURATION =====
-  CC = cc
+  HOST_CC ?= cc
+  FISICS_CC ?= /Users/calebsv/Desktop/CodeWork/fisiCs/fisics
+  BUILD_TOOLCHAIN ?= clang
+  PACKAGE_TOOLCHAIN ?= $(BUILD_TOOLCHAIN)
+  TEST_TOOLCHAIN ?= clang
+  RELEASE_TOOLCHAIN ?= clang
+
+  ifeq ($(BUILD_TOOLCHAIN),clang)
+  APP_CC := $(HOST_CC)
+  TOOLCHAIN_DEP :=
+  else ifeq ($(BUILD_TOOLCHAIN),fisics)
+  APP_CC := $(FISICS_CC)
+  TOOLCHAIN_DEP := $(FISICS_CC)
+  else
+  $(error Unsupported BUILD_TOOLCHAIN '$(BUILD_TOOLCHAIN)' (expected clang or fisics))
+  endif
+
+  CC := $(HOST_CC)
 
   # Detect Homebrew prefix (works on Intel and Apple Silicon)
   BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
@@ -119,54 +136,51 @@
 
   SRC_DIR := src
   BUILD_DIR := build/$(BUILD_PROFILE)
+  TOOLCHAIN_BUILD_ROOT := $(BUILD_DIR)/toolchains
+  APP_BUILD_ROOT := $(TOOLCHAIN_BUILD_ROOT)/$(BUILD_TOOLCHAIN)
+  APP_OBJ_DIR := $(APP_BUILD_ROOT)/app
+  APP_BIN_DIR := $(APP_BUILD_ROOT)/bin
+  COMPILER_STAMP_DIR := $(APP_BUILD_ROOT)/compiler
+  COMPILER_STAMP := $(COMPILER_STAMP_DIR)/$(BUILD_TOOLCHAIN).stamp
+  HOST_OBJ_DIR := $(BUILD_DIR)/host
+  TOOLS_BUILD_DIR := $(BUILD_DIR)/tools
+  TEST_BUILD_DIR := $(BUILD_DIR)/tests
   EXCLUDE_DIRS := $(SRC_DIR)/Project $(SRC_DIR)/engine/Render/vk_renderer_ref_backup $(SRC_DIR)/engine/TimerHUD_legacy_backup
   EXCLUDE_FILES :=
 
-  SRC_FILES := $(shell find $(SRC_DIR) -type f -name '*.c' $(foreach dir,$(EXCLUDE_DIRS),! -path "$(dir)/*"))
-  SRC_FILES := $(filter-out $(EXCLUDE_FILES), $(SRC_FILES))
-  VK_RENDERER_SRCS := $(shell find $(VK_RENDERER_DIR)/src -type f -name '*.c')
+  APP_SRC_FILES := $(shell find $(SRC_DIR) -type f -name '*.c' $(foreach dir,$(EXCLUDE_DIRS),! -path "$(dir)/*"))
+  APP_SRC_FILES := $(filter-out $(EXCLUDE_FILES), $(APP_SRC_FILES))
+  APP_OBJ_FILES := $(patsubst $(SRC_DIR)/%.c,$(APP_OBJ_DIR)/%.o,$(APP_SRC_FILES))
   TIMER_HUD_SRCS := $(shell find $(TIMER_HUD_DIR)/src -type f -name '*.c')
   TIMER_HUD_EXTERNAL_SRCS := $(TIMER_HUD_DIR)/external/cJSON.c
-  CORE_BASE_SRCS := $(CORE_BASE_DIR)/src/core_base.c
-  CORE_IO_SRCS := $(CORE_IO_DIR)/src/core_io.c
-  CORE_DATA_SRCS := $(CORE_DATA_DIR)/src/core_data.c
-  CORE_PACK_SRCS := $(CORE_PACK_DIR)/src/core_pack.c
-  CORE_THEME_SRCS := $(CORE_THEME_DIR)/src/core_theme.c
-  CORE_FONT_SRCS := $(CORE_FONT_DIR)/src/core_font.c
-  CORE_TIME_SRCS := $(CORE_TIME_DIR)/src/core_time.c
-  ifeq ($(shell uname -s),Darwin)
-  CORE_TIME_SRCS += $(CORE_TIME_DIR)/src/core_time_mac.c
-  else
-  CORE_TIME_SRCS += $(CORE_TIME_DIR)/src/core_time_posix.c
-  endif
-  CORE_QUEUE_SRCS := $(CORE_QUEUE_DIR)/src/core_queue.c
-  CORE_SCHED_SRCS := $(CORE_SCHED_DIR)/src/core_sched.c
-  CORE_JOBS_SRCS := $(CORE_JOBS_DIR)/src/core_jobs.c
-  CORE_WORKERS_SRCS := $(CORE_WORKERS_DIR)/src/core_workers.c
-  CORE_WAKE_SRCS := $(CORE_WAKE_DIR)/src/core_wake.c
-  CORE_KERNEL_SRCS := $(CORE_KERNEL_DIR)/src/core_kernel.c
-  VK_RENDERER_OBJS := $(patsubst $(VK_RENDERER_DIR)/src/%.c,$(BUILD_DIR)/vk_renderer/%.o,$(VK_RENDERER_SRCS))
-  TIMER_HUD_OBJS := $(patsubst $(TIMER_HUD_DIR)/src/%.c,$(BUILD_DIR)/timer_hud/%.o,$(TIMER_HUD_SRCS))
-  TIMER_HUD_EXTERNAL_OBJS := $(patsubst $(TIMER_HUD_DIR)/external/%.c,$(BUILD_DIR)/timer_hud_external/%.o,$(TIMER_HUD_EXTERNAL_SRCS))
-  CORE_BASE_OBJS := $(patsubst $(CORE_BASE_DIR)/src/%.c,$(BUILD_DIR)/core_base/%.o,$(CORE_BASE_SRCS))
-  CORE_IO_OBJS := $(patsubst $(CORE_IO_DIR)/src/%.c,$(BUILD_DIR)/core_io/%.o,$(CORE_IO_SRCS))
-  CORE_DATA_OBJS := $(patsubst $(CORE_DATA_DIR)/src/%.c,$(BUILD_DIR)/core_data/%.o,$(CORE_DATA_SRCS))
-  CORE_PACK_OBJS := $(patsubst $(CORE_PACK_DIR)/src/%.c,$(BUILD_DIR)/core_pack/%.o,$(CORE_PACK_SRCS))
-  CORE_THEME_OBJS := $(patsubst $(CORE_THEME_DIR)/src/%.c,$(BUILD_DIR)/core_theme/%.o,$(CORE_THEME_SRCS))
-  CORE_FONT_OBJS := $(patsubst $(CORE_FONT_DIR)/src/%.c,$(BUILD_DIR)/core_font/%.o,$(CORE_FONT_SRCS))
-  CORE_TIME_OBJS := $(patsubst $(CORE_TIME_DIR)/src/%.c,$(BUILD_DIR)/core_time/%.o,$(CORE_TIME_SRCS))
-  CORE_QUEUE_OBJS := $(patsubst $(CORE_QUEUE_DIR)/src/%.c,$(BUILD_DIR)/core_queue/%.o,$(CORE_QUEUE_SRCS))
-  CORE_SCHED_OBJS := $(patsubst $(CORE_SCHED_DIR)/src/%.c,$(BUILD_DIR)/core_sched/%.o,$(CORE_SCHED_SRCS))
-  CORE_JOBS_OBJS := $(patsubst $(CORE_JOBS_DIR)/src/%.c,$(BUILD_DIR)/core_jobs/%.o,$(CORE_JOBS_SRCS))
-  CORE_WORKERS_OBJS := $(patsubst $(CORE_WORKERS_DIR)/src/%.c,$(BUILD_DIR)/core_workers/%.o,$(CORE_WORKERS_SRCS))
-  CORE_WAKE_OBJS := $(patsubst $(CORE_WAKE_DIR)/src/%.c,$(BUILD_DIR)/core_wake/%.o,$(CORE_WAKE_SRCS))
-  CORE_KERNEL_OBJS := $(patsubst $(CORE_KERNEL_DIR)/src/%.c,$(BUILD_DIR)/core_kernel/%.o,$(CORE_KERNEL_SRCS))
+  TIMER_HUD_OBJS := $(patsubst $(TIMER_HUD_DIR)/src/%.c,$(HOST_OBJ_DIR)/timer_hud/%.o,$(TIMER_HUD_SRCS))
+  TIMER_HUD_EXTERNAL_OBJS := $(patsubst $(TIMER_HUD_DIR)/external/%.c,$(HOST_OBJ_DIR)/timer_hud_external/%.o,$(TIMER_HUD_EXTERNAL_SRCS))
+  IDEBRIDGE_SUPPORT_SRCS := src/core/Diagnostics/diagnostics_pack_export.c src/core/Diagnostics/diagnostics_core_data_export.c
+  IDEBRIDGE_SUPPORT_OBJS := $(patsubst src/%.c,$(HOST_OBJ_DIR)/idebridge_support/%.o,$(IDEBRIDGE_SUPPORT_SRCS))
+  APP_DEP_FILES := $(APP_OBJ_FILES:.o=.d)
+  TIMER_HUD_DEP_FILES := $(TIMER_HUD_OBJS:.o=.d) $(TIMER_HUD_EXTERNAL_OBJS:.o=.d)
+  IDEBRIDGE_SUPPORT_DEP_FILES := $(IDEBRIDGE_SUPPORT_OBJS:.o=.d)
 
-  OBJ_FILES := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRC_FILES)) $(VK_RENDERER_OBJS) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(CORE_BASE_OBJS) $(CORE_IO_OBJS) $(CORE_DATA_OBJS) $(CORE_PACK_OBJS) $(CORE_THEME_OBJS) $(CORE_FONT_OBJS) $(CORE_TIME_OBJS) $(CORE_QUEUE_OBJS) $(CORE_SCHED_OBJS) $(CORE_JOBS_OBJS) $(CORE_WORKERS_OBJS) $(CORE_WAKE_OBJS) $(CORE_KERNEL_OBJS)
-  DEP_FILES := $(OBJ_FILES:.o=.d)
+  CORE_BASE_LIB := $(CORE_BASE_DIR)/build/libcore_base.a
+  CORE_IO_LIB := $(CORE_IO_DIR)/build/libcore_io.a
+  CORE_DATA_LIB := $(CORE_DATA_DIR)/build/libcore_data.a
+  CORE_PACK_LIB := $(CORE_PACK_DIR)/build/libcore_pack.a
+  CORE_THEME_LIB := $(CORE_THEME_DIR)/build/libcore_theme.a
+  CORE_FONT_LIB := $(CORE_FONT_DIR)/build/libcore_font.a
+  CORE_TIME_LIB := $(CORE_TIME_DIR)/build/libcore_time.a
+  CORE_QUEUE_LIB := $(CORE_QUEUE_DIR)/build/libcore_queue.a
+  CORE_SCHED_LIB := $(CORE_SCHED_DIR)/build/libcore_sched.a
+  CORE_JOBS_LIB := $(CORE_JOBS_DIR)/build/libcore_jobs.a
+  CORE_WORKERS_LIB := $(CORE_WORKERS_DIR)/build/libcore_workers.a
+  CORE_WAKE_LIB := $(CORE_WAKE_DIR)/build/libcore_wake.a
+  CORE_KERNEL_LIB := $(CORE_KERNEL_DIR)/build/libcore_kernel.a
+  VK_RENDERER_LIB := $(VK_RENDERER_DIR)/build/lib/libvkrenderer.a
 
-  OUT = ide
-  IDEBRIDGE_OUT = idebridge
+  IDE_SHARED_LIBS := $(VK_RENDERER_LIB) $(CORE_KERNEL_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_JOBS_LIB) $(CORE_SCHED_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
+  IDEBRIDGE_SHARED_LIBS := $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
+
+  OUT = $(APP_BIN_DIR)/ide
+  IDEBRIDGE_OUT = $(TOOLS_BUILD_DIR)/idebridge
   DIST_DIR := dist
   PACKAGE_APP_NAME := codeC.app
   PACKAGE_APP_DIR := $(DIST_DIR)/$(PACKAGE_APP_NAME)
@@ -183,6 +197,11 @@
   PACKAGE_INFO_PLIST_SRC := tools/packaging/macos/Info.plist
   PACKAGE_LAUNCHER_SRC := tools/packaging/macos/ide-launcher
   PACKAGE_DYLIB_BUNDLER := tools/packaging/macos/bundle-dylibs.sh
+  PACKAGE_BUILD_PROFILE ?= perf
+  PACKAGE_BUILD_DIR := build/$(PACKAGE_BUILD_PROFILE)
+  PACKAGE_TOOLCHAIN_BUILD_ROOT := $(PACKAGE_BUILD_DIR)/toolchains
+  PACKAGE_BIN := $(PACKAGE_TOOLCHAIN_BUILD_ROOT)/$(PACKAGE_TOOLCHAIN)/bin/ide
+  PACKAGE_IDEBRIDGE_BIN := $(PACKAGE_BUILD_DIR)/tools/idebridge
   DESKTOP_APP_DIR ?= $(HOME)/Desktop/$(PACKAGE_APP_NAME)
   PACKAGE_ADHOC_SIGN_IDENTITY ?= -
   RELEASE_VERSION_FILE ?= VERSION
@@ -205,11 +224,11 @@
   STAPLE_MAX_ATTEMPTS ?= 6
   STAPLE_RETRY_DELAY_SEC ?= 15
   IDEBRIDGE_SRC := tools/idebridge/idebridge.c
-  IDEBRIDGE_OBJ := $(BUILD_DIR)/tools/idebridge.o
-  DIAG_PACK_EXPORT_OBJ := $(BUILD_DIR)/core/Diagnostics/diagnostics_pack_export.o
-  DIAG_DATA_EXPORT_OBJ := $(BUILD_DIR)/core/Diagnostics/diagnostics_core_data_export.o
+  IDEBRIDGE_OBJ := $(TOOLS_BUILD_DIR)/idebridge.o
+  IDEBRIDGE_DEP_FILE := $(IDEBRIDGE_OBJ:.o=.d)
+  DIAG_PACK_EXPORT_OBJ := $(HOST_OBJ_DIR)/idebridge_support/core/Diagnostics/diagnostics_pack_export.o
+  DIAG_DATA_EXPORT_OBJ := $(HOST_OBJ_DIR)/idebridge_support/core/Diagnostics/diagnostics_core_data_export.o
   IDEBRIDGE_LDFLAGS := $(LIB_DIRS) -ljson-c
-  TEST_BUILD_DIR := $(BUILD_DIR)/tests
   VK_MACRO_TEST_OBJ := $(TEST_BUILD_DIR)/vk_renderer_macro_check.o
   IDEBRIDGE_PHASE1_TEST_OUT := $(TEST_BUILD_DIR)/idebridge_phase1_check
   IDEBRIDGE_PHASE2_TEST_OUT := $(TEST_BUILD_DIR)/idebridge_phase2_check
@@ -224,10 +243,11 @@
   TEST_IDEBRIDGE_ALL_TARGETS := $(TEST_IDEBRIDGE_STABLE_TARGETS) $(TEST_IDEBRIDGE_LEGACY_TARGETS)
   TEST_SMOKE_TARGETS := test-vk-macros test-shared-theme-font-adapter test-runtime-paths-resolution test-runtime-startup-defaults test-completed-results-queue test-analysis-scheduler-coalescing test-editor-edit-transaction-debounce test-loop-events-queue test-loop-events-emission-contract test-loop-events-invalidation-policy test-loop-events-dispatch-integration test-fisics-bridge-events-regression test-analysis-store-stamp-regression test-analysis-runtime-events-startup-regression test-analysis-store-published-stamp-regression test-library-index-stamp-regression test-idle-efficiency-sanity test-diagnostics-pipeline-integration test-mainthread-context-scope-regression test-loop-diag-config-regression
   TEST_EXTENDED_TARGETS := test-idebridge-diag-pack-export test-idebridge-diag-core-data-export
+  DEP_FILES := $(APP_DEP_FILES) $(TIMER_HUD_DEP_FILES) $(IDEBRIDGE_SUPPORT_DEP_FILES) $(IDEBRIDGE_DEP_FILE)
 # ===== RULES =====
 all: $(OUT) $(IDEBRIDGE_OUT)
 
-.PHONY: debug perf run-debug run-perf run-perf-log run-perf-hud run-perf-nohud run-perf-sanitized package-desktop package-desktop-sign-adhoc package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-smoke package-desktop-self-test package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh
+.PHONY: debug perf run-debug run-perf run-perf-log run-perf-hud run-perf-nohud run-perf-sanitized package-build-lane package-desktop package-desktop-sign-adhoc package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-smoke package-desktop-self-test package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-build-internal release-bundle-audit release-bundle-audit-internal release-sign release-sign-internal release-verify release-verify-internal release-verify-signed release-verify-signed-internal release-notarize release-notarize-internal release-staple release-staple-internal release-verify-notarized release-verify-notarized-internal release-artifact release-artifact-internal release-distribute release-distribute-internal release-desktop-refresh release-desktop-refresh-internal
 debug:
 	@$(MAKE) BUILD_PROFILE=debug all
 
@@ -251,112 +271,84 @@ run-perf-nohud: run-perf-log
 run-perf-sanitized:
 	@$(MAKE) BUILD_PROFILE=perf FISICS_SANITIZED=1 run-ide-theme
 
-$(OUT): $(OBJ_FILES) $(FISICS_LIB)
+FORCE:
+
+$(CORE_BASE_LIB): FORCE
+	@$(MAKE) -C $(CORE_BASE_DIR) CC="$(HOST_CC)"
+
+$(CORE_IO_LIB): FORCE
+	@$(MAKE) -C $(CORE_IO_DIR) CC="$(HOST_CC)"
+
+$(CORE_DATA_LIB): FORCE
+	@$(MAKE) -C $(CORE_DATA_DIR) CC="$(HOST_CC)"
+
+$(CORE_PACK_LIB): FORCE
+	@$(MAKE) -C $(CORE_PACK_DIR) CC="$(HOST_CC)"
+
+$(CORE_THEME_LIB): FORCE
+	@$(MAKE) -C $(CORE_THEME_DIR) CC="$(HOST_CC)"
+
+$(CORE_FONT_LIB): FORCE
+	@$(MAKE) -C $(CORE_FONT_DIR) CC="$(HOST_CC)"
+
+$(CORE_TIME_LIB): FORCE
+	@$(MAKE) -C $(CORE_TIME_DIR) CC="$(HOST_CC)"
+
+$(CORE_QUEUE_LIB): FORCE
+	@$(MAKE) -C $(CORE_QUEUE_DIR) CC="$(HOST_CC)"
+
+$(CORE_SCHED_LIB): FORCE
+	@$(MAKE) -C $(CORE_SCHED_DIR) CC="$(HOST_CC)"
+
+$(CORE_JOBS_LIB): FORCE
+	@$(MAKE) -C $(CORE_JOBS_DIR) CC="$(HOST_CC)"
+
+$(CORE_WORKERS_LIB): FORCE
+	@$(MAKE) -C $(CORE_WORKERS_DIR) CC="$(HOST_CC)"
+
+$(CORE_WAKE_LIB): FORCE
+	@$(MAKE) -C $(CORE_WAKE_DIR) CC="$(HOST_CC)"
+
+$(CORE_KERNEL_LIB): FORCE
+	@$(MAKE) -C $(CORE_KERNEL_DIR) CC="$(HOST_CC)"
+
+$(VK_RENDERER_LIB): FORCE
+	@$(MAKE) -C $(VK_RENDERER_DIR) CC="$(HOST_CC)"
+
+$(APP_BIN_DIR) $(COMPILER_STAMP_DIR):
+	@mkdir -p $@
+
+$(COMPILER_STAMP): $(TOOLCHAIN_DEP) | $(COMPILER_STAMP_DIR)
+	@printf '%s\n' "$(APP_CC)" > $@
+
+$(OUT): $(APP_OBJ_FILES) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(IDE_SHARED_LIBS) $(FISICS_LIB) | $(APP_BIN_DIR)
 	@echo "Linking executable..."
 	@echo "LDFLAGS: $(LDFLAGS)"
-	@$(CC) -o $@ $^ $(LDFLAGS) || (echo "Linking failed!" && exit 1)
+	@$(HOST_CC) -o $@ $(APP_OBJ_FILES) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(IDE_SHARED_LIBS) $(LDFLAGS) || (echo "Linking failed!" && exit 1)
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+$(APP_OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(COMPILER_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+	@$(APP_CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
-$(BUILD_DIR)/timer_hud/%.o: $(TIMER_HUD_DIR)/src/%.c
+$(HOST_OBJ_DIR)/timer_hud/%.o: $(TIMER_HUD_DIR)/src/%.c
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+	@$(HOST_CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
-$(BUILD_DIR)/vk_renderer/%.o: $(VK_RENDERER_DIR)/src/%.c
+$(HOST_OBJ_DIR)/timer_hud_external/%.o: $(TIMER_HUD_DIR)/external/%.c
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+	@$(HOST_CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
-$(BUILD_DIR)/timer_hud_external/%.o: $(TIMER_HUD_DIR)/external/%.c
+$(HOST_OBJ_DIR)/idebridge_support/%.o: src/%.c
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_base/%.o: $(CORE_BASE_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_io/%.o: $(CORE_IO_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_data/%.o: $(CORE_DATA_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_pack/%.o: $(CORE_PACK_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_theme/%.o: $(CORE_THEME_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_font/%.o: $(CORE_FONT_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_time/%.o: $(CORE_TIME_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_queue/%.o: $(CORE_QUEUE_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_sched/%.o: $(CORE_SCHED_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_jobs/%.o: $(CORE_JOBS_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_workers/%.o: $(CORE_WORKERS_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_wake/%.o: $(CORE_WAKE_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
-
-$(BUILD_DIR)/core_kernel/%.o: $(CORE_KERNEL_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $<"
-	@echo "CFLAGS: $(CFLAGS)"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+	@$(HOST_CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
 run: run-ide-theme
 
@@ -379,15 +371,18 @@ run-ide-theme-nohud: run-ide-theme-log
 run-daw-theme: $(OUT)
 	@IDE_USE_SHARED_THEME_FONT=1 IDE_USE_SHARED_THEME=1 IDE_USE_SHARED_FONT=1 IDE_THEME_PRESET=daw_default IDE_FONT_PRESET=daw_default ./$(OUT)
 
-package-desktop:
-	@echo "Building performance binaries for desktop package..."
-	@$(MAKE) BUILD_PROFILE=perf FISICS_SANITIZED=0 all
+.PHONY: package-build-lane
+package-build-lane:
+	@echo "Building package binaries for toolchain $(PACKAGE_TOOLCHAIN)..."
+	@$(MAKE) BUILD_PROFILE="$(PACKAGE_BUILD_PROFILE)" FISICS_SANITIZED=0 BUILD_TOOLCHAIN="$(PACKAGE_TOOLCHAIN)" "$(PACKAGE_BIN)" "$(PACKAGE_IDEBRIDGE_BIN)"
+
+package-desktop: package-build-lane
 	@echo "Preparing app bundle layout..."
 	@rm -rf $(PACKAGE_APP_DIR)
 	@mkdir -p $(PACKAGE_MACOS_DIR) $(PACKAGE_RESOURCES_DIR) $(PACKAGE_FRAMEWORKS_DIR)
 	@cp $(PACKAGE_INFO_PLIST_SRC) $(PACKAGE_CONTENTS_DIR)/Info.plist
-	@cp $(OUT) $(PACKAGE_MACOS_DIR)/ide-bin
-	@cp $(IDEBRIDGE_OUT) $(PACKAGE_MACOS_DIR)/idebridge
+	@cp $(PACKAGE_BIN) $(PACKAGE_MACOS_DIR)/ide-bin
+	@cp $(PACKAGE_IDEBRIDGE_BIN) $(PACKAGE_MACOS_DIR)/idebridge
 	@cp $(PACKAGE_LAUNCHER_SRC) $(PACKAGE_MACOS_DIR)/ide-launcher
 	@chmod +x $(PACKAGE_MACOS_DIR)/ide-launcher $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_MACOS_DIR)/idebridge
 	@$(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_FRAMEWORKS_DIR)
@@ -482,10 +477,16 @@ release-clean:
 	@echo "release-clean complete."
 
 release-build:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-build-internal
+
+release-build-internal:
 	@$(MAKE) package-desktop-self-test
 	@echo "release-build complete."
 
-release-bundle-audit: release-build
+release-bundle-audit:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-bundle-audit-internal
+
+release-bundle-audit-internal: release-build-internal
 	@mkdir -p "$(RELEASE_DIR)"
 	@/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$(PACKAGE_CONTENTS_DIR)/Info.plist" > "$(RELEASE_DIR)/bundle_id.txt"
 	@test "$$(cat "$(RELEASE_DIR)/bundle_id.txt")" = "$(RELEASE_BUNDLE_ID)" || (echo "Bundle identifier mismatch"; exit 1)
@@ -503,7 +504,10 @@ release-bundle-audit: release-build
 	@rg -q '^VK_ICD_FILENAMES=' "$(RELEASE_DIR)/print_config.txt" || (echo "Missing VK_ICD_FILENAMES in launcher config"; exit 1)
 	@echo "release-bundle-audit passed."
 
-release-sign: release-bundle-audit
+release-sign:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-sign-internal
+
+release-sign-internal: release-bundle-audit-internal
 	@test -n "$(RELEASE_CODESIGN_IDENTITY)" || (echo "Missing signing identity"; exit 1)
 	@echo "Signing with identity: $(RELEASE_CODESIGN_IDENTITY)"
 	@for dylib in "$(PACKAGE_FRAMEWORKS_DIR)"/*.dylib; do \
@@ -516,7 +520,10 @@ release-sign: release-bundle-audit
 	@codesign --force --timestamp --options runtime --sign "$(RELEASE_CODESIGN_IDENTITY)" "$(PACKAGE_APP_DIR)"
 	@echo "release-sign complete."
 
-release-verify: release-sign
+release-verify:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-verify-internal
+
+release-verify-internal: release-sign-internal
 	@codesign --verify --deep --strict "$(PACKAGE_APP_DIR)"
 	@set +e; spctl_out="$$(spctl --assess --type execute --verbose=2 "$(PACKAGE_APP_DIR)" 2>&1)"; spctl_rc=$$?; set -e; \
 	echo "$$spctl_out"; \
@@ -529,10 +536,16 @@ release-verify: release-sign
 		exit $$spctl_rc; \
 	fi
 
-release-verify-signed: release-verify
+release-verify-signed:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-verify-signed-internal
+
+release-verify-signed-internal: release-verify-internal
 	@echo "release-verify-signed passed."
 
-release-notarize: release-sign
+release-notarize:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-notarize-internal
+
+release-notarize-internal: release-sign-internal
 	@test -n "$(APPLE_NOTARY_PROFILE)" || (echo "Missing APPLE_NOTARY_PROFILE"; exit 1)
 	@mkdir -p "$(RELEASE_DIR)"
 	@ditto -c -k --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
@@ -541,6 +554,9 @@ release-notarize: release-sign
 	@echo "release-notarize passed."
 
 release-staple:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-staple-internal
+
+release-staple-internal:
 	@attempt=1; \
 	while [ $$attempt -le $(STAPLE_MAX_ATTEMPTS) ]; do \
 		if xcrun stapler staple "$(PACKAGE_APP_DIR)" && xcrun stapler validate "$(PACKAGE_APP_DIR)"; then \
@@ -554,12 +570,18 @@ release-staple:
 	echo "release-staple failed."; \
 	exit 1
 
-release-verify-notarized: release-staple
+release-verify-notarized:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-verify-notarized-internal
+
+release-verify-notarized-internal: release-staple-internal
 	@spctl --assess --type execute --verbose=2 "$(PACKAGE_APP_DIR)"
 	@xcrun stapler validate "$(PACKAGE_APP_DIR)"
 	@echo "release-verify-notarized passed."
 
-release-artifact: release-verify-notarized
+release-artifact:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-artifact-internal
+
+release-artifact-internal: release-verify-notarized-internal
 	@mkdir -p "$(RELEASE_DIR)"
 	@ditto -c -k --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
 	@shasum -a 256 "$(RELEASE_APP_ZIP)" > "$(RELEASE_APP_ZIP).sha256"
@@ -574,21 +596,27 @@ release-artifact: release-verify-notarized
 	} > "$(RELEASE_MANIFEST)"
 	@echo "release-artifact complete: $(RELEASE_APP_ZIP)"
 
-release-distribute: release-artifact
+release-distribute:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-distribute-internal
+
+release-distribute-internal: release-artifact-internal
 	@echo "release-distribute passed."
 
-release-desktop-refresh: release-distribute
+release-desktop-refresh:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-desktop-refresh-internal
+
+release-desktop-refresh-internal: release-distribute-internal
 	@mkdir -p "$$(dirname "$(DESKTOP_APP_DIR)")"
 	@rm -rf "$(DESKTOP_APP_DIR)"
 	@/usr/bin/ditto "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
 	@spctl --assess --type execute --verbose=2 "$(DESKTOP_APP_DIR)"
 	@echo "release-desktop-refresh passed."
 
-$(IDEBRIDGE_OUT): $(IDEBRIDGE_OBJ) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(CORE_PACK_OBJS) $(CORE_BASE_OBJS) $(CORE_IO_OBJS) $(CORE_DATA_OBJS)
+$(IDEBRIDGE_OUT): $(IDEBRIDGE_OBJ) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(IDEBRIDGE_SHARED_LIBS)
 	@echo "Linking idebridge..."
-	@$(CC) -o $@ $^ $(IDEBRIDGE_LDFLAGS) || (echo "idebridge linking failed!" && exit 1)
+	@$(CC) -o $@ $(IDEBRIDGE_OBJ) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(IDEBRIDGE_SHARED_LIBS) $(IDEBRIDGE_LDFLAGS) || (echo "idebridge linking failed!" && exit 1)
 
-$(BUILD_DIR)/tools/idebridge.o: $(IDEBRIDGE_SRC)
+$(TOOLS_BUILD_DIR)/idebridge.o: $(IDEBRIDGE_SRC)
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
@@ -639,8 +667,11 @@ test-stable: test-fast test-idebridge
 test-legacy: test-idebridge-legacy test-extended
 	@echo "test-legacy completed."
 
-.PHONY: run-headless-smoke
-run-headless-smoke: all test-stable
+.PHONY: run-headless-smoke run-headless-smoke-internal
+run-headless-smoke:
+	@$(MAKE) BUILD_TOOLCHAIN="$(TEST_TOOLCHAIN)" run-headless-smoke-internal
+
+run-headless-smoke-internal: all test-stable
 	@echo "run-headless-smoke completed."
 
 .PHONY: visual-harness
@@ -648,8 +679,11 @@ visual-harness: $(OUT)
 	@echo "visual-harness build gate ready: $(OUT)"
 	@echo "launch manual UI validation with: make -C ide run-ide-theme"
 
-.PHONY: test check
-test: test-fast test-idebridge test-extended
+.PHONY: test check test-internal
+test:
+	@$(MAKE) BUILD_TOOLCHAIN="$(TEST_TOOLCHAIN)" test-internal
+
+test-internal: test-fast test-idebridge test-extended
 	@echo "Full test suite completed."
 
 check: test
@@ -674,7 +708,7 @@ test-phase4: test-phase3 test-fast
 test-phase5: test-phase4 test-fast
 	@echo "Phase 5 gate completed."
 
-$(FISICS_LIB):
+$(FISICS_LIB): FORCE
 	@echo "Building Fisics frontend library..."
 	@$(MAKE) -C $(FISICS_DIR) BUILD_PROFILE=$$( [ "$(FISICS_SANITIZED)" = "1" ] && echo sanitized || echo unsanitized ) $(FISICS_FRONTEND_TARGET)
 

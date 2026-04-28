@@ -51,6 +51,25 @@ static int has_ext(const char* name, const char* ext) {
     return strcasecmp(name + ln - le, ext) == 0;
 }
 
+static bool is_generated_gperf_source(const char* path) {
+    if (!path || !has_ext(path, ".c")) return false;
+    FILE* f = fopen(path, "rb");
+    if (!f) return false;
+    char line[96];
+    bool generated = false;
+    if (fgets(line, sizeof(line), f)) {
+        generated = strncmp(line, "/* C code produced by gperf version", 35) == 0;
+    }
+    fclose(f);
+    return generated;
+}
+
+static bool should_analyze_source_path(const char* path) {
+    if (!path || !*path) return false;
+    if (!(has_ext(path, ".c") || has_ext(path, ".h"))) return false;
+    return !is_generated_gperf_source(path);
+}
+
 static int should_skip_dir(const char* name) {
     return strcmp(name, ".") == 0 ||
            strcmp(name, "..") == 0 ||
@@ -213,7 +232,7 @@ static int count_scannable_files_in_dir(const char* root) {
                 }
                 stack[count++] = (DirQueueEntry){ strdup(child), cur.depth + 1 };
             } else if (S_ISREG(st.st_mode)) {
-                if (has_ext(ent->d_name, ".c") || has_ext(ent->d_name, ".h")) {
+                if (should_analyze_source_path(child)) {
                     total++;
                 }
             }
@@ -236,7 +255,7 @@ static int count_scannable_files_in_list(const char* const* files, size_t file_c
 
         struct stat st;
         if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
-        if (!(has_ext(path, ".c") || has_ext(path, ".h"))) continue;
+        if (!should_analyze_source_path(path)) continue;
         total++;
     }
     return total;
@@ -423,7 +442,7 @@ static void scan_dir(const char* root) {
                 }
                 stack[count++] = (DirQueueEntry){ strdup(child), cur.depth + 1 };
             } else if (S_ISREG(st.st_mode)) {
-                if (!(has_ext(ent->d_name, ".c") || has_ext(ent->d_name, ".h"))) continue;
+                if (!should_analyze_source_path(child)) continue;
                 analyze_file_with_active_flags(child);
             }
         }
@@ -515,7 +534,7 @@ void analysis_scan_files_with_flags(const char* root,
             library_index_remove_source(path);
             continue;
         }
-        if (!(has_ext(path, ".c") || has_ext(path, ".h"))) continue;
+        if (!should_analyze_source_path(path)) continue;
         analyze_file_with_active_flags(path);
     }
 

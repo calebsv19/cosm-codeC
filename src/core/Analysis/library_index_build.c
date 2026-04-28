@@ -105,6 +105,25 @@ static int has_ext(const char* name, const char* ext) {
     return strcasecmp(name + ln - le, ext) == 0;
 }
 
+static bool is_generated_gperf_source(const char* path) {
+    if (!path || !has_ext(path, ".c")) return false;
+    FILE* f = fopen(path, "rb");
+    if (!f) return false;
+    char line[96];
+    bool generated = false;
+    if (fgets(line, sizeof(line), f)) {
+        generated = strncmp(line, "/* C code produced by gperf version", 35) == 0;
+    }
+    fclose(f);
+    return generated;
+}
+
+static bool should_analyze_source_path(const char* path) {
+    if (!path || !*path) return false;
+    if (!(has_ext(path, ".c") || has_ext(path, ".h"))) return false;
+    return !is_generated_gperf_source(path);
+}
+
 static int should_skip_dir(const char* name) {
     return strcmp(name, ".") == 0 ||
            strcmp(name, "..") == 0 ||
@@ -171,7 +190,7 @@ static void scan_dir(const char* root, int depth) {
         if (S_ISDIR(st.st_mode)) {
             scan_dir(child, depth + 1);
         } else if (S_ISREG(st.st_mode)) {
-            if (!(has_ext(ent->d_name, ".c") || has_ext(ent->d_name, ".h"))) continue;
+            if (!should_analyze_source_path(child)) continue;
 
             g_lastBuildStats.files_seen++;
             size_t len = 0;

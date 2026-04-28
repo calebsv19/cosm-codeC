@@ -176,6 +176,8 @@ static void add_default_includes(const char* project_root,
         project_root,
         "src",
         "include",
+        "/opt/homebrew/opt/llvm/include",
+        "/usr/local/opt/llvm/include",
         "/opt/homebrew/include",
         "/opt/homebrew/include/SDL2",
         "/usr/local/include",
@@ -314,6 +316,64 @@ static void add_clang_resource_include(char*** includes,
     }
 }
 
+static bool run_llvm_config_cflags(const char* command,
+                                   const char* project_root,
+                                   char* line,
+                                   size_t lineSize) {
+    if (!command || !command[0] || !line || lineSize == 0) return false;
+
+    char cmd[768];
+    if (project_root && *project_root) {
+        snprintf(cmd,
+                 sizeof(cmd),
+                 "cd \"%s\" && \"%s\" --cflags 2>/dev/null",
+                 project_root,
+                 command);
+    } else {
+        snprintf(cmd, sizeof(cmd), "\"%s\" --cflags 2>/dev/null", command);
+    }
+
+    FILE* f = popen(cmd, "r");
+    if (!f) return false;
+
+    bool ok = false;
+    if (fgets(line, (int)lineSize, f) && line[0] != '\0') {
+        ok = true;
+    }
+    pclose(f);
+    return ok;
+}
+
+static void add_llvm_config_flags(const char* project_root,
+                                  char*** includes,
+                                  size_t* icount,
+                                  size_t* icap,
+                                  char*** macros,
+                                  size_t* mcount,
+                                  size_t* mcap,
+                                  char* lastSysroot,
+                                  size_t lastSysrootSize) {
+    char line[2048];
+    const char* candidates[] = {
+        "/opt/homebrew/opt/llvm/bin/llvm-config",
+        "/opt/homebrew/bin/llvm-config",
+        "/usr/local/opt/llvm/bin/llvm-config",
+        "/usr/local/bin/llvm-config",
+        "llvm-config"
+    };
+
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        if (!run_llvm_config_cflags(candidates[i], project_root, line, sizeof(line))) {
+            continue;
+        }
+        parse_flags_for_includes_and_macros(project_root, line,
+                                            includes, icount, icap,
+                                            macros, mcount, mcap,
+                                            lastSysroot, lastSysrootSize);
+        return;
+    }
+}
+
 size_t gather_build_flags(const char* project_root,
                           const char* extra_flags,
                           BuildFlagSet* out) {
@@ -334,6 +394,10 @@ size_t gather_build_flags(const char* project_root,
                     lastSysroot, sizeof(lastSysroot));
     parse_make_vars(project_root, &incs, &icount, &icap, &defs, &dcount, &dcap,
                     lastSysroot, sizeof(lastSysroot));
+    add_llvm_config_flags(project_root,
+                          &incs, &icount, &icap,
+                          &defs, &dcount, &dcap,
+                          lastSysroot, sizeof(lastSysroot));
     add_default_includes(project_root, &incs, &icount, &icap);
     parse_flags_for_includes_and_macros(project_root, extra_flags,
                                         &incs, &icount, &icap,
