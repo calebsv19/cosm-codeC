@@ -25,3 +25,6 @@
 # Local-only source sandbox
 src/Project/
 tools/packaging/macos/local_app_icon/
+
+# root static library outputs
+/*.a
