@@ -2,7 +2,7 @@
 
 *A minimalist IDE and pane-based code editor built from scratch for C projects and beyond.*
 
-This is an early-stage experimental IDE designed for full control over input handling, editor behavior, and rendering. It's being 
+This is an experimental IDE designed for full control over input handling, editor behavior, and rendering. It is being
 developed as part of a broader ecosystem for simulation, compiler development, and creative coding tools.
 
 ---
@@ -38,6 +38,8 @@ developed as part of a broader ecosystem for simulation, compiler development, a
   SDL2/SDL_ttf renderer with custom clipping, scrollbars, and shared tree renderer.
 - **Optional Vulkan renderer layer**  
   Drop-in Vulkan backend (`src/engine/Render/vk_renderer_ref`) that remaps `SDL_Render*` calls via macros.
+- **Desktop packaging + release lane**
+  `codeC` is packaged through a target-aware macOS app-bundle flow, including Intel `x86_64` artifact support and launcher/runtime resource hardening.
 
 ---
 
@@ -104,6 +106,10 @@ make run-ide-theme-hud
 ```
 
 Optional: set `IDE_DEFAULT_WORKSPACE=/path/to/project` to choose the default workspace directory on first launch.
+
+Current release version:
+
+- `0.2.0`
 
 ### Shared Subtree Update Workflow
 

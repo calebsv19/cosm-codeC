@@ -1,6 +1,6 @@
 # Desktop Packaging
 
-Last updated: 2026-04-25
+Last updated: 2026-05-04
 
 This IDE can now be packaged as a macOS app bundle so it can be launched from Finder/Desktop without relying on repository cwd.
 
@@ -13,6 +13,7 @@ make package-desktop
 Output:
 
 - `dist/codeC.app`
+- target-scoped package outputs are also staged under `build/targets/<target-triple>/...`
 
 ## Validate Package (Automated)
 
@@ -74,7 +75,9 @@ Plain `make -C ide package-desktop-refresh` and `package-desktop-self-test` now 
 Packaged launch uses `ide-launcher` to set:
 
 - `IDE_RESOURCE_ROOT=<app>/Contents/Resources`
-- `VK_RENDERER_SHADER_ROOT=<app>/Contents/Resources/vk_renderer`
+- `VK_RENDERER_SHADER_ROOT=<runtime-dir>`
+
+Before launch, the launcher now ensures the packaged shader/runtime resources are copied into the writable runtime directory so Vulkan and non-Vulkan shader loads do not depend on direct bundle-relative mutable paths.
 
 Launcher diagnostics:
 
@@ -107,3 +110,8 @@ One-shot lane:
 ```sh
 make release-distribute APPLE_SIGN_IDENTITY="Developer ID Application: <Name> (<TEAMID>)" APPLE_NOTARY_PROFILE="<profile>"
 ```
+
+Intel target packaging note:
+
+- `make ... TARGET_ARCH=x86_64` now emits Intel artifact names in the form `codeC-<version>-macOS-x86_64-stable.*`
+- dependency resolution for the Intel lane prefers `/usr/local` where appropriate during bundle closure

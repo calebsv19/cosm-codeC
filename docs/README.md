@@ -1,11 +1,13 @@
 # IDE Docs Index
 
 Start here for public IDE documentation.
+Last audited: 2026-05-04.
 
 ## Scaffold State
 - `docs/current_truth.md`: current scaffold/runtime structure and verification snapshot.
 - `docs/future_intent.md`: scaffold convergence intent and next migration phases.
 - post-scaffold font-size lane is complete and tracked in `docs/current_truth.md`.
+- Intel macOS `x86_64` packaging parity is complete and tracked in `docs/current_truth.md` and `docs/desktop_packaging.md`.
 - migration-friendly verification gate lanes:
   - `make -C ide run-headless-smoke`
   - `make -C ide visual-harness`

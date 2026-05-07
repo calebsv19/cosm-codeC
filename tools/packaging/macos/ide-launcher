@@ -8,22 +8,61 @@ LOG_DIR="${HOME}/Library/Logs/IDE"
 LOG_FILE="$LOG_DIR/launcher.log"
 RUNTIME_DIR_DEFAULT="${HOME}/Library/Application Support/IDE/runtime"
 RUNTIME_DIR="${IDE_RUNTIME_DIR:-$RUNTIME_DIR_DEFAULT}"
+
+ensure_bundle_copy() {
+    target="$1"
+    source="$2"
+    required_rels="${3:-}"
+    if [ -L "$target" ]; then
+        rm -rf "$target" 2>/dev/null || true
+    fi
+    if [ -e "$target" ] && [ -n "$required_rels" ]; then
+        old_ifs="${IFS}"
+        IFS=':'
+        all_present=1
+        for required_rel in $required_rels; do
+            if [ ! -e "$target/$required_rel" ]; then
+                all_present=0
+                break
+            fi
+        done
+        IFS="${old_ifs}"
+        if [ "$all_present" -eq 1 ]; then
+            return 0
+        fi
+        rm -rf "$target" 2>/dev/null || true
+    fi
+    [ -e "$source" ] || return 0
+    mkdir -p "$(dirname "$target")" 2>/dev/null || true
+    if [ -d "$source" ]; then
+        /usr/bin/ditto "$source" "$target"
+    else
+        cp "$source" "$target"
+    fi
+}
+
+ensure_bundle_link() {
+    target="$1"
+    source="$2"
+    if [ -L "$target" ] || [ ! -e "$target" ]; then
+        ln -sfn "$source" "$target"
+    fi
+}
+
 if ! mkdir -p "$RUNTIME_DIR" 2>/dev/null; then
     RUNTIME_DIR="${TMPDIR:-/tmp}/IDE/runtime"
     mkdir -p "$RUNTIME_DIR" 2>/dev/null || true
 fi
 mkdir -p "$RUNTIME_DIR/vk" "$RUNTIME_DIR/config/shared/shaders" 2>/dev/null || true
-
-if [ -L "$RUNTIME_DIR/vk_renderer" ] || [ ! -e "$RUNTIME_DIR/vk_renderer" ]; then
-    ln -sfn "$RES_DIR/vk_renderer" "$RUNTIME_DIR/vk_renderer"
-fi
-if [ -L "$RUNTIME_DIR/config/shared/shaders/vk_renderer" ] || [ ! -e "$RUNTIME_DIR/config/shared/shaders/vk_renderer" ]; then
-    ln -sfn "$RES_DIR/vk_renderer" "$RUNTIME_DIR/config/shared/shaders/vk_renderer"
-fi
+ensure_bundle_copy "$RUNTIME_DIR/shaders" "$RES_DIR/shaders" "textured.vert.spv:textured.frag.spv:line.vert.spv:line.frag.spv:fill.vert.spv:fill.frag.spv"
+ensure_bundle_copy "$RUNTIME_DIR/vk_renderer" "$RES_DIR/vk_renderer" "shaders/textured.vert.spv:shaders/textured.frag.spv:shaders/line.vert.spv:shaders/line.frag.spv:shaders/fill.vert.spv:shaders/fill.frag.spv"
+ensure_bundle_link "$RUNTIME_DIR/config/shared/shaders/vk_renderer" "$RUNTIME_DIR/vk_renderer"
 
 export IDE_RESOURCE_ROOT="${IDE_RESOURCE_ROOT:-$RES_DIR}"
 export IDE_RUNTIME_DIR="$RUNTIME_DIR"
-export VK_RENDERER_SHADER_ROOT="${VK_RENDERER_SHADER_ROOT:-$RUNTIME_DIR/vk_renderer}"
+export VK_RENDERER_SHADER_ROOT="${VK_RENDERER_SHADER_ROOT:-$RUNTIME_DIR}"
+export IDE_TIMER_HUD_SETTINGS="${IDE_TIMER_HUD_SETTINGS:-$IDE_RUNTIME_DIR/timerhud/ide/settings.json}"
+export IDE_TIMER_HUD="${IDE_TIMER_HUD:-0}"
 
 MOLTENVK_DYLIB="$APP_CONTENTS_DIR/Frameworks/libMoltenVK.dylib"
 ICD_FILE="$RUNTIME_DIR/vk/MoltenVK_icd.json"
@@ -52,6 +91,10 @@ if [ "${1:-}" = "--print-config" ]; then
     echo "LOG_FILE=$LOG_FILE"
     echo "IDE_RUNTIME_DIR=$IDE_RUNTIME_DIR"
     echo "IDE_RESOURCE_ROOT=$IDE_RESOURCE_ROOT"
+    echo "IDE_TIMER_HUD_SETTINGS=$IDE_TIMER_HUD_SETTINGS"
+    echo "IDE_TIMER_HUD=$IDE_TIMER_HUD"
+    echo "IDE_TIMER_HUD_OVERLAY=${IDE_TIMER_HUD_OVERLAY:-}"
+    echo "IDE_TIMER_HUD_VISUAL_MODE=${IDE_TIMER_HUD_VISUAL_MODE:-}"
     echo "VK_RENDERER_SHADER_ROOT=$VK_RENDERER_SHADER_ROOT"
     echo "VK_ICD_FILENAMES=$VK_ICD_FILENAMES"
     echo "VK_DRIVER_FILES=$VK_DRIVER_FILES"
@@ -65,12 +108,21 @@ if [ "${1:-}" = "--self-test" ]; then
     [ -f "$APP_CONTENTS_DIR/Frameworks/libvulkan.1.dylib" ] || { echo "missing: bundled libvulkan" >&2; exit 1; }
     [ -f "$APP_CONTENTS_DIR/Frameworks/libMoltenVK.dylib" ] || { echo "missing: bundled libMoltenVK" >&2; exit 1; }
     [ -f "$RES_DIR/include/fonts/Lato/Lato-Regular.ttf" ] || { echo "missing: bundled Lato font" >&2; exit 1; }
-    [ -f "$RES_DIR/vk_renderer/shaders/textured.vert.spv" ] || { echo "missing: bundled shader" >&2; exit 1; }
+    [ -f "$RUNTIME_DIR/vk_renderer/shaders/textured.vert.spv" ] || { echo "missing: runtime vk textured shader" >&2; exit 1; }
+    [ -f "$RUNTIME_DIR/vk_renderer/shaders/line.vert.spv" ] || { echo "missing: runtime vk line shader" >&2; exit 1; }
+    [ -f "$RUNTIME_DIR/vk_renderer/shaders/line.frag.spv" ] || { echo "missing: runtime vk line shader" >&2; exit 1; }
+    [ -f "$RUNTIME_DIR/shaders/textured.vert.spv" ] || { echo "missing: runtime textured shader" >&2; exit 1; }
+    [ -f "$RUNTIME_DIR/shaders/line.vert.spv" ] || { echo "missing: runtime line shader" >&2; exit 1; }
+    [ -f "$RUNTIME_DIR/shaders/line.frag.spv" ] || { echo "missing: runtime line shader" >&2; exit 1; }
     [ -f "$ICD_FILE" ] || { echo "missing: runtime MoltenVK_icd.json" >&2; exit 1; }
     echo "self-test: ok"
     echo "LOG_FILE=$LOG_FILE"
     echo "IDE_RUNTIME_DIR=$IDE_RUNTIME_DIR"
     echo "IDE_RESOURCE_ROOT=$IDE_RESOURCE_ROOT"
+    echo "IDE_TIMER_HUD_SETTINGS=$IDE_TIMER_HUD_SETTINGS"
+    echo "IDE_TIMER_HUD=$IDE_TIMER_HUD"
+    echo "IDE_TIMER_HUD_OVERLAY=${IDE_TIMER_HUD_OVERLAY:-}"
+    echo "IDE_TIMER_HUD_VISUAL_MODE=${IDE_TIMER_HUD_VISUAL_MODE:-}"
     echo "VK_RENDERER_SHADER_ROOT=$VK_RENDERER_SHADER_ROOT"
     echo "VK_ICD_FILENAMES=$VK_ICD_FILENAMES"
     echo "VK_DRIVER_FILES=$VK_DRIVER_FILES"

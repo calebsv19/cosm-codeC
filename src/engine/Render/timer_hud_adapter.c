@@ -10,17 +10,31 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #if USE_VULKAN
 #include "vk_renderer_sdl.h"
 #endif
 
 static SDL_Renderer* g_timer_hud_renderer = NULL;
+static TimerHUDSession* g_timer_hud_session = NULL;
 static int g_logged_missing_renderer = 0;
 static int g_logged_missing_font = 0;
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
+TimerHUDSession* timer_hud_session(void) {
+    if (!g_timer_hud_session) {
+        g_timer_hud_session = ts_session_create();
+    }
+    return g_timer_hud_session;
+}
 
 static TTF_Font* timer_hud_resolve_font(void) {
     TTF_Font* font = getUIFontByTier(CORE_FONT_TEXT_SIZE_BASIC);
@@ -132,20 +146,91 @@ static const TimerHUDBackend g_timer_hud_backend = {
     .hud_bg_alpha = 180
 };
 
+static int timer_hud_build_home_root(char* out_path, size_t out_cap) {
+    const char* home = getenv("HOME");
+    if (!out_path || out_cap == 0 || !home || !home[0]) {
+        return 0;
+    }
+    return snprintf(out_path, out_cap, "%s/.custom_c_ide", home) < (int)out_cap;
+}
+
+static int timer_hud_build_home_settings_path(char* out_path, size_t out_cap) {
+    const char* home = getenv("HOME");
+    if (!out_path || out_cap == 0 || !home || !home[0]) {
+        return 0;
+    }
+    return snprintf(out_path, out_cap, "%s/.custom_c_ide/timerhud/ide/settings.json", home) < (int)out_cap;
+}
+
+static int timer_hud_build_legacy_settings_path(char* out_path, size_t out_cap) {
+    char cwd[PATH_MAX];
+    if (!out_path || out_cap == 0 || !getcwd(cwd, sizeof(cwd))) {
+        return 0;
+    }
+    return snprintf(out_path, out_cap, "%s/timerhud/ide/settings.json", cwd) < (int)out_cap;
+}
+
 void timer_hud_register_backend(void) {
-    ts_register_backend(&g_timer_hud_backend);
-    ts_set_program_name("ide");
+    TimerHUDSession* session = timer_hud_session();
+    char home_root[PATH_MAX];
+    char home_settings_path[PATH_MAX];
+    char legacy_settings_path[PATH_MAX];
+    TimerHUDInitConfig init_config = {
+        .program_name = "ide",
+        .output_root = NULL,
+        .settings_path = NULL,
+        .default_settings_path = NULL,
+        .seed_settings_if_missing = false,
+    };
+    if (!session) {
+        fprintf(stderr, "[TimerHUD] failed to allocate IDE session.\n");
+        return;
+    }
+    ts_session_register_backend(session, &g_timer_hud_backend);
+
+    if (timer_hud_build_home_root(home_root, sizeof(home_root))) {
+        init_config.output_root = home_root;
+    }
+    if (timer_hud_build_home_settings_path(home_settings_path, sizeof(home_settings_path))) {
+        init_config.settings_path = home_settings_path;
+        if (timer_hud_build_legacy_settings_path(legacy_settings_path, sizeof(legacy_settings_path)) &&
+            access(home_settings_path, F_OK) != 0 &&
+            access(legacy_settings_path, F_OK) == 0) {
+            init_config.default_settings_path = legacy_settings_path;
+            init_config.seed_settings_if_missing = true;
+        }
+    }
 
     const char* outputRoot = getenv("TIMERHUD_OUTPUT_ROOT");
     if (outputRoot && outputRoot[0]) {
-        ts_set_output_root(outputRoot);
+        init_config.output_root = outputRoot;
     }
 
     const char* overridePath = getenv("IDE_TIMER_HUD_SETTINGS");
     if (overridePath && overridePath[0]) {
-        ts_set_settings_path(overridePath);
+        init_config.settings_path = overridePath;
         fprintf(stderr, "[TimerHUD] settings path override: %s\n", overridePath);
     }
+
+    (void)ts_session_apply_init_config(session, &init_config);
+}
+
+bool timer_hud_session_supports_runtime_work(void) {
+    TimerHUDSession* session = timer_hud_session();
+    if (!session) {
+        return false;
+    }
+    return ts_session_is_hud_enabled(session) ||
+           ts_session_is_log_enabled(session) ||
+           ts_session_is_event_tagging_enabled(session);
+}
+
+void timer_hud_shutdown_session(void) {
+    if (!g_timer_hud_session) {
+        return;
+    }
+    ts_session_destroy(g_timer_hud_session);
+    g_timer_hud_session = NULL;
 }
 
 void timer_hud_bind_renderer(void* renderer) {

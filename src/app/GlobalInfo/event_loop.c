@@ -56,7 +56,7 @@
 
 
 // TimerHud extension
-#include "timer_hud/time_scope.h"
+#include "engine/Render/timer_hud_adapter.h"
 
 
 //      ================================================
@@ -666,7 +666,7 @@ static bool checkRenderFrame(FrameContext* ctx, Uint64 now) {
         RenderContext* rctx = getRenderContext();
 
         // Clear background color before drawing
-        if (timerHudActive) ts_start_timer("ClearFrame");
+        if (timerHudActive) ts_session_start_timer(timer_hud_session(), "ClearFrame");
         {
             SDL_Color bg = ide_shared_theme_background_color();
             SDL_SetRenderDrawColor(rctx->renderer, bg.r, bg.g, bg.b, bg.a);
@@ -674,15 +674,15 @@ static bool checkRenderFrame(FrameContext* ctx, Uint64 now) {
 #if !USE_VULKAN
         SDL_RenderClear(rctx->renderer);
 #endif
-        if (timerHudActive) ts_stop_timer("ClearFrame");
+        if (timerHudActive) ts_session_stop_timer(timer_hud_session(), "ClearFrame");
 
         // Render all UI
-        if (timerHudActive) ts_start_timer("RenderPipeline");
+        if (timerHudActive) ts_session_start_timer(timer_hud_session(), "RenderPipeline");
         RenderPipeline_renderAll(ctx->panes,
                                  *ctx->paneCount,
                                  ctx->lastW, ctx->lastH,
                                  ctx->resizeZones, ctx->resizeZoneCount, getCoreState());
-        if (timerHudActive) ts_stop_timer("RenderPipeline");
+        if (timerHudActive) ts_session_stop_timer(timer_hud_session(), "RenderPipeline");
 
         *ctx->lastRender = now;
         return true;
@@ -704,13 +704,13 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     uint64_t blockedNs = 0;
     bool didWaitCall = false;
 
-    if (timerHudActive) ts_start_timer("SystemLoop");
+    if (timerHudActive) ts_session_start_timer(timer_hud_session(), "SystemLoop");
 
     ensure_loop_timers_registered();
 
     EditorView* savedView = saveEditorViewState();
 
-    if (timerHudActive) ts_start_timer("LayoutSync");
+    if (timerHudActive) ts_session_start_timer(timer_hud_session(), "LayoutSync");
     if (update_layout_sync_state_snapshot()) {
         layoutAndSyncPanes(ctx->panes, ctx->paneCount);
         bindEditorViewToEditorPane(savedView, ctx->panes, *ctx->paneCount);
@@ -718,9 +718,9 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
                       RENDER_INVALIDATION_LAYOUT | RENDER_INVALIDATION_RESIZE);
         requestFullRedraw(RENDER_INVALIDATION_LAYOUT | RENDER_INVALIDATION_RESIZE);
     }
-    if (timerHudActive) ts_stop_timer("LayoutSync");
+    if (timerHudActive) ts_session_stop_timer(timer_hud_session(), "LayoutSync");
 
-    if (timerHudActive) ts_start_timer("Input");
+    if (timerHudActive) ts_session_start_timer(timer_hud_session(), "Input");
     processInputEvents(ctx, NULL);
     UIState* ui = getUIState();
     if (ui && ui->terminalVisible && ui->terminalPanel) {
@@ -730,7 +730,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
             requestFullRedraw(RENDER_INVALIDATION_INPUT | RENDER_INVALIDATION_CONTENT);
         }
     }
-    if (timerHudActive) ts_stop_timer("Input");
+    if (timerHudActive) ts_session_stop_timer(timer_hud_session(), "Input");
     editor_edit_transaction_update_active_context();
 
     if (forceFullRedrawEnabled()) {
@@ -739,7 +739,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
         requestFullRedraw(RENDER_INVALIDATION_LAYOUT | RENDER_INVALIDATION_CONTENT);
     }
 
-    if (timerHudActive) ts_start_timer("BackgroundTick");
+    if (timerHudActive) ts_session_start_timer(timer_hud_session(), "BackgroundTick");
     const bool terminalChanged = tickBackgroundSystems();
     drain_completed_results(ctx);
     process_events_bounded(ctx);
@@ -753,7 +753,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
     const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
     analysis_scheduler_tick(projectPath, buildArgs);
-    if (timerHudActive) ts_stop_timer("BackgroundTick");
+    if (timerHudActive) ts_session_stop_timer(timer_hud_session(), "BackgroundTick");
 
     if (tickRenameAnimation(loop_time_now_ms32())) {
         requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
@@ -763,12 +763,12 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
         requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
     }
 
-    if (timerHudActive) ts_start_timer("RenderGate");
+    if (timerHudActive) ts_session_start_timer(timer_hud_session(), "RenderGate");
     bool didRender = checkRenderFrame(ctx, now);
-    if (timerHudActive) ts_stop_timer("RenderGate");
+    if (timerHudActive) ts_session_stop_timer(timer_hud_session(), "RenderGate");
 
     if (pendingProjectRefresh) {
-        if (timerHudActive) ts_start_timer("ProjectRefresh");
+        if (timerHudActive) ts_session_start_timer(timer_hud_session(), "ProjectRefresh");
         unsigned int reason_mask = pendingProjectRefreshReasonMask;
         if (reason_mask == 0) {
             reason_mask = ANALYSIS_REASON_WORKSPACE_RELOAD;
@@ -799,7 +799,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
         invalidateAll(ctx->panes, *ctx->paneCount,
                       RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);
         requestFullRedraw(RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_LAYOUT);
-        if (timerHudActive) ts_stop_timer("ProjectRefresh");
+        if (timerHudActive) ts_session_stop_timer(timer_hud_session(), "ProjectRefresh");
     }
 
     if (didRender) {
@@ -819,5 +819,5 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     }
     event_loop_diag_tick(frameStartNs, blockedNs, didWaitCall);
 
-    if (timerHudActive) ts_stop_timer("SystemLoop");
+    if (timerHudActive) ts_session_stop_timer(timer_hud_session(), "SystemLoop");
 }

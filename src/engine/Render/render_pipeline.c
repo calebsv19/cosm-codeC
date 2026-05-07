@@ -32,7 +32,6 @@
 
 // TimerHud extension
 #include "engine/Render/timer_hud_adapter.h"
-#include "timer_hud/time_scope.h"
 
 
 #include <SDL2/SDL.h>
@@ -127,26 +126,29 @@ void setRenderContext(VkRenderer* renderer, SDL_Window* window,
 
 
 bool initRenderPipeline() {
-    if (getCoreState()->timerHudEnabled) {
+    IDECoreState* core = getCoreState();
+    if (core && core->timerHudStartupMode != IDE_TIMER_HUD_STARTUP_FORCE_OFF) {
+        TimerHUDSession* timerHudSession = NULL;
         timer_hud_register_backend();
-        ts_init();
+        timerHudSession = timer_hud_session();
+        ts_session_init(timerHudSession);
         const char* respectSettings = getenv("IDE_TIMER_HUD_RESPECT_SETTINGS");
         const bool useSettings = (respectSettings && respectSettings[0] &&
                                   (strcmp(respectSettings, "1") == 0 ||
                                    strcasecmp(respectSettings, "true") == 0));
-        if (!useSettings) {
-            ts_settings.hud_enabled = true;
+        if (core->timerHudStartupMode == IDE_TIMER_HUD_STARTUP_FORCE_ON && !useSettings) {
+            ts_session_set_hud_enabled(timerHudSession, true);
         }
         const char* overlayEnv = getenv("IDE_TIMER_HUD_OVERLAY");
-        int overlayEnabled = ts_settings.hud_enabled ? 1 : 0;
+        int overlayEnabled = ts_session_is_hud_enabled(timerHudSession) ? 1 : 0;
         if (overlayEnv && overlayEnv[0]) {
             if (strcmp(overlayEnv, "0") == 0 || strcasecmp(overlayEnv, "false") == 0 ||
                 strcasecmp(overlayEnv, "off") == 0 || strcasecmp(overlayEnv, "no") == 0) {
-                ts_settings.hud_enabled = false;
+                ts_session_set_hud_enabled(timerHudSession, false);
                 overlayEnabled = 0;
             } else if (strcmp(overlayEnv, "1") == 0 || strcasecmp(overlayEnv, "true") == 0 ||
                        strcasecmp(overlayEnv, "on") == 0 || strcasecmp(overlayEnv, "yes") == 0) {
-                ts_settings.hud_enabled = true;
+                ts_session_set_hud_enabled(timerHudSession, true);
                 overlayEnabled = 1;
             }
         }
@@ -154,25 +156,33 @@ bool initRenderPipeline() {
         // Optional override: IDE_TIMER_HUD_VISUAL_MODE=text_compact|history_graph|hybrid.
         const char* visualModeEnv = getenv("IDE_TIMER_HUD_VISUAL_MODE");
         if (visualModeEnv && visualModeEnv[0]) {
-            ts_set_hud_visual_mode(visualModeEnv);
+            TimerHUDVisualMode visualMode = ts_visual_mode_from_string(visualModeEnv);
+            if (!ts_session_set_hud_visual_mode_kind(timerHudSession, visualMode)) {
+                fprintf(stderr,
+                        "[TimerHUD] ignoring invalid IDE_TIMER_HUD_VISUAL_MODE=%s\n",
+                        visualModeEnv);
+            }
         } else if (overlayEnabled) {
             // Overlay-focused runs default to hybrid (compact text + history line).
-            ts_set_hud_visual_mode("hybrid");
+            ts_session_set_hud_visual_mode_kind(timerHudSession, TIMER_HUD_VISUAL_MODE_HYBRID);
         }
+        setTimerHudEnabled(timer_hud_session_supports_runtime_work());
         fprintf(stderr,
-                "[TimerHUD] initialized (hud_enabled=%d mode=%s log_enabled=%d log_file=%s)\n",
-                ts_settings.hud_enabled ? 1 : 0,
-                ts_settings.hud_visual_mode,
-                ts_settings.log_enabled ? 1 : 0,
-                ts_settings.log_filepath);
+                "[TimerHUD] initialized (startup=%d active=%d hud_enabled=%d mode=%s log_enabled=%d log_file=%s)\n",
+                (int)core->timerHudStartupMode,
+                isTimerHudEnabled() ? 1 : 0,
+                ts_session_is_hud_enabled(timerHudSession) ? 1 : 0,
+                ts_session_get_hud_visual_mode(timerHudSession),
+                ts_session_is_log_enabled(timerHudSession) ? 1 : 0,
+                ts_session_get_log_filepath(timerHudSession));
+    } else {
+        setTimerHudEnabled(false);
     }
     return initFontSystem();
 }
 
 void shutdownRenderPipeline() {
-    if (getCoreState()->timerHudEnabled) {
-        ts_shutdown();
-    }
+    timer_hud_shutdown_session();
     render_text_cache_shutdown();
     shutdownFontSystem();
 }
@@ -321,7 +331,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     const bool timerHudActive = (core && core->timerHudEnabled);
 
     if (timerHudActive) {
-        ts_start_timer("Render");
+        ts_session_start_timer(timer_hud_session(), "Render");
     }
 
     int winW, winH;
@@ -329,7 +339,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     text_selection_manager_begin_frame();
     if (!ctx) {
         if (timerHudActive) {
-            ts_stop_timer("Render");
+            ts_session_stop_timer(timer_hud_session(), "Render");
         }
         return;
     }
@@ -343,7 +353,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     SDL_GetWindowSize(ctx->window, &winW, &winH);
 
     if (timerHudActive) {
-        ts_start_timer("WindowAndScale");
+        ts_session_start_timer(timer_hud_session(), "WindowAndScale");
     }
     int drawableW = winW;
     int drawableH = winH;
@@ -370,7 +380,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
             s_logged_begin_failure = 0;
             s_logged_end_failure = 0;
             if (timerHudActive) {
-                ts_stop_timer("Render");
+                ts_session_stop_timer(timer_hud_session(), "Render");
             }
             return;
         }
@@ -384,7 +394,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     SDL_RenderSetScale(ctx->renderer, scaleX, scaleY);
 #endif
     if (timerHudActive) {
-        ts_stop_timer("WindowAndScale");
+        ts_session_stop_timer(timer_hud_session(), "WindowAndScale");
     }
     ctx->width = drawableW;
     ctx->height = drawableH;
@@ -415,7 +425,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
         (controlVisible != s_prev_control_visible);
 
     if (timerHudActive) {
-        ts_start_timer("ResizeLayout");
+        ts_session_start_timer(timer_hud_session(), "ResizeLayout");
     }
     if (layoutChanged) {
         layout_static_panes(panes, &paneCount);
@@ -423,17 +433,17 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
         *lastH = winH;
     }
     if (timerHudActive) {
-        ts_stop_timer("ResizeLayout");
+        ts_session_stop_timer(timer_hud_session(), "ResizeLayout");
     }
 
     if (timerHudActive) {
-        ts_start_timer("ResizeZones");
+        ts_session_start_timer(timer_hud_session(), "ResizeZones");
     }
     if (layoutChanged) {
         updateResizeZones(ctx->window, resizeZones, resizeZoneCount);
     }
     if (timerHudActive) {
-        ts_stop_timer("ResizeZones");
+        ts_session_stop_timer(timer_hud_session(), "ResizeZones");
     }
 
     s_prev_win_w = winW;
@@ -462,7 +472,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
         s_logged_begin_failure = 0;
         s_logged_end_failure = 0;
         if (timerHudActive) {
-            ts_stop_timer("Render");
+            ts_session_stop_timer(timer_hud_session(), "Render");
         }
         return;
     } else if (frameResult != VK_SUCCESS) {
@@ -471,7 +481,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
             s_logged_begin_failure = 1;
         }
         if (timerHudActive) {
-            ts_stop_timer("Render");
+            ts_session_stop_timer(timer_hud_session(), "Render");
         }
         return;
     }
@@ -480,7 +490,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
 #endif
 
     if (timerHudActive) {
-        ts_start_timer("PaneRender");
+        ts_session_start_timer(timer_hud_session(), "PaneRender");
     }
     for (int i = 0; i < paneCount; i++) {
         UIPane* pane = panes[i];
@@ -502,20 +512,20 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
         }
     }
     if (timerHudActive) {
-        ts_stop_timer("PaneRender");
+        ts_session_stop_timer(timer_hud_session(), "PaneRender");
     }
 
     render_pane_borders(panes, paneCount, winW, winH);
 
     if (timerHudActive) {
-        ts_start_timer("OverlayRender");
+        ts_session_start_timer(timer_hud_session(), "OverlayRender");
     }
     if (isRenaming()) {
         renderPopupQueueContents();  // This draws both popup messages and the rename UI
     }
     renderProjectDragOverlay();
     if (timerHudActive) {
-        ts_stop_timer("OverlayRender");
+        ts_session_stop_timer(timer_hud_session(), "OverlayRender");
     }
 
     render_hovered_pane_overlay(core);
@@ -533,19 +543,19 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
 #endif
 
     if (timerHudActive) {
-        ts_start_timer("HudRender");
+        ts_session_start_timer(timer_hud_session(), "HudRender");
     }
     if (timerHudActive) {
         timer_hud_bind_renderer((SDL_Renderer*)ctx->renderer);
         SDL_RenderSetClipRect(ctx->renderer, NULL);
-        ts_stop_timer("Render");
+        ts_session_stop_timer(timer_hud_session(), "Render");
 
-        if (ts_settings.hud_enabled) {
-            ts_render();
+        if (ts_session_is_hud_enabled(timer_hud_session())) {
+            ts_session_render(timer_hud_session());
         }
     }
     if (timerHudActive) {
-        ts_stop_timer("HudRender");
+        ts_session_stop_timer(timer_hud_session(), "HudRender");
     }
 
 #if USE_VULKAN
@@ -567,7 +577,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     }
 
     if (timerHudActive) {
-        ts_start_timer("Present");
+        ts_session_start_timer(timer_hud_session(), "Present");
     }
     VkResult endResult = vk_renderer_end_frame(ctx->renderer, commandBuffer);
     if (endResult == VK_ERROR_OUT_OF_DATE_KHR || endResult == VK_SUBOPTIMAL_KHR) {
@@ -582,15 +592,15 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
         s_logged_end_failure = 0;
     }
     if (timerHudActive) {
-        ts_stop_timer("Present");
+        ts_session_stop_timer(timer_hud_session(), "Present");
     }
 #else
     if (timerHudActive) {
-        ts_start_timer("Present");
+        ts_session_start_timer(timer_hud_session(), "Present");
     }
     SDL_RenderPresent(ctx->renderer);
     if (timerHudActive) {
-        ts_stop_timer("Present");
+        ts_session_stop_timer(timer_hud_session(), "Present");
     }
 #endif
 

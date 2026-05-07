@@ -15,7 +15,7 @@
 #include "app/GlobalInfo/event_loop.h"
 #include "app/GlobalInfo/runtime_startup_defaults.h"
 #include "app/GlobalInfo/workspace_prefs.h"
-#include "timer_hud/time_scope.h"
+#include "engine/Render/timer_hud_adapter.h"
 
 //  UI STATE
 #include "ide/UI/layout.h"
@@ -579,8 +579,21 @@ static bool parse_bool_token(const char *value, bool *out) {
     return false;
 }
 
-static bool resolve_timer_hud_enabled(int argc, char *argv[]) {
+static const char* timer_hud_startup_mode_name(IDETimerHUDStartupMode mode) {
+    switch (mode) {
+        case IDE_TIMER_HUD_STARTUP_FORCE_ON:
+            return "force-on";
+        case IDE_TIMER_HUD_STARTUP_FORCE_OFF:
+            return "force-off";
+        case IDE_TIMER_HUD_STARTUP_AUTO:
+        default:
+            return "auto";
+    }
+}
+
+static IDETimerHUDStartupMode resolve_timer_hud_startup_mode(int argc, char *argv[]) {
     bool enabled = ENABLE_TIMER_HUD;
+    bool explicit_override = false;
 
     const char *env = getenv("IDE_TIMER_HUD");
     bool parsed_env = false;
@@ -590,25 +603,34 @@ static bool resolve_timer_hud_enabled(int argc, char *argv[]) {
             fprintf(stderr,
                     "[TimerHUD] Ignoring IDE_TIMER_HUD='%s' (expected 0/1/true/false/on/off).\n",
                     env);
+        } else {
+            explicit_override = true;
         }
     }
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--timer-hud") == 0) {
             enabled = true;
+            explicit_override = true;
         } else if (strcmp(argv[i], "--no-timer-hud") == 0) {
             enabled = false;
+            explicit_override = true;
         }
     }
 
-    return enabled;
+    if (!explicit_override) {
+        return IDE_TIMER_HUD_STARTUP_AUTO;
+    }
+    return enabled ? IDE_TIMER_HUD_STARTUP_FORCE_ON : IDE_TIMER_HUD_STARTUP_FORCE_OFF;
 }
 
 int ide_app_main_legacy(int argc, char *argv[]) {
-    setTimerHudEnabled(resolve_timer_hud_enabled(argc, argv));
+    IDETimerHUDStartupMode timer_hud_startup_mode = resolve_timer_hud_startup_mode(argc, argv);
+    setTimerHudStartupMode(timer_hud_startup_mode);
+    setTimerHudEnabled(false);
     fprintf(stderr,
-            "[TimerHUD] IDE profiling %s (enable with --timer-hud or IDE_TIMER_HUD=1)\n",
-            isTimerHudEnabled() ? "ENABLED" : "DISABLED");
+            "[TimerHUD] IDE startup mode=%s (override with --timer-hud/--no-timer-hud or IDE_TIMER_HUD=1/0)\n",
+            timer_hud_startup_mode_name(timer_hud_startup_mode));
     ide_apply_runtime_startup_defaults();
     {
         const char *zoom_env = getenv("IDE_FONT_ZOOM_STEP");
@@ -623,6 +645,10 @@ int ide_app_main_legacy(int argc, char *argv[]) {
     if (!initializeSystem((argc > 0) ? argv[0] : NULL)) {
         return 1;
     }
+
+    fprintf(stderr,
+            "[TimerHUD] IDE runtime %s after initialization\n",
+            isTimerHudEnabled() ? "ACTIVE" : "INACTIVE");
 
     {
         const char *persisted_theme = loadThemePresetPreference();
@@ -683,11 +709,11 @@ int ide_app_main_legacy(int argc, char *argv[]) {
         last_time = now;
 
         if (isTimerHudEnabled()) {
-            ts_frame_start();
+            ts_session_frame_start(timer_hud_session());
         }
         runFrameLoop(&ctx, now, dt);
         if (isTimerHudEnabled()) {
-            ts_frame_end();
+            ts_session_frame_end(timer_hud_session());
         }
     }
 

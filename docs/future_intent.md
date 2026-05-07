@@ -1,6 +1,6 @@
 # ide Future Intent
 
-Last updated: 2026-04-10
+Last updated: 2026-05-04
 
 ## Scaffold Alignment Targets
 - keep `ide` on the required scaffold floor (`docs/src/include/tests/build`) while preserving current editor/runtime behavior.
@@ -50,12 +50,17 @@ Last updated: 2026-04-10
 - packaging parity pass is now landed:
   - IDE now includes full `package-desktop*` target parity (`remove` + `refresh` included).
   - launcher diagnostics are aligned with packaging contract (`--print-config` + startup log file).
+- Intel macOS target-contract lane is now landed:
+  - build/package/release outputs can be staged under target-scoped roots
+  - Intel-side dylib resolution and packaged runtime shader/resource hardening are complete
+  - `codeC-<version>-macOS-x86_64-stable` artifact naming is active
 - release readiness lane is now complete:
   - `IDE-RL0` through `IDE-RL5` complete on 2026-04-04
   - full release target parity is active:
     - `release-contract`, `release-bundle-audit`, `release-sign`, `release-notarize`, `release-staple`, `release-verify-notarized`, `release-artifact`, `release-distribute`
   - notarized distribution for `codeC.app` is now the baseline path.
 - next focus is routine maintenance and subsystem improvements; no additional scaffold/font baseline migration lane is pending for `ide`.
+- next focus is routine maintenance, pane/structure improvement, and bounded subsystem extraction only where it materially reduces ownership ambiguity.
 - cross-program wrapper initiative state:
   - `W0` complete (canonical shared wrapper contract frozen)
   - `W1` complete for `ide` (typed context/dispatch contract landed in `src/app/ide_app_main.c`)

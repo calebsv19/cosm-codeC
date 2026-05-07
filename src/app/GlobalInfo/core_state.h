@@ -29,6 +29,12 @@ typedef enum RenderInvalidationReason {
 
 enum { RENDER_INVALIDATION_REASON_BUCKETS = 7 };
 
+typedef enum IDETimerHUDStartupMode {
+    IDE_TIMER_HUD_STARTUP_AUTO = 0,
+    IDE_TIMER_HUD_STARTUP_FORCE_ON,
+    IDE_TIMER_HUD_STARTUP_FORCE_OFF
+} IDETimerHUDStartupMode;
+
 typedef struct ProjectDragState {
     struct DirEntry* entry;
     bool active;
@@ -68,6 +74,7 @@ typedef struct IDECoreState {
     bool initializePopup;
     bool popupPaneActive;
     bool timerHudEnabled;
+    IDETimerHUDStartupMode timerHudStartupMode;
 
     // Modular subsystems
     UIState ui;
@@ -100,6 +107,8 @@ IDECoreState* getCoreState(void);
 
 void setTimerHudEnabled(bool enabled);
 bool isTimerHudEnabled(void);
+void setTimerHudStartupMode(IDETimerHUDStartupMode mode);
+IDETimerHUDStartupMode getTimerHudStartupMode(void);
 
 void setHoveredEditorView(struct EditorView* view);
 struct EditorView* getHoveredEditorView(void);

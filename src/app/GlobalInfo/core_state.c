@@ -69,6 +69,7 @@ void initCoreState(void) {
     coreState.fullRedrawRequired = true;
     coreState.invalidationReasons = RENDER_INVALIDATION_LAYOUT;
     coreState.frameCounter = 0;
+    coreState.timerHudStartupMode = IDE_TIMER_HUD_STARTUP_AUTO;
     memset(coreState.invalidationReasonCounts, 0, sizeof(coreState.invalidationReasonCounts));
 
     memset(&coreState.projectDrag, 0, sizeof(ProjectDragState));
@@ -87,6 +88,14 @@ void setTimerHudEnabled(bool enabled) {
 
 bool isTimerHudEnabled(void) {
     return coreState.timerHudEnabled;
+}
+
+void setTimerHudStartupMode(IDETimerHUDStartupMode mode) {
+    coreState.timerHudStartupMode = mode;
+}
+
+IDETimerHUDStartupMode getTimerHudStartupMode(void) {
+    return coreState.timerHudStartupMode;
 }
 
 void setHoveredEditorView(struct EditorView* view) {

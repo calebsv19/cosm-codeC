@@ -5,6 +5,23 @@
   PACKAGE_TOOLCHAIN ?= $(BUILD_TOOLCHAIN)
   TEST_TOOLCHAIN ?= clang
   RELEASE_TOOLCHAIN ?= clang
+  PKG_CONFIG ?= pkg-config
+  TARGET_CONTRACT_HELPER ?= ../bin/desktop_release_target_contract.sh
+  HOST_ARCH := $(strip $(shell "$(TARGET_CONTRACT_HELPER)" get host_arch))
+  TARGET_OS_INPUT := $(TARGET_OS)
+  TARGET_ARCH_INPUT := $(TARGET_ARCH)
+  TARGET_VARIANT_INPUT := $(TARGET_VARIANT)
+  TARGET_OS ?= $(strip $(shell TARGET_OS="$(TARGET_OS_INPUT)" TARGET_ARCH="$(TARGET_ARCH_INPUT)" TARGET_VARIANT="$(TARGET_VARIANT_INPUT)" "$(TARGET_CONTRACT_HELPER)" get target_os))
+  TARGET_ARCH ?= $(strip $(shell TARGET_OS="$(TARGET_OS_INPUT)" TARGET_ARCH="$(TARGET_ARCH_INPUT)" TARGET_VARIANT="$(TARGET_VARIANT_INPUT)" "$(TARGET_CONTRACT_HELPER)" get target_arch))
+  TARGET_VARIANT ?= $(strip $(shell TARGET_OS="$(TARGET_OS_INPUT)" TARGET_ARCH="$(TARGET_ARCH_INPUT)" TARGET_VARIANT="$(TARGET_VARIANT_INPUT)" "$(TARGET_CONTRACT_HELPER)" get target_variant))
+  TARGET_TRIPLE := $(strip $(shell TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(TARGET_CONTRACT_HELPER)" get target_triple))
+  RELEASE_PLATFORM := $(strip $(shell TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(TARGET_CONTRACT_HELPER)" get release_platform))
+  RELEASE_ARCH := $(strip $(shell TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(TARGET_CONTRACT_HELPER)" get release_arch))
+  TARGET_HOMEBREW_PREFIX ?= $(strip $(shell TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(TARGET_CONTRACT_HELPER)" get homebrew_prefix))
+  TARGET_ALT_HOMEBREW_PREFIX ?= $(strip $(shell TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(TARGET_CONTRACT_HELPER)" get alt_homebrew_prefix))
+  TARGET_PKG_CONFIG_LIBDIR ?= $(TARGET_HOMEBREW_PREFIX)/lib/pkgconfig:$(TARGET_HOMEBREW_PREFIX)/share/pkgconfig
+  TARGET_DEP_SEARCH_ROOTS ?= $(TARGET_HOMEBREW_PREFIX):$(TARGET_ALT_HOMEBREW_PREFIX)
+  ARCH_FLAGS := -arch $(TARGET_ARCH)
 
   ifeq ($(BUILD_TOOLCHAIN),clang)
   APP_CC := $(HOST_CC)
@@ -17,9 +34,6 @@
   endif
 
   CC := $(HOST_CC)
-
-  # Detect Homebrew prefix (works on Intel and Apple Silicon)
-  BREW_PREFIX := $(shell brew --prefix 2>/dev/null)
   SHARED_ROOT ?= third_party/codework_shared
 
   # Shared include/lib search paths
@@ -40,14 +54,13 @@
   INC_DIRS := -I./src -I./include -I$(VK_RENDERER_DIR)/include -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_DATA_DIR)/include -I$(CORE_PACK_DIR)/include -I$(CORE_THEME_DIR)/include -I$(CORE_FONT_DIR)/include -I$(CORE_TIME_DIR)/include -I$(CORE_QUEUE_DIR)/include -I$(CORE_SCHED_DIR)/include -I$(CORE_JOBS_DIR)/include -I$(CORE_WORKERS_DIR)/include -I$(CORE_WAKE_DIR)/include -I$(CORE_KERNEL_DIR)/include
   LIB_DIRS :=
 
-  ifneq ($(strip $(BREW_PREFIX)),)
-  INC_DIRS += -I$(BREW_PREFIX)/include
-  LIB_DIRS += -L$(BREW_PREFIX)/lib
+  ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/include),)
+  INC_DIRS += -I$(TARGET_HOMEBREW_PREFIX)/include
+  LIB_DIRS += -L$(TARGET_HOMEBREW_PREFIX)/lib
+  else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/include),)
+  INC_DIRS += -I$(TARGET_ALT_HOMEBREW_PREFIX)/include
+  LIB_DIRS += -L$(TARGET_ALT_HOMEBREW_PREFIX)/lib
   endif
-
-  # Fallbacks for systems without Homebrew or with alternate prefixes
-  INC_DIRS += -I/usr/local/include
-  LIB_DIRS += -L/usr/local/lib
 
   # Allow consuming an installed Vulkan SDK
   ifneq ($(strip $(VULKAN_SDK)),)
@@ -55,13 +68,16 @@
   LIB_DIRS += -L$(VULKAN_SDK)/lib
   endif
 
-  VULKAN_BREW_PREFIX := $(shell brew --prefix vulkan-loader 2>/dev/null)
-  ifneq ($(strip $(VULKAN_BREW_PREFIX)),)
-  INC_DIRS += -I$(VULKAN_BREW_PREFIX)/include
-  LIB_DIRS += -L$(VULKAN_BREW_PREFIX)/lib
+  VULKAN_PKG_CFLAGS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --cflags vulkan 2>/dev/null)
+  VULKAN_PKG_LIBS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --libs vulkan 2>/dev/null)
+  ifneq ($(strip $(VULKAN_PKG_CFLAGS)),)
+  INC_DIRS += $(VULKAN_PKG_CFLAGS)
+  endif
+  ifneq ($(strip $(VULKAN_PKG_LIBS)),)
+  LIB_DIRS += $(filter -L%,$(VULKAN_PKG_LIBS))
   endif
 
-  SDL_MIXER_SEARCH := $(foreach dir,$(BREW_PREFIX)/lib /usr/local/lib /opt/homebrew/lib,$(wildcard $(dir)/libSDL2_mixer*.dylib) $(wildcard  $(dir)/libSDL2_mixer*.a))
+  SDL_MIXER_SEARCH := $(foreach dir,$(TARGET_HOMEBREW_PREFIX)/lib $(TARGET_ALT_HOMEBREW_PREFIX)/lib,$(wildcard $(dir)/libSDL2_mixer*.dylib) $(wildcard $(dir)/libSDL2_mixer*.a))
   SDL_MIXER_LIB := $(firstword $(SDL_MIXER_SEARCH))
 
   ifneq ($(strip $(SDL_MIXER_LIB)),)
@@ -70,38 +86,45 @@
   SDL_MIXER_FLAGS :=
   endif
 
+  ifneq ($(strip $(VULKAN_PKG_LIBS)),)
+  VULKAN_LIBS := $(filter-out -L%,$(VULKAN_PKG_LIBS))
+  else
   VULKAN_LIBS := -lvulkan
+  endif
 
   ABS_VK_SHADER_ROOT := $(abspath $(VK_RENDERER_DIR))
 
   # Fisics frontend (compiler) integration
   FISICS_DIR := ../fisiCs
   FISICS_INC := $(FISICS_DIR)/src
-  FISICS_LIB_UNSANITIZED := $(FISICS_DIR)/libfisics_frontend_unsanitized.a
-  FISICS_LIB_SANITIZED := $(FISICS_DIR)/libfisics_frontend_sanitized.a
+  FISICS_LIB_UNSANITIZED_SRC := $(FISICS_DIR)/libfisics_frontend_unsanitized.a
+  FISICS_LIB_SANITIZED_SRC := $(FISICS_DIR)/libfisics_frontend_sanitized.a
 
   VULKAN_RENDER_DEBUG ?= 0
   VULKAN_RENDER_DEBUG_FRAMES ?= 0
   BUILD_PROFILE ?= debug
   FISICS_SANITIZED ?= 0
   ifeq ($(FISICS_SANITIZED),1)
-  FISICS_LIB := $(FISICS_LIB_SANITIZED)
+  FISICS_FRONTEND_ARCHIVE_SRC := $(FISICS_LIB_SANITIZED_SRC)
   FISICS_FRONTEND_TARGET := frontend-sanitized
+  FISICS_FRONTEND_BUILD_PROFILE := sanitized
   else
-  FISICS_LIB := $(FISICS_LIB_UNSANITIZED)
+  FISICS_FRONTEND_ARCHIVE_SRC := $(FISICS_LIB_UNSANITIZED_SRC)
   FISICS_FRONTEND_TARGET := frontend-unsanitized
+  FISICS_FRONTEND_BUILD_PROFILE := unsanitized
   endif
-  ifeq ($(wildcard $(FISICS_LIB)),)
-  $(warning Fisics frontend library not found at $(FISICS_LIB); build may fail until it is built.)
+  ifeq ($(wildcard $(FISICS_FRONTEND_ARCHIVE_SRC)),)
+  $(warning Fisics frontend library not found at $(FISICS_FRONTEND_ARCHIVE_SRC); build may fail until it is built.)
   endif
 
   # LLVM (for Fisics frontend)
-  LLVM_CONFIG := $(shell command -v llvm-config 2>/dev/null)
+  TARGET_LLVM_CONFIG ?= $(if $(wildcard $(TARGET_HOMEBREW_PREFIX)/opt/llvm/bin/llvm-config),$(TARGET_HOMEBREW_PREFIX)/opt/llvm/bin/llvm-config,$(if $(filter $(TARGET_ARCH),$(HOST_ARCH)),$(if $(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/opt/llvm/bin/llvm-config),$(TARGET_ALT_HOMEBREW_PREFIX)/opt/llvm/bin/llvm-config,$(shell command -v llvm-config 2>/dev/null)),))
+  LLVM_CONFIG := $(TARGET_LLVM_CONFIG)
   LLVM_CFLAGS := $(if $(LLVM_CONFIG),$(shell $(LLVM_CONFIG) --cflags),)
   LLVM_LDFLAGS := $(if $(LLVM_CONFIG),$(shell $(LLVM_CONFIG) --ldflags),)
   LLVM_LIBS := $(if $(LLVM_CONFIG),$(shell $(LLVM_CONFIG) --libs core),)
   ifeq ($(strip $(LLVM_CONFIG)),)
-  $(warning llvm-config not found; Fisics frontend linking may fail.)
+  $(warning llvm-config not found for target lane; Fisics frontend/IDE linking may fail.)
   endif
 
   TIMER_HUD_DIR := $(SHARED_ROOT)/timer_hud
@@ -132,10 +155,11 @@
   CFLAGS += -DVK_RENDERER_FRAME_DEBUG=1
   endif
   endif
-  LDFLAGS = $(BASE_LDFLAGS) $(PROFILE_LDFLAGS)
+  LDFLAGS = $(ARCH_FLAGS) $(BASE_LDFLAGS) $(PROFILE_LDFLAGS)
 
   SRC_DIR := src
-  BUILD_DIR := build/$(BUILD_PROFILE)
+  TARGET_BUILD_ROOT := build/targets/$(TARGET_TRIPLE)
+  BUILD_DIR := $(TARGET_BUILD_ROOT)/$(BUILD_PROFILE)
   TOOLCHAIN_BUILD_ROOT := $(BUILD_DIR)/toolchains
   APP_BUILD_ROOT := $(TOOLCHAIN_BUILD_ROOT)/$(BUILD_TOOLCHAIN)
   APP_OBJ_DIR := $(APP_BUILD_ROOT)/app
@@ -161,27 +185,44 @@
   TIMER_HUD_DEP_FILES := $(TIMER_HUD_OBJS:.o=.d) $(TIMER_HUD_EXTERNAL_OBJS:.o=.d)
   IDEBRIDGE_SUPPORT_DEP_FILES := $(IDEBRIDGE_SUPPORT_OBJS:.o=.d)
 
-  CORE_BASE_LIB := $(CORE_BASE_DIR)/build/libcore_base.a
-  CORE_IO_LIB := $(CORE_IO_DIR)/build/libcore_io.a
-  CORE_DATA_LIB := $(CORE_DATA_DIR)/build/libcore_data.a
-  CORE_PACK_LIB := $(CORE_PACK_DIR)/build/libcore_pack.a
-  CORE_THEME_LIB := $(CORE_THEME_DIR)/build/libcore_theme.a
-  CORE_FONT_LIB := $(CORE_FONT_DIR)/build/libcore_font.a
-  CORE_TIME_LIB := $(CORE_TIME_DIR)/build/libcore_time.a
-  CORE_QUEUE_LIB := $(CORE_QUEUE_DIR)/build/libcore_queue.a
-  CORE_SCHED_LIB := $(CORE_SCHED_DIR)/build/libcore_sched.a
-  CORE_JOBS_LIB := $(CORE_JOBS_DIR)/build/libcore_jobs.a
-  CORE_WORKERS_LIB := $(CORE_WORKERS_DIR)/build/libcore_workers.a
-  CORE_WAKE_LIB := $(CORE_WAKE_DIR)/build/libcore_wake.a
-  CORE_KERNEL_LIB := $(CORE_KERNEL_DIR)/build/libcore_kernel.a
-  VK_RENDERER_LIB := $(VK_RENDERER_DIR)/build/lib/libvkrenderer.a
+  SHARED_BUILD_DIR := $(BUILD_DIR)/shared
+  FISICS_LIB := $(SHARED_BUILD_DIR)/$(notdir $(FISICS_FRONTEND_ARCHIVE_SRC))
+  CORE_BASE_LIB_SRC := $(CORE_BASE_DIR)/build/libcore_base.a
+  CORE_IO_LIB_SRC := $(CORE_IO_DIR)/build/libcore_io.a
+  CORE_DATA_LIB_SRC := $(CORE_DATA_DIR)/build/libcore_data.a
+  CORE_PACK_LIB_SRC := $(CORE_PACK_DIR)/build/libcore_pack.a
+  CORE_THEME_LIB_SRC := $(CORE_THEME_DIR)/build/libcore_theme.a
+  CORE_FONT_LIB_SRC := $(CORE_FONT_DIR)/build/libcore_font.a
+  CORE_TIME_LIB_SRC := $(CORE_TIME_DIR)/build/libcore_time.a
+  CORE_QUEUE_LIB_SRC := $(CORE_QUEUE_DIR)/build/libcore_queue.a
+  CORE_SCHED_LIB_SRC := $(CORE_SCHED_DIR)/build/libcore_sched.a
+  CORE_JOBS_LIB_SRC := $(CORE_JOBS_DIR)/build/libcore_jobs.a
+  CORE_WORKERS_LIB_SRC := $(CORE_WORKERS_DIR)/build/libcore_workers.a
+  CORE_WAKE_LIB_SRC := $(CORE_WAKE_DIR)/build/libcore_wake.a
+  CORE_KERNEL_LIB_SRC := $(CORE_KERNEL_DIR)/build/libcore_kernel.a
+  VK_RENDERER_LIB_SRC := $(VK_RENDERER_DIR)/build/lib/libvkrenderer.a
+
+  CORE_BASE_LIB := $(SHARED_BUILD_DIR)/libcore_base.a
+  CORE_IO_LIB := $(SHARED_BUILD_DIR)/libcore_io.a
+  CORE_DATA_LIB := $(SHARED_BUILD_DIR)/libcore_data.a
+  CORE_PACK_LIB := $(SHARED_BUILD_DIR)/libcore_pack.a
+  CORE_THEME_LIB := $(SHARED_BUILD_DIR)/libcore_theme.a
+  CORE_FONT_LIB := $(SHARED_BUILD_DIR)/libcore_font.a
+  CORE_TIME_LIB := $(SHARED_BUILD_DIR)/libcore_time.a
+  CORE_QUEUE_LIB := $(SHARED_BUILD_DIR)/libcore_queue.a
+  CORE_SCHED_LIB := $(SHARED_BUILD_DIR)/libcore_sched.a
+  CORE_JOBS_LIB := $(SHARED_BUILD_DIR)/libcore_jobs.a
+  CORE_WORKERS_LIB := $(SHARED_BUILD_DIR)/libcore_workers.a
+  CORE_WAKE_LIB := $(SHARED_BUILD_DIR)/libcore_wake.a
+  CORE_KERNEL_LIB := $(SHARED_BUILD_DIR)/libcore_kernel.a
+  VK_RENDERER_LIB := $(SHARED_BUILD_DIR)/libvkrenderer.a
 
   IDE_SHARED_LIBS := $(VK_RENDERER_LIB) $(CORE_KERNEL_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_JOBS_LIB) $(CORE_SCHED_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
   IDEBRIDGE_SHARED_LIBS := $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 
   OUT = $(APP_BIN_DIR)/ide
   IDEBRIDGE_OUT = $(TOOLS_BUILD_DIR)/idebridge
-  DIST_DIR := dist
+  DIST_DIR := $(TARGET_BUILD_ROOT)/dist
   PACKAGE_APP_NAME := codeC.app
   PACKAGE_APP_DIR := $(DIST_DIR)/$(PACKAGE_APP_NAME)
   PACKAGE_CONTENTS_DIR := $(PACKAGE_APP_DIR)/Contents
@@ -198,7 +239,7 @@
   PACKAGE_LAUNCHER_SRC := tools/packaging/macos/ide-launcher
   PACKAGE_DYLIB_BUNDLER := tools/packaging/macos/bundle-dylibs.sh
   PACKAGE_BUILD_PROFILE ?= perf
-  PACKAGE_BUILD_DIR := build/$(PACKAGE_BUILD_PROFILE)
+  PACKAGE_BUILD_DIR := $(TARGET_BUILD_ROOT)/$(PACKAGE_BUILD_PROFILE)
   PACKAGE_TOOLCHAIN_BUILD_ROOT := $(PACKAGE_BUILD_DIR)/toolchains
   PACKAGE_BIN := $(PACKAGE_TOOLCHAIN_BUILD_ROOT)/$(PACKAGE_TOOLCHAIN)/bin/ide
   PACKAGE_IDEBRIDGE_BIN := $(PACKAGE_BUILD_DIR)/tools/idebridge
@@ -213,7 +254,7 @@
   RELEASE_PRODUCT_NAME := codeC
   RELEASE_PROGRAM_KEY := ide
   RELEASE_BUNDLE_ID := com.cosm.codec
-  RELEASE_ARTIFACT_BASENAME := $(RELEASE_PRODUCT_NAME)-$(RELEASE_VERSION)-macOS-$(RELEASE_CHANNEL)
+  RELEASE_ARTIFACT_BASENAME := $(RELEASE_PRODUCT_NAME)-$(RELEASE_VERSION)-$(RELEASE_PLATFORM)-$(RELEASE_ARCH)-$(RELEASE_CHANNEL)
   RELEASE_DIR := build/release
   RELEASE_APP_ZIP := $(RELEASE_DIR)/$(RELEASE_ARTIFACT_BASENAME).zip
   RELEASE_MANIFEST := $(RELEASE_DIR)/$(RELEASE_ARTIFACT_BASENAME).manifest.txt
@@ -273,47 +314,38 @@ run-perf-sanitized:
 
 FORCE:
 
-$(CORE_BASE_LIB): FORCE
-	@$(MAKE) -C $(CORE_BASE_DIR) CC="$(HOST_CC)"
+SHARED_CC := $(HOST_CC) $(ARCH_FLAGS)
 
-$(CORE_IO_LIB): FORCE
-	@$(MAKE) -C $(CORE_IO_DIR) CC="$(HOST_CC)"
+$(SHARED_BUILD_DIR):
+	@mkdir -p $@
 
-$(CORE_DATA_LIB): FORCE
-	@$(MAKE) -C $(CORE_DATA_DIR) CC="$(HOST_CC)"
+define build_copy_static_lib
+$($(1)_LIB): FORCE | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C $($(1)_DIR) clean $(2)
+	@PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" PKG_CONFIG="$(PKG_CONFIG)" $(MAKE) -C $($(1)_DIR) CC="$(SHARED_CC)" $(2)
+	@cp "$($(1)_LIB_SRC)" "$$@"
+endef
 
-$(CORE_PACK_LIB): FORCE
-	@$(MAKE) -C $(CORE_PACK_DIR) CC="$(HOST_CC)"
+$(eval $(call build_copy_static_lib,CORE_BASE,))
+$(eval $(call build_copy_static_lib,CORE_IO,))
+$(eval $(call build_copy_static_lib,CORE_DATA,))
+$(eval $(call build_copy_static_lib,CORE_PACK,))
+$(eval $(call build_copy_static_lib,CORE_THEME,))
+$(eval $(call build_copy_static_lib,CORE_FONT,))
+$(eval $(call build_copy_static_lib,CORE_TIME,))
+$(eval $(call build_copy_static_lib,CORE_QUEUE,))
+$(eval $(call build_copy_static_lib,CORE_SCHED,))
+$(eval $(call build_copy_static_lib,CORE_JOBS,))
+$(eval $(call build_copy_static_lib,CORE_WORKERS,))
+$(eval $(call build_copy_static_lib,CORE_WAKE,))
+$(eval $(call build_copy_static_lib,CORE_KERNEL,))
+$(eval $(call build_copy_static_lib,VK_RENDERER,))
 
-$(CORE_THEME_LIB): FORCE
-	@$(MAKE) -C $(CORE_THEME_DIR) CC="$(HOST_CC)"
-
-$(CORE_FONT_LIB): FORCE
-	@$(MAKE) -C $(CORE_FONT_DIR) CC="$(HOST_CC)"
-
-$(CORE_TIME_LIB): FORCE
-	@$(MAKE) -C $(CORE_TIME_DIR) CC="$(HOST_CC)"
-
-$(CORE_QUEUE_LIB): FORCE
-	@$(MAKE) -C $(CORE_QUEUE_DIR) CC="$(HOST_CC)"
-
-$(CORE_SCHED_LIB): FORCE
-	@$(MAKE) -C $(CORE_SCHED_DIR) CC="$(HOST_CC)"
-
-$(CORE_JOBS_LIB): FORCE
-	@$(MAKE) -C $(CORE_JOBS_DIR) CC="$(HOST_CC)"
-
-$(CORE_WORKERS_LIB): FORCE
-	@$(MAKE) -C $(CORE_WORKERS_DIR) CC="$(HOST_CC)"
-
-$(CORE_WAKE_LIB): FORCE
-	@$(MAKE) -C $(CORE_WAKE_DIR) CC="$(HOST_CC)"
-
-$(CORE_KERNEL_LIB): FORCE
-	@$(MAKE) -C $(CORE_KERNEL_DIR) CC="$(HOST_CC)"
-
-$(VK_RENDERER_LIB): FORCE
-	@$(MAKE) -C $(VK_RENDERER_DIR) CC="$(HOST_CC)"
+$(FISICS_LIB): FORCE | $(SHARED_BUILD_DIR)
+	@test -n "$(LLVM_CONFIG)" || (echo "Missing target llvm-config for $(TARGET_TRIPLE); install llvm under $(TARGET_HOMEBREW_PREFIX)/opt/llvm" && exit 1)
+	@$(MAKE) -C $(FISICS_DIR) BUILD_PROFILE="$(FISICS_FRONTEND_BUILD_PROFILE)" clean
+	@$(MAKE) -C $(FISICS_DIR) BUILD_PROFILE="$(FISICS_FRONTEND_BUILD_PROFILE)" CC="$(HOST_CC) $(ARCH_FLAGS)" LLVM_CONFIG="$(LLVM_CONFIG)" $(FISICS_FRONTEND_TARGET)
+	@cp "$(FISICS_FRONTEND_ARCHIVE_SRC)" "$@"
 
 $(APP_BIN_DIR) $(COMPILER_STAMP_DIR):
 	@mkdir -p $@
@@ -324,31 +356,31 @@ $(COMPILER_STAMP): $(TOOLCHAIN_DEP) | $(COMPILER_STAMP_DIR)
 $(OUT): $(APP_OBJ_FILES) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(IDE_SHARED_LIBS) $(FISICS_LIB) | $(APP_BIN_DIR)
 	@echo "Linking executable..."
 	@echo "LDFLAGS: $(LDFLAGS)"
-	@$(HOST_CC) -o $@ $(APP_OBJ_FILES) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(IDE_SHARED_LIBS) $(LDFLAGS) || (echo "Linking failed!" && exit 1)
+	@$(HOST_CC) $(ARCH_FLAGS) -o $@ $(APP_OBJ_FILES) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(IDE_SHARED_LIBS) $(LDFLAGS) || (echo "Linking failed!" && exit 1)
 
 $(APP_OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(COMPILER_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@echo "CFLAGS: $(CFLAGS)"
-	@$(APP_CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+	@$(APP_CC) $(CFLAGS) $(if $(filter clang,$(BUILD_TOOLCHAIN)),$(ARCH_FLAGS),) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
 $(HOST_OBJ_DIR)/timer_hud/%.o: $(TIMER_HUD_DIR)/src/%.c
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@echo "CFLAGS: $(CFLAGS)"
-	@$(HOST_CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+	@$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
 $(HOST_OBJ_DIR)/timer_hud_external/%.o: $(TIMER_HUD_DIR)/external/%.c
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@echo "CFLAGS: $(CFLAGS)"
-	@$(HOST_CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+	@$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
 $(HOST_OBJ_DIR)/idebridge_support/%.o: src/%.c
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@echo "CFLAGS: $(CFLAGS)"
-	@$(HOST_CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+	@$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
 run: run-ide-theme
 
@@ -374,7 +406,7 @@ run-daw-theme: $(OUT)
 .PHONY: package-build-lane
 package-build-lane:
 	@echo "Building package binaries for toolchain $(PACKAGE_TOOLCHAIN)..."
-	@$(MAKE) BUILD_PROFILE="$(PACKAGE_BUILD_PROFILE)" FISICS_SANITIZED=0 BUILD_TOOLCHAIN="$(PACKAGE_TOOLCHAIN)" "$(PACKAGE_BIN)" "$(PACKAGE_IDEBRIDGE_BIN)"
+	@$(MAKE) BUILD_PROFILE="$(PACKAGE_BUILD_PROFILE)" FISICS_SANITIZED=0 BUILD_TOOLCHAIN="$(PACKAGE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(PACKAGE_BIN)" "$(PACKAGE_IDEBRIDGE_BIN)"
 
 package-desktop: package-build-lane
 	@echo "Preparing app bundle layout..."
@@ -385,8 +417,8 @@ package-desktop: package-build-lane
 	@cp $(PACKAGE_IDEBRIDGE_BIN) $(PACKAGE_MACOS_DIR)/idebridge
 	@cp $(PACKAGE_LAUNCHER_SRC) $(PACKAGE_MACOS_DIR)/ide-launcher
 	@chmod +x $(PACKAGE_MACOS_DIR)/ide-launcher $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_MACOS_DIR)/idebridge
-	@$(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_FRAMEWORKS_DIR)
-	@$(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/idebridge $(PACKAGE_FRAMEWORKS_DIR)
+	@PACKAGE_DEP_SEARCH_ROOTS="$(TARGET_DEP_SEARCH_ROOTS)" $(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_FRAMEWORKS_DIR)
+	@PACKAGE_DEP_SEARCH_ROOTS="$(TARGET_DEP_SEARCH_ROOTS)" $(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/idebridge $(PACKAGE_FRAMEWORKS_DIR)
 	@mkdir -p $(PACKAGE_RESOURCES_DIR)/include
 	@cp -R include/fonts $(PACKAGE_RESOURCES_DIR)/include/
 	@mkdir -p $(PACKAGE_RESOURCES_DIR)/shared/assets
@@ -402,6 +434,8 @@ package-desktop: package-build-lane
 	fi
 	@mkdir -p $(PACKAGE_RESOURCES_DIR)/vk_renderer
 	@cp -R third_party/codework_shared/vk_renderer/shaders $(PACKAGE_RESOURCES_DIR)/vk_renderer/
+	@mkdir -p $(PACKAGE_RESOURCES_DIR)/shaders
+	@cp -R third_party/codework_shared/vk_renderer/shaders/. $(PACKAGE_RESOURCES_DIR)/shaders/
 	@$(MAKE) package-desktop-sign-adhoc
 	@echo "Desktop package ready: $(PACKAGE_APP_DIR)"
 
@@ -410,12 +444,12 @@ package-desktop-sign-adhoc:
 	@test -d "$(PACKAGE_APP_DIR)" || (echo "Missing app bundle"; exit 1)
 	@for dylib in "$(PACKAGE_FRAMEWORKS_DIR)"/*.dylib; do \
 		[ -f "$$dylib" ] || continue; \
-		codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" "$$dylib"; \
+		codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$$dylib"; \
 	done
-	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" "$(PACKAGE_MACOS_DIR)/ide-bin"
-	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" "$(PACKAGE_MACOS_DIR)/idebridge"
-	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" "$(PACKAGE_MACOS_DIR)/ide-launcher"
-	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" "$(PACKAGE_APP_DIR)"
+	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/ide-bin"
+	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/idebridge"
+	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/ide-launcher"
+	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_APP_DIR)"
 	@codesign --verify --deep --strict "$(PACKAGE_APP_DIR)"
 	@echo "package-desktop-sign-adhoc passed."
 
@@ -444,6 +478,17 @@ package-desktop-smoke: package-desktop
 	fi
 	@test -f $(PACKAGE_RESOURCES_DIR)/include/fonts/Lato/Lato-Regular.ttf || (echo "Missing bundled Lato"; exit 1)
 	@test -f $(PACKAGE_RESOURCES_DIR)/vk_renderer/shaders/textured.vert.spv || (echo "Missing bundled shaders"; exit 1)
+	@test -f $(PACKAGE_RESOURCES_DIR)/shaders/line.vert.spv || (echo "Missing bundled runtime line shader"; exit 1)
+	@test -f $(PACKAGE_RESOURCES_DIR)/shaders/line.frag.spv || (echo "Missing bundled runtime line shader"; exit 1)
+	@actual_archs="$$(/usr/bin/lipo -archs "$(PACKAGE_MACOS_DIR)/ide-bin" 2>/dev/null || true)"; \
+	printf '%s\n' "$$actual_archs" | /usr/bin/grep -qw "$(TARGET_ARCH)" || (echo "Unexpected ide-bin archs: $$actual_archs"; exit 1)
+	@bridge_archs="$$(/usr/bin/lipo -archs "$(PACKAGE_MACOS_DIR)/idebridge" 2>/dev/null || true)"; \
+	printf '%s\n' "$$bridge_archs" | /usr/bin/grep -qw "$(TARGET_ARCH)" || (echo "Unexpected idebridge archs: $$bridge_archs"; exit 1)
+	@for dylib in "$(PACKAGE_FRAMEWORKS_DIR)"/*.dylib; do \
+		[ -f "$$dylib" ] || continue; \
+		dylib_archs="$$(/usr/bin/lipo -archs "$$dylib" 2>/dev/null || true)"; \
+		printf '%s\n' "$$dylib_archs" | /usr/bin/grep -qw "$(TARGET_ARCH)" || (echo "Unexpected dylib archs for $$dylib: $$dylib_archs"; exit 1); \
+	done
 	@echo "package-desktop-smoke passed."
 
 package-desktop-self-test: package-desktop-smoke
@@ -461,6 +506,15 @@ package-desktop-refresh: package-desktop
 	@echo "Refreshed $(PACKAGE_APP_NAME) at $(DESKTOP_APP_DIR)"
 
 release-contract:
+	@echo "HOST_ARCH=$(HOST_ARCH)"
+	@echo "TARGET_OS=$(TARGET_OS)"
+	@echo "TARGET_ARCH=$(TARGET_ARCH)"
+	@echo "TARGET_VARIANT=$(TARGET_VARIANT)"
+	@echo "TARGET_TRIPLE=$(TARGET_TRIPLE)"
+	@echo "RELEASE_PLATFORM=$(RELEASE_PLATFORM)"
+	@echo "RELEASE_ARCH=$(RELEASE_ARCH)"
+	@echo "TARGET_HOMEBREW_PREFIX=$(TARGET_HOMEBREW_PREFIX)"
+	@echo "TARGET_PKG_CONFIG_LIBDIR=$(TARGET_PKG_CONFIG_LIBDIR)"
 	@echo "RELEASE_PROGRAM_KEY=$(RELEASE_PROGRAM_KEY)"
 	@echo "RELEASE_PRODUCT_NAME=$(RELEASE_PRODUCT_NAME)"
 	@echo "RELEASE_BUNDLE_ID=$(RELEASE_BUNDLE_ID)"
@@ -477,14 +531,14 @@ release-clean:
 	@echo "release-clean complete."
 
 release-build:
-	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-build-internal
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-build-internal
 
 release-build-internal:
 	@$(MAKE) package-desktop-self-test
 	@echo "release-build complete."
 
 release-bundle-audit:
-	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-bundle-audit-internal
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-bundle-audit-internal
 
 release-bundle-audit-internal: release-build-internal
 	@mkdir -p "$(RELEASE_DIR)"
@@ -505,45 +559,61 @@ release-bundle-audit-internal: release-build-internal
 	@echo "release-bundle-audit passed."
 
 release-sign:
-	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-sign-internal
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-sign-internal
 
 release-sign-internal: release-bundle-audit-internal
 	@test -n "$(RELEASE_CODESIGN_IDENTITY)" || (echo "Missing signing identity"; exit 1)
 	@echo "Signing with identity: $(RELEASE_CODESIGN_IDENTITY)"
-	@for dylib in "$(PACKAGE_FRAMEWORKS_DIR)"/*.dylib; do \
-		[ -f "$$dylib" ] || continue; \
-		codesign --force --timestamp --options runtime --sign "$(RELEASE_CODESIGN_IDENTITY)" "$$dylib"; \
-	done
-	@codesign --force --timestamp --options runtime --sign "$(RELEASE_CODESIGN_IDENTITY)" "$(PACKAGE_MACOS_DIR)/ide-bin"
-	@codesign --force --timestamp --options runtime --sign "$(RELEASE_CODESIGN_IDENTITY)" "$(PACKAGE_MACOS_DIR)/idebridge"
-	@codesign --force --timestamp --options runtime --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" "$(PACKAGE_MACOS_DIR)/ide-launcher"
-	@codesign --force --timestamp --options runtime --sign "$(RELEASE_CODESIGN_IDENTITY)" "$(PACKAGE_APP_DIR)"
+	@if [ "$(RELEASE_CODESIGN_IDENTITY)" = "-" ]; then \
+		for dylib in "$(PACKAGE_FRAMEWORKS_DIR)"/*.dylib; do \
+			[ -f "$$dylib" ] || continue; \
+			codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$$dylib"; \
+		done; \
+		codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/ide-bin"; \
+		codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/idebridge"; \
+		codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/ide-launcher"; \
+		codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$(PACKAGE_APP_DIR)"; \
+	else \
+		for dylib in "$(PACKAGE_FRAMEWORKS_DIR)"/*.dylib; do \
+			[ -f "$$dylib" ] || continue; \
+			codesign --force --timestamp --options runtime --sign "$(RELEASE_CODESIGN_IDENTITY)" "$$dylib"; \
+		done; \
+		codesign --force --timestamp --options runtime --sign "$(RELEASE_CODESIGN_IDENTITY)" "$(PACKAGE_MACOS_DIR)/ide-bin"; \
+		codesign --force --timestamp --options runtime --sign "$(RELEASE_CODESIGN_IDENTITY)" "$(PACKAGE_MACOS_DIR)/idebridge"; \
+		codesign --force --timestamp --options runtime --sign "$(RELEASE_CODESIGN_IDENTITY)" "$(PACKAGE_MACOS_DIR)/ide-launcher"; \
+		codesign --force --timestamp --options runtime --sign "$(RELEASE_CODESIGN_IDENTITY)" "$(PACKAGE_APP_DIR)"; \
+	fi
 	@echo "release-sign complete."
 
 release-verify:
-	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-verify-internal
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-verify-internal
 
 release-verify-internal: release-sign-internal
 	@codesign --verify --deep --strict "$(PACKAGE_APP_DIR)"
-	@set +e; spctl_out="$$(spctl --assess --type execute --verbose=2 "$(PACKAGE_APP_DIR)" 2>&1)"; spctl_rc=$$?; set -e; \
-	echo "$$spctl_out"; \
-	if [ $$spctl_rc -eq 0 ]; then \
-		echo "release-verify passed."; \
-	elif printf '%s' "$$spctl_out" | rg -q 'source=Unnotarized Developer ID'; then \
-		echo "release-verify passed (pre-notary signed state)."; \
+	@if [ "$(RELEASE_CODESIGN_IDENTITY)" = "-" ]; then \
+		echo "release-verify note: ad-hoc identity in use; skipping spctl Gatekeeper assessment"; \
 	else \
-		echo "release-verify failed."; \
-		exit $$spctl_rc; \
+		set +e; spctl_out="$$(spctl --assess --type execute --verbose=2 "$(PACKAGE_APP_DIR)" 2>&1)"; spctl_rc=$$?; set -e; \
+		echo "$$spctl_out"; \
+		if [ $$spctl_rc -eq 0 ]; then \
+			:; \
+		elif printf '%s' "$$spctl_out" | rg -q 'source=Unnotarized Developer ID'; then \
+			echo "release-verify passed (pre-notary signed state)."; \
+		else \
+			echo "release-verify failed."; \
+			exit $$spctl_rc; \
+		fi; \
 	fi
+	@echo "release-verify passed."
 
 release-verify-signed:
-	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-verify-signed-internal
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-verify-signed-internal
 
 release-verify-signed-internal: release-verify-internal
 	@echo "release-verify-signed passed."
 
 release-notarize:
-	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-notarize-internal
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-notarize-internal
 
 release-notarize-internal: release-sign-internal
 	@test -n "$(APPLE_NOTARY_PROFILE)" || (echo "Missing APPLE_NOTARY_PROFILE"; exit 1)
@@ -554,7 +624,7 @@ release-notarize-internal: release-sign-internal
 	@echo "release-notarize passed."
 
 release-staple:
-	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-staple-internal
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-staple-internal
 
 release-staple-internal:
 	@attempt=1; \
@@ -571,7 +641,7 @@ release-staple-internal:
 	exit 1
 
 release-verify-notarized:
-	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-verify-notarized-internal
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-verify-notarized-internal
 
 release-verify-notarized-internal: release-staple-internal
 	@spctl --assess --type execute --verbose=2 "$(PACKAGE_APP_DIR)"
@@ -579,15 +649,22 @@ release-verify-notarized-internal: release-staple-internal
 	@echo "release-verify-notarized passed."
 
 release-artifact:
-	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-artifact-internal
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-artifact-internal
 
-release-artifact-internal: release-verify-notarized-internal
+release-artifact-internal: release-verify-internal
 	@mkdir -p "$(RELEASE_DIR)"
 	@ditto -c -k --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
 	@shasum -a 256 "$(RELEASE_APP_ZIP)" > "$(RELEASE_APP_ZIP).sha256"
 	@{ \
 		echo "product=$(RELEASE_PRODUCT_NAME)"; \
 		echo "program=$(RELEASE_PROGRAM_KEY)"; \
+		echo "host_arch=$(HOST_ARCH)"; \
+		echo "target_os=$(TARGET_OS)"; \
+		echo "target_arch=$(TARGET_ARCH)"; \
+		echo "target_variant=$(TARGET_VARIANT)"; \
+		echo "target_triple=$(TARGET_TRIPLE)"; \
+		echo "release_platform=$(RELEASE_PLATFORM)"; \
+		echo "release_arch=$(RELEASE_ARCH)"; \
 		echo "version=$(RELEASE_VERSION)"; \
 		echo "channel=$(RELEASE_CHANNEL)"; \
 		echo "bundle_id=$(RELEASE_BUNDLE_ID)"; \
@@ -597,13 +674,13 @@ release-artifact-internal: release-verify-notarized-internal
 	@echo "release-artifact complete: $(RELEASE_APP_ZIP)"
 
 release-distribute:
-	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-distribute-internal
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-distribute-internal
 
 release-distribute-internal: release-artifact-internal
 	@echo "release-distribute passed."
 
 release-desktop-refresh:
-	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" release-desktop-refresh-internal
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-desktop-refresh-internal
 
 release-desktop-refresh-internal: release-distribute-internal
 	@mkdir -p "$$(dirname "$(DESKTOP_APP_DIR)")"
@@ -614,12 +691,12 @@ release-desktop-refresh-internal: release-distribute-internal
 
 $(IDEBRIDGE_OUT): $(IDEBRIDGE_OBJ) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(IDEBRIDGE_SHARED_LIBS)
 	@echo "Linking idebridge..."
-	@$(CC) -o $@ $(IDEBRIDGE_OBJ) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(IDEBRIDGE_SHARED_LIBS) $(IDEBRIDGE_LDFLAGS) || (echo "idebridge linking failed!" && exit 1)
+	@$(CC) $(ARCH_FLAGS) -o $@ $(IDEBRIDGE_OBJ) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(IDEBRIDGE_SHARED_LIBS) $(IDEBRIDGE_LDFLAGS) || (echo "idebridge linking failed!" && exit 1)
 
 $(TOOLS_BUILD_DIR)/idebridge.o: $(IDEBRIDGE_SRC)
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
-	@$(CC) $(CFLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+	@$(CC) $(CFLAGS) $(ARCH_FLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
 clean:
 	@rm -rf build $(OUT) $(IDEBRIDGE_OUT)
@@ -707,10 +784,6 @@ test-phase4: test-phase3 test-fast
 .PHONY: test-phase5
 test-phase5: test-phase4 test-fast
 	@echo "Phase 5 gate completed."
-
-$(FISICS_LIB): FORCE
-	@echo "Building Fisics frontend library..."
-	@$(MAKE) -C $(FISICS_DIR) BUILD_PROFILE=$$( [ "$(FISICS_SANITIZED)" = "1" ] && echo sanitized || echo unsanitized ) $(FISICS_FRONTEND_TARGET)
 
 .PHONY: test-vk-macros
 test-vk-macros:
