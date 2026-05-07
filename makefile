@@ -42,6 +42,7 @@
   CORE_IO_DIR := $(SHARED_ROOT)/core/core_io
   CORE_DATA_DIR := $(SHARED_ROOT)/core/core_data
   CORE_PACK_DIR := $(SHARED_ROOT)/core/core_pack
+  CORE_PANE_DIR := $(SHARED_ROOT)/core/core_pane
   CORE_THEME_DIR := $(SHARED_ROOT)/core/core_theme
   CORE_FONT_DIR := $(SHARED_ROOT)/core/core_font
   CORE_TIME_DIR := $(SHARED_ROOT)/core/core_time
@@ -51,7 +52,9 @@
   CORE_WORKERS_DIR := $(SHARED_ROOT)/core/core_workers
   CORE_WAKE_DIR := $(SHARED_ROOT)/core/core_wake
   CORE_KERNEL_DIR := $(SHARED_ROOT)/core/core_kernel
-  INC_DIRS := -I./src -I./include -I$(VK_RENDERER_DIR)/include -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_DATA_DIR)/include -I$(CORE_PACK_DIR)/include -I$(CORE_THEME_DIR)/include -I$(CORE_FONT_DIR)/include -I$(CORE_TIME_DIR)/include -I$(CORE_QUEUE_DIR)/include -I$(CORE_SCHED_DIR)/include -I$(CORE_JOBS_DIR)/include -I$(CORE_WORKERS_DIR)/include -I$(CORE_WAKE_DIR)/include -I$(CORE_KERNEL_DIR)/include
+  KIT_RENDER_DIR := $(SHARED_ROOT)/kit/kit_render
+  KIT_WORKSPACE_AUTHORING_DIR := $(SHARED_ROOT)/kit/kit_workspace_authoring
+  INC_DIRS := -I./src -I./include -I$(VK_RENDERER_DIR)/include -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_DATA_DIR)/include -I$(CORE_PACK_DIR)/include -I$(CORE_PANE_DIR)/include -I$(CORE_THEME_DIR)/include -I$(CORE_FONT_DIR)/include -I$(CORE_TIME_DIR)/include -I$(CORE_QUEUE_DIR)/include -I$(CORE_SCHED_DIR)/include -I$(CORE_JOBS_DIR)/include -I$(CORE_WORKERS_DIR)/include -I$(CORE_WAKE_DIR)/include -I$(CORE_KERNEL_DIR)/include -I$(KIT_RENDER_DIR)/include -I$(KIT_WORKSPACE_AUTHORING_DIR)/include
   LIB_DIRS :=
 
   ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/include),)
@@ -191,6 +194,7 @@
   CORE_IO_LIB_SRC := $(CORE_IO_DIR)/build/libcore_io.a
   CORE_DATA_LIB_SRC := $(CORE_DATA_DIR)/build/libcore_data.a
   CORE_PACK_LIB_SRC := $(CORE_PACK_DIR)/build/libcore_pack.a
+  CORE_PANE_LIB_SRC := $(CORE_PANE_DIR)/build/libcore_pane.a
   CORE_THEME_LIB_SRC := $(CORE_THEME_DIR)/build/libcore_theme.a
   CORE_FONT_LIB_SRC := $(CORE_FONT_DIR)/build/libcore_font.a
   CORE_TIME_LIB_SRC := $(CORE_TIME_DIR)/build/libcore_time.a
@@ -200,12 +204,15 @@
   CORE_WORKERS_LIB_SRC := $(CORE_WORKERS_DIR)/build/libcore_workers.a
   CORE_WAKE_LIB_SRC := $(CORE_WAKE_DIR)/build/libcore_wake.a
   CORE_KERNEL_LIB_SRC := $(CORE_KERNEL_DIR)/build/libcore_kernel.a
+  KIT_RENDER_LIB_SRC := $(KIT_RENDER_DIR)/build/vk/libkit_render.a
+  KIT_WORKSPACE_AUTHORING_LIB_SRC := $(KIT_WORKSPACE_AUTHORING_DIR)/build/libkit_workspace_authoring.a
   VK_RENDERER_LIB_SRC := $(VK_RENDERER_DIR)/build/lib/libvkrenderer.a
 
   CORE_BASE_LIB := $(SHARED_BUILD_DIR)/libcore_base.a
   CORE_IO_LIB := $(SHARED_BUILD_DIR)/libcore_io.a
   CORE_DATA_LIB := $(SHARED_BUILD_DIR)/libcore_data.a
   CORE_PACK_LIB := $(SHARED_BUILD_DIR)/libcore_pack.a
+  CORE_PANE_LIB := $(SHARED_BUILD_DIR)/libcore_pane.a
   CORE_THEME_LIB := $(SHARED_BUILD_DIR)/libcore_theme.a
   CORE_FONT_LIB := $(SHARED_BUILD_DIR)/libcore_font.a
   CORE_TIME_LIB := $(SHARED_BUILD_DIR)/libcore_time.a
@@ -215,9 +222,11 @@
   CORE_WORKERS_LIB := $(SHARED_BUILD_DIR)/libcore_workers.a
   CORE_WAKE_LIB := $(SHARED_BUILD_DIR)/libcore_wake.a
   CORE_KERNEL_LIB := $(SHARED_BUILD_DIR)/libcore_kernel.a
+  KIT_RENDER_LIB := $(SHARED_BUILD_DIR)/libkit_render.a
+  KIT_WORKSPACE_AUTHORING_LIB := $(SHARED_BUILD_DIR)/libkit_workspace_authoring.a
   VK_RENDERER_LIB := $(SHARED_BUILD_DIR)/libvkrenderer.a
 
-  IDE_SHARED_LIBS := $(VK_RENDERER_LIB) $(CORE_KERNEL_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_JOBS_LIB) $(CORE_SCHED_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
+  IDE_SHARED_LIBS := $(KIT_WORKSPACE_AUTHORING_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(CORE_KERNEL_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_JOBS_LIB) $(CORE_SCHED_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) $(CORE_PACK_LIB) $(CORE_PANE_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
   IDEBRIDGE_SHARED_LIBS := $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 
   OUT = $(APP_BIN_DIR)/ide
@@ -330,6 +339,7 @@ $(eval $(call build_copy_static_lib,CORE_BASE,))
 $(eval $(call build_copy_static_lib,CORE_IO,))
 $(eval $(call build_copy_static_lib,CORE_DATA,))
 $(eval $(call build_copy_static_lib,CORE_PACK,))
+$(eval $(call build_copy_static_lib,CORE_PANE,))
 $(eval $(call build_copy_static_lib,CORE_THEME,))
 $(eval $(call build_copy_static_lib,CORE_FONT,))
 $(eval $(call build_copy_static_lib,CORE_TIME,))
@@ -339,6 +349,8 @@ $(eval $(call build_copy_static_lib,CORE_JOBS,))
 $(eval $(call build_copy_static_lib,CORE_WORKERS,))
 $(eval $(call build_copy_static_lib,CORE_WAKE,))
 $(eval $(call build_copy_static_lib,CORE_KERNEL,))
+$(eval $(call build_copy_static_lib,KIT_RENDER,KIT_RENDER_ENABLE_VK=1))
+$(eval $(call build_copy_static_lib,KIT_WORKSPACE_AUTHORING,))
 $(eval $(call build_copy_static_lib,VK_RENDERER,))
 
 $(FISICS_LIB): FORCE | $(SHARED_BUILD_DIR)

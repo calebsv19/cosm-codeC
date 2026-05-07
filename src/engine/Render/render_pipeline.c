@@ -3,6 +3,7 @@
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"
 #include "engine/Render/render_font.h"
+#include "engine/Render/workspace_authoring_overlay.h"
 
 #include "ide/Panes/MenuBar/render_menu_bar.h"
 #include "ide/Panes/Editor/Render/render_editor.h"
@@ -529,6 +530,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     }
 
     render_hovered_pane_overlay(core);
+    ide_workspace_authoring_overlay_render(core, panes, paneCount, winW, winH);
 
 #if USE_VULKAN && VK_RENDERER_FRAME_DEBUG_ENABLED
     if (s_debug_frame_counter < 120 && ctx && ctx->renderer) {

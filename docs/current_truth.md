@@ -1,6 +1,6 @@
 # ide Current Truth
 
-Last updated: 2026-05-04
+Last updated: 2026-05-07
 
 ## Program Identity
 - Repository/program directory: `ide`
@@ -13,6 +13,11 @@ Last updated: 2026-05-04
 - Data-path contract is complete with workspace-root-first policy and startup fallback handling.
 - Wrapper wave lanes are complete through `W3` with typed runtime-loop adapter + diagnostics hardening.
 - Intel macOS `x86_64` desktop packaging is complete under the shared target-contract flow.
+- Workspace Authoring first host attach is active:
+  - `Alt+C` then `Alt+V` enters/cancels authoring through `kit_workspace_authoring`
+  - normal runtime does not show authoring HUD/reminder text
+  - pane overlay is implemented for first visual testing
+  - full Font/Theme overlay and accepted-only persistence remain pending follow-up slices
 - Public release version is now `0.2.0`.
 
 ## Structure

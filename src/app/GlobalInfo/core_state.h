@@ -9,6 +9,7 @@
 #include "ide/UI/layout_config.h"
 
 #include "core/InputManager/UserInput/rename_flow.h"
+#include "app/GlobalInfo/workspace_authoring_host.h"
 
 
 struct EditorView;
@@ -75,6 +76,7 @@ typedef struct IDECoreState {
     bool popupPaneActive;
     bool timerHudEnabled;
     IDETimerHUDStartupMode timerHudStartupMode;
+    IDEWorkspaceAuthoringHost workspaceAuthoring;
 
     // Modular subsystems
     UIState ui;

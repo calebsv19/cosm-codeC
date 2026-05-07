@@ -52,6 +52,7 @@
 #include "core/LoopKernel/mainthread_kernel.h"
 #include "core/LoopTime/loop_time.h"
 #include "app/GlobalInfo/workspace_prefs.h"
+#include "app/GlobalInfo/workspace_authoring_host.h"
 #include "core/Ipc/ide_ipc_server.h"
 
 
@@ -515,6 +516,12 @@ static bool process_single_input_event(FrameContext* ctx,
     if (debugKeyLog && e.type == SDL_KEYDOWN) {
         SDL_Keycode key = e.key.keysym.sym;
         printf("KEYDOWN: %s (%d)\n", SDL_GetKeyName(key), key);
+    }
+
+    if (core &&
+        ide_workspace_authoring_host_handle_sdl_event(&core->workspaceAuthoring, &e, false)) {
+        requestFullRedraw(RENDER_INVALIDATION_OVERLAY | RENDER_INVALIDATION_INPUT);
+        return true;
     }
 
     *ctx->event = e;

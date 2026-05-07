@@ -70,6 +70,7 @@ void initCoreState(void) {
     coreState.invalidationReasons = RENDER_INVALIDATION_LAYOUT;
     coreState.frameCounter = 0;
     coreState.timerHudStartupMode = IDE_TIMER_HUD_STARTUP_AUTO;
+    ide_workspace_authoring_host_reset(&coreState.workspaceAuthoring);
     memset(coreState.invalidationReasonCounts, 0, sizeof(coreState.invalidationReasonCounts));
 
     memset(&coreState.projectDrag, 0, sizeof(ProjectDragState));
