@@ -1,0 +1,2 @@
+OUT = $(APP_BIN_DIR)/ide
+IDEBRIDGE_OUT = $(TOOLS_BUILD_DIR)/idebridge

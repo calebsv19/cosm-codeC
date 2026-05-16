@@ -1,0 +1,21 @@
+IDEBRIDGE_SRC := tools/idebridge/idebridge.c
+IDEBRIDGE_OBJ := $(TOOLS_BUILD_DIR)/idebridge.o
+IDEBRIDGE_DEP_FILE := $(IDEBRIDGE_OBJ:.o=.d)
+DIAG_PACK_EXPORT_OBJ := $(HOST_OBJ_DIR)/idebridge_support/core/Diagnostics/diagnostics_pack_export.o
+DIAG_DATA_EXPORT_OBJ := $(HOST_OBJ_DIR)/idebridge_support/core/Diagnostics/diagnostics_core_data_export.o
+IDEBRIDGE_LDFLAGS := $(LIB_DIRS) -ljson-c
+VK_MACRO_TEST_OBJ := $(TEST_BUILD_DIR)/vk_renderer_macro_check.o
+IDEBRIDGE_PHASE1_TEST_OUT := $(TEST_BUILD_DIR)/idebridge_phase1_check
+IDEBRIDGE_PHASE2_TEST_OUT := $(TEST_BUILD_DIR)/idebridge_phase2_check
+IDEBRIDGE_PHASE3_TEST_OUT := $(TEST_BUILD_DIR)/idebridge_phase3_check
+IDEBRIDGE_PHASE4_TEST_OUT := $(TEST_BUILD_DIR)/idebridge_phase4_check
+IDEBRIDGE_PHASE5_TEST_OUT := $(TEST_BUILD_DIR)/idebridge_phase5_check
+IDEBRIDGE_PHASE6_TEST_OUT := $(TEST_BUILD_DIR)/idebridge_phase6_check
+RUNTIME_PATHS_TEST_OUT := $(TEST_BUILD_DIR)/runtime_paths_resolution_test
+RUNTIME_STARTUP_DEFAULTS_TEST_OUT := $(TEST_BUILD_DIR)/runtime_startup_defaults_test
+TEST_IDEBRIDGE_STABLE_TARGETS := test-idebridge-phase1 test-idebridge-phase6
+TEST_IDEBRIDGE_LEGACY_TARGETS := test-idebridge-phase2 test-idebridge-phase3 test-idebridge-phase4 test-idebridge-phase5
+TEST_IDEBRIDGE_ALL_TARGETS := $(TEST_IDEBRIDGE_STABLE_TARGETS) $(TEST_IDEBRIDGE_LEGACY_TARGETS)
+TEST_SMOKE_TARGETS := test-vk-macros test-shared-theme-font-adapter test-runtime-paths-resolution test-runtime-startup-defaults test-completed-results-queue test-analysis-scheduler-coalescing test-editor-edit-transaction-debounce test-loop-events-queue test-loop-events-emission-contract test-loop-events-invalidation-policy test-loop-events-dispatch-integration test-fisics-bridge-events-regression test-analysis-store-stamp-regression test-analysis-runtime-events-startup-regression test-analysis-store-published-stamp-regression test-library-index-stamp-regression test-idle-efficiency-sanity test-diagnostics-pipeline-integration test-mainthread-context-scope-regression test-loop-diag-config-regression
+TEST_EXTENDED_TARGETS := test-idebridge-diag-pack-export test-idebridge-diag-core-data-export
+DEP_FILES := $(APP_DEP_FILES) $(TIMER_HUD_DEP_FILES) $(IDEBRIDGE_SUPPORT_DEP_FILES) $(IDEBRIDGE_DEP_FILE)
