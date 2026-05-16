@@ -1,6 +1,23 @@
 #include "app/GlobalInfo/workspace_authoring_host.h"
 
+#include <stdlib.h>
 #include <string.h>
+
+#include "app/GlobalInfo/core_state.h"
+#include "app/GlobalInfo/workspace_prefs.h"
+#include "engine/Render/render_font.h"
+#include "engine/Render/render_helpers.h"
+#include "ide/Panes/Terminal/terminal.h"
+#include "ide/UI/layout.h"
+#include "ide/UI/shared_theme_font_adapter.h"
+
+static void authoring_refresh_after_font_theme_change(uint32_t reason_bits) {
+    render_text_cache_shutdown();
+    (void)reloadFontSystem();
+    terminal_notify_font_metrics_changed();
+    ide_refresh_live_theme();
+    requestFullRedraw(reason_bits);
+}
 
 static void authoring_set_status(IDEWorkspaceAuthoringHost *host, const char *status) {
     if (!host) return;
@@ -63,14 +80,39 @@ static void authoring_enter(IDEWorkspaceAuthoringHost *host) {
         host->active = 1u;
         host->overlay_mode = IDE_WORKSPACE_AUTHORING_OVERLAY_PANES;
         host->enter_count += 1u;
+        host->baseline_font_zoom_step = ide_shared_font_zoom_step();
+        if (!ide_shared_theme_current_preset(host->baseline_theme_preset,
+                                             sizeof(host->baseline_theme_preset))) {
+            host->baseline_theme_preset[0] = '\0';
+        }
+        if (!ide_shared_font_current_preset(host->baseline_font_preset,
+                                            sizeof(host->baseline_font_preset))) {
+            host->baseline_font_preset[0] = '\0';
+        }
     }
     host->last_event_entered = 1u;
     authoring_set_status(host, "Authoring active.");
 }
 
 static void authoring_apply(IDEWorkspaceAuthoringHost *host) {
+    char theme_preset[64] = {0};
+    char font_preset[64] = {0};
+    char zoom_step_buf[16];
+    int zoom_step;
+
     if (!host) return;
     if (host->active) {
+        zoom_step = ide_shared_font_zoom_step();
+        if (ide_shared_theme_current_preset(theme_preset, sizeof(theme_preset))) {
+            saveThemePresetPreference(theme_preset);
+        }
+        if (ide_shared_font_current_preset(font_preset, sizeof(font_preset))) {
+            saveFontPresetPreference(font_preset);
+        }
+        saveFontZoomStepPreference(zoom_step);
+        snprintf(zoom_step_buf, sizeof(zoom_step_buf), "%d", zoom_step);
+        setenv("IDE_FONT_ZOOM_STEP", zoom_step_buf, 1);
+
         host->active = 0u;
         host->apply_count += 1u;
         host->last_event_accepted = 1u;
@@ -86,6 +128,18 @@ static void authoring_apply(IDEWorkspaceAuthoringHost *host) {
 static void authoring_cancel(IDEWorkspaceAuthoringHost *host) {
     if (!host) return;
     if (host->active) {
+        if (host->baseline_theme_preset[0]) {
+            (void)ide_shared_theme_set_preset(host->baseline_theme_preset);
+        }
+        if (host->baseline_font_preset[0]) {
+            (void)ide_shared_font_set_preset(host->baseline_font_preset);
+        }
+        (void)ide_shared_font_set_zoom_step(host->baseline_font_zoom_step);
+        authoring_refresh_after_font_theme_change(RENDER_INVALIDATION_THEME |
+                                                  RENDER_INVALIDATION_LAYOUT |
+                                                  RENDER_INVALIDATION_RESIZE |
+                                                  RENDER_INVALIDATION_CONTENT |
+                                                  RENDER_INVALIDATION_BACKGROUND);
         host->active = 0u;
         host->cancel_count += 1u;
         host->last_event_canceled = 1u;
@@ -107,7 +161,7 @@ static void authoring_cycle_overlay(IDEWorkspaceAuthoringHost *host) {
     authoring_set_status(host,
                          host->overlay_mode == IDE_WORKSPACE_AUTHORING_OVERLAY_PANES
                              ? "Pane authoring overlay."
-                             : "Font/Theme overlay pending S3.");
+                             : "Font/Theme overlay.");
 }
 
 void ide_workspace_authoring_host_reset(IDEWorkspaceAuthoringHost *host) {
@@ -164,6 +218,74 @@ bool ide_workspace_authoring_host_apply_overlay_button(
     }
 }
 
+static bool authoring_apply_font_theme_action(IDEWorkspaceAuthoringHost *host,
+                                              KitWorkspaceAuthoringFontThemeButtonId button_id) {
+    KitWorkspaceAuthoringFontThemeAction action;
+    const char *preset_name;
+    char status[160];
+    bool changed = false;
+
+    if (!host || !host->active ||
+        button_id == KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_NONE ||
+        !kit_workspace_authoring_ui_font_theme_button_enabled(button_id)) {
+        return false;
+    }
+
+    action = kit_workspace_authoring_ui_font_theme_action_for_button(button_id);
+    switch (action.type) {
+        case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_TEXT_SIZE_DEC:
+            changed = ide_shared_font_step_by(-1);
+            snprintf(status, sizeof(status), "Text size step: %d.", ide_shared_font_zoom_step());
+            authoring_set_status(host, status);
+            break;
+        case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_TEXT_SIZE_INC:
+            changed = ide_shared_font_step_by(1);
+            snprintf(status, sizeof(status), "Text size step: %d.", ide_shared_font_zoom_step());
+            authoring_set_status(host, status);
+            break;
+        case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_TEXT_SIZE_RESET:
+            changed = ide_shared_font_reset_zoom_step();
+            authoring_set_status(host, "Text size reset.");
+            break;
+        case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_SET_FONT_PRESET:
+            preset_name = core_font_preset_name(action.font_preset_id);
+            if (preset_name && ide_shared_font_set_preset(preset_name)) {
+                changed = true;
+                snprintf(status, sizeof(status), "Font preset: %s.", preset_name);
+                authoring_set_status(host, status);
+            }
+            break;
+        case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_SET_THEME_PRESET:
+            preset_name = core_theme_preset_name(action.theme_preset_id);
+            if (preset_name && ide_shared_theme_set_preset(preset_name)) {
+                changed = true;
+                snprintf(status, sizeof(status), "Theme preset: %s.", preset_name);
+                authoring_set_status(host, status);
+            }
+            break;
+        case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_CUSTOM_THEME_STATUS:
+            authoring_set_status(host,
+                                 action.custom_status_text ? action.custom_status_text
+                                                           : "Custom theme action pending.");
+            break;
+        case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_NONE:
+        default:
+            return false;
+    }
+
+    host->font_theme_action_count += 1u;
+    if (changed) {
+        authoring_refresh_after_font_theme_change(RENDER_INVALIDATION_THEME |
+                                                  RENDER_INVALIDATION_LAYOUT |
+                                                  RENDER_INVALIDATION_RESIZE |
+                                                  RENDER_INVALIDATION_CONTENT |
+                                                  RENDER_INVALIDATION_BACKGROUND);
+    } else {
+        requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
+    }
+    return true;
+}
+
 static bool authoring_handle_overlay_click(IDEWorkspaceAuthoringHost *host, int x, int y) {
     KitWorkspaceAuthoringOverlayButton buttons[4];
     uint32_t count = 0u;
@@ -178,6 +300,39 @@ static bool authoring_handle_overlay_click(IDEWorkspaceAuthoringHost *host, int 
         (uint32_t)(sizeof(buttons) / sizeof(buttons[0])));
     hit = kit_workspace_authoring_ui_overlay_hit_test(buttons, count, (float)x, (float)y);
     return ide_workspace_authoring_host_apply_overlay_button(host, hit);
+}
+
+static bool authoring_handle_font_theme_click(IDEWorkspaceAuthoringHost *host, int x, int y) {
+    KitRenderContext kit_ctx;
+    KitWorkspaceAuthoringFontThemeLayout layout;
+    KitWorkspaceAuthoringFontThemeButtonId button_id;
+    CoreResult result;
+
+    if (!host || !host->active || host->viewport_width == 0u || host->viewport_height == 0u ||
+        host->overlay_mode != IDE_WORKSPACE_AUTHORING_OVERLAY_FONT_THEME) {
+        return false;
+    }
+
+    memset(&kit_ctx, 0, sizeof(kit_ctx));
+    result = kit_render_context_init(&kit_ctx,
+                                     KIT_RENDER_BACKEND_NULL,
+                                     CORE_THEME_PRESET_IDE_GRAY,
+                                     CORE_FONT_PRESET_IDE);
+    if (result.code == CORE_OK) {
+        (void)kit_render_set_text_zoom_step(&kit_ctx, ide_shared_font_zoom_step());
+    }
+
+    if (!kit_workspace_authoring_ui_font_theme_build_layout(result.code == CORE_OK ? &kit_ctx : NULL,
+                                                           (int)host->viewport_width,
+                                                           (int)host->viewport_height,
+                                                           &layout)) {
+        if (result.code == CORE_OK) kit_render_context_shutdown(&kit_ctx);
+        return false;
+    }
+
+    button_id = kit_workspace_authoring_ui_font_theme_hit_button(&layout, (float)x, (float)y);
+    if (result.code == CORE_OK) kit_render_context_shutdown(&kit_ctx);
+    return authoring_apply_font_theme_action(host, button_id);
 }
 
 bool ide_workspace_authoring_host_handle_sdl_event(IDEWorkspaceAuthoringHost *host,
@@ -202,6 +357,14 @@ bool ide_workspace_authoring_host_handle_sdl_event(IDEWorkspaceAuthoringHost *ho
         event->type == SDL_MOUSEBUTTONDOWN &&
         event->button.button == SDL_BUTTON_LEFT &&
         authoring_handle_overlay_click(host, event->button.x, event->button.y)) {
+        authoring_note_consumed(host, false);
+        return true;
+    }
+
+    if (host->active &&
+        event->type == SDL_MOUSEBUTTONDOWN &&
+        event->button.button == SDL_BUTTON_LEFT &&
+        authoring_handle_font_theme_click(host, event->button.x, event->button.y)) {
         authoring_note_consumed(host, false);
         return true;
     }

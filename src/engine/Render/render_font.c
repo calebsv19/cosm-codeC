@@ -265,6 +265,10 @@ bool initFontSystem() {
     return true;
 }
 
+bool reloadFontSystem() {
+    return initFontSystem();
+}
+
 void shutdownFontSystem() {
     clear_raster_font_cache();
     clear_font_sources();

@@ -1,6 +1,7 @@
 #include "engine/Render/workspace_authoring_overlay.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include <SDL2/SDL.h>
 
@@ -11,6 +12,17 @@
 #include "engine/Render/render_pipeline.h"
 #include "ide/Panes/PaneInfo/pane.h"
 #include "ide/UI/shared_theme_font_adapter.h"
+
+static SDL_Rect authoring_sdl_kit_rect(KitRenderRect rect) {
+    SDL_Rect out;
+    out.x = (int)rect.x;
+    out.y = (int)rect.y;
+    out.w = (int)rect.width;
+    out.h = (int)rect.height;
+    if (out.w < 0) out.w = 0;
+    if (out.h < 0) out.h = 0;
+    return out;
+}
 
 static SDL_Rect authoring_sdl_rect(CorePaneRect rect) {
     SDL_Rect out;
@@ -42,6 +54,18 @@ static const char *authoring_pane_role_label(UIPaneRole role) {
     }
 }
 
+static void authoring_draw_text_tier(SDL_Renderer *renderer,
+                                     int x,
+                                     int y,
+                                     SDL_Color color,
+                                     CoreFontTextSizeTier tier,
+                                     const char *text) {
+    TTF_Font *font = getUIFontByTier(tier);
+    (void)renderer;
+    if (!font) font = getActiveFont();
+    drawTextUTF8WithFontColor(x, y, text ? text : "", font, color, false);
+}
+
 static void authoring_draw_text(SDL_Renderer *renderer,
                                 int x,
                                 int y,
@@ -51,6 +75,75 @@ static void authoring_draw_text(SDL_Renderer *renderer,
     (void)renderer;
     if (!font) font = getActiveFont();
     drawTextUTF8WithFontColor(x, y, text ? text : "", font, color, false);
+}
+
+static void authoring_draw_section(SDL_Renderer *renderer,
+                                   const IDEThemePalette *palette,
+                                   KitRenderRect kit_rect,
+                                   const char *title,
+                                   const char *detail) {
+    SDL_Rect rect;
+    if (!renderer || !palette) return;
+    rect = authoring_sdl_kit_rect(kit_rect);
+    SDL_SetRenderDrawColor(renderer,
+                           palette->pane_body_fill.r,
+                           palette->pane_body_fill.g,
+                           palette->pane_body_fill.b,
+                           245);
+    SDL_RenderFillRect(renderer, &rect);
+    SDL_SetRenderDrawColor(renderer,
+                           palette->pane_border.r,
+                           palette->pane_border.g,
+                           palette->pane_border.b,
+                           210);
+    SDL_RenderDrawRect(renderer, &rect);
+    authoring_draw_text_tier(renderer,
+                             rect.x + 12,
+                             rect.y + 10,
+                             palette->text_primary,
+                             CORE_FONT_TEXT_SIZE_BASIC,
+                             title);
+    if (detail && detail[0]) {
+        authoring_draw_text(renderer, rect.x + 12, rect.y + 34, palette->text_muted, detail);
+    }
+}
+
+static void authoring_draw_font_theme_button(SDL_Renderer *renderer,
+                                             const IDEThemePalette *palette,
+                                             KitRenderRect kit_rect,
+                                             const char *label,
+                                             bool enabled,
+                                             bool active) {
+    SDL_Rect rect;
+    SDL_Color fill;
+    SDL_Color border;
+    SDL_Color text;
+
+    if (!renderer || !palette) return;
+    rect = authoring_sdl_kit_rect(kit_rect);
+    fill = active ? palette->button_fill_active : palette->button_fill;
+    border = active ? palette->input_focus_border : palette->button_border;
+    text = enabled ? palette->text_primary : authoring_alpha(palette->text_muted, 150u);
+    if (!enabled) {
+        fill = authoring_alpha(fill, 120u);
+        border = authoring_alpha(border, 120u);
+    }
+    if (active) {
+        fill = authoring_alpha(palette->accent_primary, 210u);
+        text = palette->app_background;
+    }
+    SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
+    SDL_RenderFillRect(renderer, &rect);
+    SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, border.a);
+    SDL_RenderDrawRect(renderer, &rect);
+    authoring_draw_text(renderer, rect.x + 8, rect.y + 4, text, label);
+}
+
+static int authoring_zoom_percent(void) {
+    int pct = 100 + (ide_shared_font_zoom_step() * 10);
+    if (pct < 60) pct = 60;
+    if (pct > 180) pct = 180;
+    return pct;
 }
 
 static void authoring_draw_button(SDL_Renderer *renderer,
@@ -78,7 +171,6 @@ static void authoring_draw_button(SDL_Renderer *renderer,
         fill = authoring_alpha(palette->accent_warning, 224u);
     }
 
-    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
     SDL_RenderFillRect(renderer, &rect);
     SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, border.a);
@@ -124,7 +216,6 @@ static void authoring_draw_pane_readout(SDL_Renderer *renderer,
         rect.y = pane->y;
         rect.w = pane->w;
         rect.h = pane->h;
-        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer,
                                palette->accent_primary.r,
                                palette->accent_primary.g,
@@ -165,48 +256,185 @@ static void authoring_draw_pane_readout(SDL_Renderer *renderer,
     }
 }
 
-static void authoring_draw_font_theme_placeholder(SDL_Renderer *renderer,
-                                                  IDEWorkspaceAuthoringHost *host,
-                                                  const IDEThemePalette *palette,
-                                                  int viewport_width,
-                                                  int viewport_height) {
+static bool authoring_build_font_theme_layout(int viewport_width,
+                                              int viewport_height,
+                                              KitWorkspaceAuthoringFontThemeLayout *out_layout) {
+    KitRenderContext kit_ctx;
+    CoreResult result;
+
+    if (!out_layout) return false;
+    memset(&kit_ctx, 0, sizeof(kit_ctx));
+    result = kit_render_context_init(&kit_ctx,
+                                     KIT_RENDER_BACKEND_NULL,
+                                     CORE_THEME_PRESET_IDE_GRAY,
+                                     CORE_FONT_PRESET_IDE);
+    if (result.code == CORE_OK) {
+        (void)kit_render_set_text_zoom_step(&kit_ctx, ide_shared_font_zoom_step());
+    }
+    if (!kit_workspace_authoring_ui_font_theme_build_layout(result.code == CORE_OK ? &kit_ctx : NULL,
+                                                           viewport_width,
+                                                           viewport_height,
+                                                           out_layout)) {
+        if (result.code == CORE_OK) kit_render_context_shutdown(&kit_ctx);
+        return false;
+    }
+    if (result.code == CORE_OK) kit_render_context_shutdown(&kit_ctx);
+    return true;
+}
+
+static void authoring_draw_font_theme_overlay(SDL_Renderer *renderer,
+                                              IDEWorkspaceAuthoringHost *host,
+                                              const IDEThemePalette *palette,
+                                              int viewport_width,
+                                              int viewport_height) {
+    KitWorkspaceAuthoringFontThemeLayout layout;
+    SDL_Rect screen;
     SDL_Rect panel;
-    char detail[192];
+    char font_detail[160];
+    char size_detail[160];
+    char theme_detail[160];
+    char custom_detail[160];
+    char current_font[64] = "ide";
+    char current_theme[64] = "studio_blue";
+    char chip_label[48];
+    uint32_t i;
 
     if (!renderer || !host || !palette) return;
-    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer,
                            palette->app_background.r,
                            palette->app_background.g,
                            palette->app_background.b,
                            238);
-    SDL_Rect screen = {0, 0, viewport_width, viewport_height};
+    screen = (SDL_Rect){0, 0, viewport_width, viewport_height};
     SDL_RenderFillRect(renderer, &screen);
 
-    panel.x = viewport_width / 12;
-    panel.y = viewport_height / 10;
-    panel.w = viewport_width - (panel.x * 2);
-    panel.h = viewport_height / 3;
+    if (!authoring_build_font_theme_layout(viewport_width, viewport_height, &layout)) {
+        authoring_draw_text(renderer, 24, 72, palette->text_primary, "Font/Theme layout unavailable.");
+        return;
+    }
+
+    (void)ide_shared_font_current_preset(current_font, sizeof(current_font));
+    (void)ide_shared_theme_current_preset(current_theme, sizeof(current_theme));
+    snprintf(font_detail, sizeof(font_detail), "Current font preset: %s", current_font);
+    snprintf(size_detail,
+             sizeof(size_detail),
+             "Text Size step:%+d (%d%%)",
+             ide_shared_font_zoom_step(),
+             authoring_zoom_percent());
+    snprintf(theme_detail, sizeof(theme_detail), "Current theme preset: %s", current_theme);
+    snprintf(custom_detail,
+             sizeof(custom_detail),
+             "%s",
+             "Custom theme slots stay stubbed until the theme editor lane is promoted.");
+    snprintf(chip_label,
+             sizeof(chip_label),
+             "%+d",
+             ide_shared_font_zoom_step());
+
+    panel = authoring_sdl_kit_rect(layout.panel);
     SDL_SetRenderDrawColor(renderer,
-                           palette->pane_body_fill.r,
-                           palette->pane_body_fill.g,
-                           palette->pane_body_fill.b,
+                           palette->modal_fill.r,
+                           palette->modal_fill.g,
+                           palette->modal_fill.b,
                            245);
     SDL_RenderFillRect(renderer, &panel);
     SDL_SetRenderDrawColor(renderer,
-                           palette->pane_border.r,
-                           palette->pane_border.g,
-                           palette->pane_border.b,
+                           palette->modal_border.r,
+                           palette->modal_border.g,
+                           palette->modal_border.b,
                            245);
     SDL_RenderDrawRect(renderer, &panel);
 
-    authoring_draw_text(renderer, panel.x + 18, panel.y + 18, palette->text_primary,
-                        "Font/Theme overlay pending IDEWA1-S3");
-    snprintf(detail,
-             sizeof(detail),
-             "Current text zoom step: %d. Theme/font preview will wire through the existing IDE shared adapter next.",
-             ide_shared_font_zoom_step());
-    authoring_draw_text(renderer, panel.x + 18, panel.y + 50, palette->text_muted, detail);
+    authoring_draw_text_tier(renderer,
+                             panel.x + 12,
+                             panel.y + 10,
+                             palette->text_primary,
+                             CORE_FONT_TEXT_SIZE_BASIC,
+                             "Font/Theme Overlay");
+
+    authoring_draw_section(renderer, palette, layout.font_preset_section, "Font Preset", font_detail);
+    authoring_draw_section(renderer, palette, layout.text_size_section, "Text Size", size_detail);
+    authoring_draw_section(renderer, palette, layout.theme_preset_section, "Theme Preset", theme_detail);
+    authoring_draw_section(renderer, palette, layout.custom_theme_section, "Custom Presets", custom_detail);
+
+    for (i = 0u; i < layout.font_preset_button_count &&
+                i < KIT_WORKSPACE_AUTHORING_FONT_THEME_FONT_PRESET_BUTTON_COUNT; ++i) {
+        KitWorkspaceAuthoringFontThemeButtonId button_id =
+            (KitWorkspaceAuthoringFontThemeButtonId)(
+                KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_FONT_PRESET_DAW_DEFAULT + i);
+        const char *label = kit_workspace_authoring_ui_font_theme_button_label(button_id);
+        authoring_draw_font_theme_button(
+            renderer,
+            palette,
+            layout.font_preset_buttons[i],
+            label,
+            kit_workspace_authoring_ui_font_theme_button_enabled(button_id) != 0u,
+            strcmp(label, current_font) == 0);
+    }
+
+    authoring_draw_font_theme_button(renderer,
+                                     palette,
+                                     layout.text_size_dec_button,
+                                     kit_workspace_authoring_ui_font_theme_button_label(
+                                         KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_TEXT_SIZE_DEC),
+                                     true,
+                                     false);
+    authoring_draw_font_theme_button(renderer,
+                                     palette,
+                                     layout.text_size_inc_button,
+                                     kit_workspace_authoring_ui_font_theme_button_label(
+                                         KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_TEXT_SIZE_INC),
+                                     true,
+                                     false);
+    authoring_draw_font_theme_button(renderer,
+                                     palette,
+                                     layout.text_size_value_chip,
+                                     chip_label,
+                                     false,
+                                     true);
+    authoring_draw_font_theme_button(renderer,
+                                     palette,
+                                     layout.text_size_reset_button,
+                                     kit_workspace_authoring_ui_font_theme_button_label(
+                                         KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_TEXT_SIZE_RESET),
+                                     true,
+                                     ide_shared_font_zoom_step() == 0);
+
+    for (i = 0u; i < layout.theme_preset_button_count &&
+                i < KIT_WORKSPACE_AUTHORING_FONT_THEME_THEME_PRESET_BUTTON_COUNT; ++i) {
+        KitWorkspaceAuthoringFontThemeButtonId button_id =
+            (KitWorkspaceAuthoringFontThemeButtonId)(
+                KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_THEME_PRESET_DAW_DEFAULT + i);
+        const char *label = kit_workspace_authoring_ui_font_theme_button_label(button_id);
+        authoring_draw_font_theme_button(
+            renderer,
+            palette,
+            layout.theme_preset_buttons[i],
+            label,
+            kit_workspace_authoring_ui_font_theme_button_enabled(button_id) != 0u,
+            strcmp(label, current_theme) == 0);
+    }
+
+    for (i = 0u; i < layout.custom_theme_button_count &&
+                i < KIT_WORKSPACE_AUTHORING_FONT_THEME_CUSTOM_THEME_BUTTON_COUNT; ++i) {
+        KitWorkspaceAuthoringFontThemeButtonId button_id =
+            (KitWorkspaceAuthoringFontThemeButtonId)(
+                KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_CUSTOM_THEME_CREATE_STUB + i);
+        authoring_draw_font_theme_button(renderer,
+                                         palette,
+                                         layout.custom_theme_buttons[i],
+                                         kit_workspace_authoring_ui_font_theme_button_label(button_id),
+                                         true,
+                                         false);
+    }
+
+    if (host->status_text[0]) {
+        authoring_draw_text(renderer,
+                            panel.x + 12,
+                            panel.y + panel.h - 22,
+                            palette->text_muted,
+                            host->status_text);
+    }
 }
 
 void ide_workspace_authoring_overlay_render(IDECoreState *core,
@@ -215,6 +443,7 @@ void ide_workspace_authoring_overlay_render(IDECoreState *core,
                                             int viewport_width,
                                             int viewport_height) {
     RenderContext *ctx = getRenderContext();
+    SDL_Renderer *renderer;
     IDEThemePalette palette;
 
     if (!core || !ide_workspace_authoring_host_active(&core->workspaceAuthoring) ||
@@ -228,18 +457,19 @@ void ide_workspace_authoring_overlay_render(IDECoreState *core,
     ide_workspace_authoring_host_set_viewport(&core->workspaceAuthoring,
                                               (uint32_t)viewport_width,
                                               (uint32_t)viewport_height);
-    authoring_draw_controls(ctx->renderer, &core->workspaceAuthoring, &palette, viewport_width);
+    renderer = (SDL_Renderer *)ctx->renderer;
+    authoring_draw_controls(renderer, &core->workspaceAuthoring, &palette, viewport_width);
     if (ide_workspace_authoring_host_pane_overlay_active(&core->workspaceAuthoring)) {
-        authoring_draw_pane_readout(ctx->renderer,
+        authoring_draw_pane_readout(renderer,
                                     &core->workspaceAuthoring,
                                     &palette,
                                     panes,
                                     pane_count);
     } else {
-        authoring_draw_font_theme_placeholder(ctx->renderer,
-                                              &core->workspaceAuthoring,
-                                              &palette,
-                                              viewport_width,
-                                              viewport_height);
+        authoring_draw_font_theme_overlay(renderer,
+                                          &core->workspaceAuthoring,
+                                          &palette,
+                                          viewport_width,
+                                          viewport_height);
     }
 }

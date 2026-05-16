@@ -21,6 +21,7 @@ typedef enum {
 
 // Font lifecycle
 bool initFontSystem();
+bool reloadFontSystem();
 void shutdownFontSystem();
 bool loadFontByID(FontID id);
 

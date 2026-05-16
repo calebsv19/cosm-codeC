@@ -13,11 +13,16 @@ Last updated: 2026-05-07
 - Data-path contract is complete with workspace-root-first policy and startup fallback handling.
 - Wrapper wave lanes are complete through `W3` with typed runtime-loop adapter + diagnostics hardening.
 - Intel macOS `x86_64` desktop packaging is complete under the shared target-contract flow.
-- Workspace Authoring first host attach is active:
+- Workspace Authoring first host attach is complete:
   - `Alt+C` then `Alt+V` enters/cancels authoring through `kit_workspace_authoring`
   - normal runtime does not show authoring HUD/reminder text
-  - pane overlay is implemented for first visual testing
-  - full Font/Theme overlay and accepted-only persistence remain pending follow-up slices
+  - active pane overlay uses shared overlay button geometry/hit testing with
+    IDE-owned pane labels
+  - shared full-screen Font/Theme overlay provides live theme, font-preset, and
+    text-size preview
+  - accepted-only persistence is active; `Apply` saves theme preset, font
+    preset, and text-size step, while cancel/toggle-off restores the entry
+    baseline without saving
 - Public release version is now `0.2.0`.
 
 ## Structure
@@ -65,6 +70,8 @@ Last updated: 2026-05-07
 ## Current Boundary
 - Preserve workspace-root contract and wrapper diagnostics stability while helper extraction and pane-centralization follow-ups continue.
 - Treat structural-upgrade scaffolding as historical/archived; the live work is maintenance plus subsystem improvement, not another scaffold migration phase.
+- Workspace Authoring is at host-attach parity; real pane/module mutation should
+  start a new plan rather than extending `IDEWA1`.
 
 ## History and Deep Lane References
 - Full phase/execution history is in:

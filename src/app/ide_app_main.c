@@ -631,6 +631,13 @@ int ide_app_main_legacy(int argc, char *argv[]) {
     fprintf(stderr,
             "[TimerHUD] IDE startup mode=%s (override with --timer-hud/--no-timer-hud or IDE_TIMER_HUD=1/0)\n",
             timer_hud_startup_mode_name(timer_hud_startup_mode));
+    {
+        const char *font_env = getenv("IDE_FONT_PRESET");
+        const char *persisted_font = loadFontPresetPreference();
+        if ((!font_env || !font_env[0]) && persisted_font && persisted_font[0]) {
+            setenv("IDE_FONT_PRESET", persisted_font, 1);
+        }
+    }
     ide_apply_runtime_startup_defaults();
     {
         const char *zoom_env = getenv("IDE_FONT_ZOOM_STEP");

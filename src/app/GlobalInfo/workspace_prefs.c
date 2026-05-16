@@ -12,6 +12,7 @@
 static char cachedWorkspacePath[PATH_MAX];
 static char cachedRunTargetPath[PATH_MAX];
 static char cachedThemePreset[128];
+static char cachedFontPreset[128];
 static int cachedFontZoomStep = 0;
 static int cachedFontZoomStepSet = 0;
 static WorkspaceBuildConfig cachedBuildConfig;
@@ -101,6 +102,7 @@ static int writeConfigContents(FILE* file) {
     rc &= fprintf(file, "workspace=%s\n", cachedWorkspacePath) >= 0;
     rc &= fprintf(file, "run_target=%s\n", cachedRunTargetPath) >= 0;
     rc &= fprintf(file, "theme_preset=%s\n", cachedThemePreset) >= 0;
+    rc &= fprintf(file, "font_preset=%s\n", cachedFontPreset) >= 0;
     rc &= fprintf(file, "font_zoom_step=%d\n", cachedFontZoomStepSet ? cachedFontZoomStep : 0) >= 0;
     rc &= fprintf(file, "build_command=%s\n", cachedBuildConfig.build_command) >= 0;
     rc &= fprintf(file, "build_args=%s\n", cachedBuildConfig.build_args) >= 0;
@@ -136,6 +138,7 @@ static void loadConfigFile(void) {
     cachedWorkspacePath[0] = '\0';
     cachedRunTargetPath[0] = '\0';
     cachedThemePreset[0] = '\0';
+    cachedFontPreset[0] = '\0';
     cachedFontZoomStep = 0;
     cachedFontZoomStepSet = 0;
     resetWorkspaceBuildConfigDefaults();
@@ -172,6 +175,9 @@ static void loadConfigFile(void) {
         } else if (strncmp(line, "theme_preset", keyLen) == 0) {
             strncpy(cachedThemePreset, value, sizeof(cachedThemePreset) - 1);
             cachedThemePreset[sizeof(cachedThemePreset) - 1] = '\0';
+        } else if (strncmp(line, "font_preset", keyLen) == 0) {
+            strncpy(cachedFontPreset, value, sizeof(cachedFontPreset) - 1);
+            cachedFontPreset[sizeof(cachedFontPreset) - 1] = '\0';
         } else if (strncmp(line, "font_zoom_step", keyLen) == 0) {
             char* end = NULL;
             long parsed = strtol(value, &end, 10);
@@ -311,6 +317,22 @@ void saveThemePresetPreference(const char* preset_name) {
         cachedThemePreset[sizeof(cachedThemePreset) - 1] = '\0';
     } else {
         cachedThemePreset[0] = '\0';
+    }
+    writeConfigFile();
+}
+
+const char* loadFontPresetPreference(void) {
+    loadConfigFile();
+    return (cachedFontPreset[0] != '\0') ? cachedFontPreset : NULL;
+}
+
+void saveFontPresetPreference(const char* preset_name) {
+    loadConfigFile();
+    if (preset_name && *preset_name) {
+        strncpy(cachedFontPreset, preset_name, sizeof(cachedFontPreset) - 1);
+        cachedFontPreset[sizeof(cachedFontPreset) - 1] = '\0';
+    } else {
+        cachedFontPreset[0] = '\0';
     }
     writeConfigFile();
 }

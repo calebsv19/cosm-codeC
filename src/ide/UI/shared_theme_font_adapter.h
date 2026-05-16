@@ -44,6 +44,8 @@ void ide_shared_theme_editor_border_colors(SDL_Color *out_hover,
                                            SDL_Color *out_active,
                                            SDL_Color *out_active_hover);
 int ide_shared_font_zoom_step(void);
+bool ide_shared_font_set_preset(const char *preset_name);
+bool ide_shared_font_current_preset(char *out_name, size_t out_name_size);
 bool ide_shared_font_set_zoom_step(int step);
 bool ide_shared_font_step_by(int delta);
 bool ide_shared_font_reset_zoom_step(void);

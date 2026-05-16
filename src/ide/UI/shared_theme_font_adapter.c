@@ -376,6 +376,34 @@ int ide_shared_font_zoom_step(void) {
     return g_font_zoom_step;
 }
 
+bool ide_shared_font_set_preset(const char *preset_name) {
+    CoreFontPreset preset = {0};
+    if (!preset_name || !preset_name[0]) {
+        return false;
+    }
+    if (core_font_get_preset_by_name(preset_name, &preset).code != CORE_OK) {
+        return false;
+    }
+    setenv("IDE_FONT_PRESET", preset.name, 1);
+    return true;
+}
+
+bool ide_shared_font_current_preset(char *out_name, size_t out_name_size) {
+    const char *preset_name;
+    CoreFontPreset preset = {0};
+    if (!out_name || out_name_size == 0) {
+        return false;
+    }
+    preset_name = getenv("IDE_FONT_PRESET");
+    if (!preset_name || !preset_name[0] ||
+        core_font_get_preset_by_name(preset_name, &preset).code != CORE_OK) {
+        preset_name = "ide";
+    }
+    strncpy(out_name, preset_name, out_name_size - 1);
+    out_name[out_name_size - 1] = '\0';
+    return true;
+}
+
 bool ide_shared_font_set_zoom_step(int step) {
     int clamped = clamp_int(step, IDE_FONT_ZOOM_STEP_MIN, IDE_FONT_ZOOM_STEP_MAX);
     font_zoom_runtime_init_if_needed();

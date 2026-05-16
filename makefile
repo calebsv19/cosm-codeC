@@ -100,6 +100,7 @@
   # Fisics frontend (compiler) integration
   FISICS_DIR := ../fisiCs
   FISICS_INC := $(FISICS_DIR)/src
+  FISICS_LEXER_INC := $(FISICS_DIR)/src/Lexer
   FISICS_LIB_UNSANITIZED_SRC := $(FISICS_DIR)/libfisics_frontend_unsanitized.a
   FISICS_LIB_SANITIZED_SRC := $(FISICS_DIR)/libfisics_frontend_sanitized.a
 
@@ -133,7 +134,7 @@
   TIMER_HUD_DIR := $(SHARED_ROOT)/timer_hud
   TIMER_HUD_INC := -I$(TIMER_HUD_DIR)/include -I$(TIMER_HUD_DIR)/external
 
-  BASE_CFLAGS = -Wall -std=c99 -MMD -MP $(INC_DIRS) -I$(FISICS_INC) $(LLVM_CFLAGS) -DVK_RENDERER_SHADER_ROOT=\"$(ABS_VK_SHADER_ROOT)\" $(TIMER_HUD_INC)
+  BASE_CFLAGS = -Wall -std=c99 -MMD -MP $(INC_DIRS) -I$(FISICS_INC) -I$(FISICS_LEXER_INC) $(LLVM_CFLAGS) -DVK_RENDERER_SHADER_ROOT=\"$(ABS_VK_SHADER_ROOT)\" $(TIMER_HUD_INC)
   BASE_LDFLAGS = $(LIB_DIRS) -lSDL2 -lSDL2_ttf -lSDL2_image -ljson-c $(VULKAN_LIBS) $(SDL_MIXER_FLAGS) $(FISICS_LIB) $(LLVM_LDFLAGS) $(LLVM_LIBS)
 
   ifeq ($(BUILD_PROFILE),debug)

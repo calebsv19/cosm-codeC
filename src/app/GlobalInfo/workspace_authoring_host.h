@@ -34,6 +34,10 @@ typedef struct IDEWorkspaceAuthoringHost {
     uint32_t consumed_event_count;
     uint32_t captured_runtime_event_count;
     uint32_t add_stub_count;
+    uint32_t font_theme_action_count;
+    int baseline_font_zoom_step;
+    char baseline_theme_preset[64];
+    char baseline_font_preset[64];
     char status_text[160];
 } IDEWorkspaceAuthoringHost;
 
