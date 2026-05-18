@@ -3,6 +3,7 @@
 #include "ide/UI/scroll_manager.h"
 #include "core/Terminal/terminal_backend.h"
 #include "ide/Panes/Terminal/terminal_grid.h"
+#include "ide/Panes/Terminal/terminal_journal.h"
 #include "engine/Render/render_font.h"
 #include "engine/Render/render_text_helpers.h"
 #include "app/GlobalInfo/workspace_prefs.h"
@@ -43,6 +44,7 @@ typedef struct {
     bool isRun;
     TerminalVisibleBuffer visibleModel;
     TerminalScrollbackRing scrollbackModel;
+    TerminalJournal journal;
 } TerminalSession;
 
 #define MAX_TERMINAL_SESSIONS 8
@@ -130,6 +132,8 @@ static int terminal_session_content_rows(const TerminalSession* s) {
     if (s->grid.using_alternate) {
         return viewportRows > 0 ? viewportRows : 1;
     }
+    int journalRows = terminal_journal_count(&s->journal);
+    if (journalRows > 0) return journalRows;
     int rows = term_grid_scrollback_count(&s->grid) + viewportRows;
     return rows > 0 ? rows : 1;
 }
@@ -185,17 +189,18 @@ static void terminal_rebuild_session_model(TerminalSession* s, const char* reaso
     s->scrollbackModel = scrollback;
 
     if (g_terminal_debug_model_enabled) {
-        terminal_model_log("projection reason=%s mode=%s viewport=%dx%d cursor=%d,%d scrollback=%d content=%d",
+        terminal_model_log("projection reason=%s mode=%s viewport=%dx%d cursor=%d,%d journal=%d scrollback=%d content=%d",
                            reason ? reason : "unknown",
                            visible.using_alternate ? "alternate" : "primary",
                            visible.rows,
                            visible.cols,
                            visible.cursor_row,
                            visible.cursor_col,
+                           terminal_journal_count(&s->journal),
                            scrollback.row_count,
                            projectedRows);
     }
-    terminal_pipeline_log("snapshot reason=%s mode=%s cursor=%d,%d viewport=%dx%d projected=%d scrollback=%d",
+    terminal_pipeline_log("snapshot reason=%s mode=%s cursor=%d,%d viewport=%dx%d projected=%d journal=%d scrollback=%d",
                           reason ? reason : "unknown",
                           visible.using_alternate ? "alternate" : "primary",
                           visible.cursor_row,
@@ -203,6 +208,7 @@ static void terminal_rebuild_session_model(TerminalSession* s, const char* reaso
                           visible.rows,
                           visible.cols,
                           projectedRows,
+                          terminal_journal_count(&s->journal),
                           scrollback.row_count);
     terminal_pipeline_log("scrollback commits=%llu rows=%d cap=%d drops=%llu",
                           term_grid_scrollback_commit_count(grid),
@@ -215,6 +221,20 @@ static void terminal_rebuild_session_model(TerminalSession* s, const char* reaso
                           term_grid_alt_ignored_count(grid));
 }
 
+static void terminal_capture_journal_snapshot(TerminalSession* s, const char* reason) {
+    if (!s || !s->grid.cells || s->grid.using_alternate) return;
+    int viewportRows = s->grid.viewport_rows;
+    if (viewportRows < 1 || viewportRows > s->grid.rows) viewportRows = s->grid.rows;
+    int start = terminal_viewport_start_row(s);
+    terminal_journal_capture_viewport(&s->journal, &s->grid, start, viewportRows, s->grid.cursor_row);
+    terminal_pipeline_log("journal capture reason=%s rows=%d captures=%llu inserts=%llu drops=%llu",
+                          reason ? reason : "unknown",
+                          terminal_journal_count(&s->journal),
+                          s->journal.capture_count,
+                          s->journal.insert_count,
+                          s->journal.drop_count);
+}
+
 static void terminal_validate_invariants(const TerminalSession* s) {
     if (!s) return;
     const TermGrid* grid = &s->grid;
@@ -225,10 +245,16 @@ static void terminal_validate_invariants(const TerminalSession* s) {
     int projectedRows = terminal_session_content_rows(s);
     int viewportRows = s->visibleModel.rows;
     int scrollbackRows = s->scrollbackModel.row_count;
+    int journalRows = terminal_journal_count(&s->journal);
     (void)viewportRows;
     (void)scrollbackRows;
+    (void)journalRows;
     if (!s->visibleModel.using_alternate) {
-        assert(projectedRows == scrollbackRows + viewportRows);
+        if (journalRows > 0) {
+            assert(projectedRows == journalRows);
+        } else {
+            assert(projectedRows == scrollbackRows + viewportRows);
+        }
     } else {
         assert(scrollbackRows == 0);
     }
@@ -272,6 +298,7 @@ static void terminal_feed_bytes(TerminalSession* s, const char* bytes, size_t le
                            wasAlternate ? "alternate" : "primary",
                            nowAlternate ? "alternate" : "primary");
     }
+    terminal_capture_journal_snapshot(s, "feed");
     terminal_rebuild_session_model(s, "feed");
     terminal_validate_invariants(s);
 }
@@ -324,6 +351,16 @@ bool terminal_projection_get_row(int index, TerminalProjectionRow* out_row) {
     int rows = terminal_projection_row_count();
     if (index < 0 || index >= rows) return false;
     out_row->projected_row = index;
+    out_row->journal_row = -1;
+    out_row->grid_row = -1;
+    int journalRows = s->grid.using_alternate ? 0 : terminal_journal_count(&s->journal);
+    if (journalRows > 0) {
+        out_row->from_journal = true;
+        out_row->journal_row = index;
+        out_row->from_scrollback = false;
+        return true;
+    }
+    out_row->from_journal = false;
     out_row->from_scrollback = (!s->grid.using_alternate && index < s->scrollbackModel.row_count);
     if (out_row->from_scrollback) {
         out_row->grid_row = -1;
@@ -348,6 +385,11 @@ const TermCell* terminal_projection_rowcol_to_cell(int row, int col) {
         if (!rowCells) return NULL;
         return &rowCells[col];
     }
+    if (pr.from_journal) {
+        const TermCell* rowCells = terminal_journal_row(&s->journal, pr.journal_row);
+        if (!rowCells) return NULL;
+        return &rowCells[col];
+    }
     return term_grid_cell(&s->grid, pr.grid_row, col);
 }
 
@@ -364,6 +406,45 @@ bool terminal_projection_rowcol_to_grid(int row, int col, int* out_grid_row, int
     return true;
 }
 
+bool terminal_cursor_projection_position(int* out_row, int* out_col) {
+    TerminalSession* s = active_session();
+    if (!s || !s->grid.cells) return false;
+    terminal_rebuild_session_model(s, "cursor_projection");
+
+    int projectedRows = terminal_session_content_rows(s);
+    if (projectedRows < 1) projectedRows = 1;
+
+    int col = s->grid.cursor_col;
+    if (col < 0) col = 0;
+    if (col > s->grid.cols) col = s->grid.cols;
+
+    int journalRows = s->grid.using_alternate ? 0 : terminal_journal_count(&s->journal);
+    if (journalRows > 0) {
+        const TermCell* cursorRow = term_grid_cell(&s->grid, s->grid.cursor_row, 0);
+        int projectedRow = terminal_journal_find_last_equal_row(&s->journal, cursorRow, s->grid.cols);
+        if (projectedRow < 0) projectedRow = journalRows - 1;
+        if (projectedRow < 0 || projectedRow >= projectedRows) return false;
+        if (out_row) *out_row = projectedRow;
+        if (out_col) *out_col = col;
+        return true;
+    }
+
+    int projectedRow = s->grid.cursor_row;
+    if (!s->grid.using_alternate) {
+        int viewportRows = s->grid.viewport_rows;
+        if (viewportRows < 1 || viewportRows > s->grid.rows) viewportRows = s->grid.rows;
+        int viewportStart = terminal_viewport_start_row(s);
+        int localRow = s->grid.cursor_row - viewportStart;
+        if (localRow < 0 || localRow >= viewportRows) return false;
+        projectedRow = s->scrollbackModel.row_count + localRow;
+    }
+
+    if (projectedRow < 0 || projectedRow >= projectedRows) return false;
+    if (out_row) *out_row = projectedRow;
+    if (out_col) *out_col = col;
+    return true;
+}
+
 bool terminal_get_debug_stats(TerminalDebugStats* out) {
     if (!out) return false;
     TerminalSession* s = active_session();
@@ -374,8 +455,16 @@ bool terminal_get_debug_stats(TerminalDebugStats* out) {
     out->cursor_col = s->visibleModel.cursor_col;
     out->viewport_rows = s->visibleModel.rows;
     out->viewport_cols = s->visibleModel.cols;
+    out->journal_rows = terminal_journal_count(&s->journal);
     out->scrollback_rows = s->scrollbackModel.row_count;
     out->projected_rows = terminal_session_content_rows(s);
+    out->cursor_visible = s->grid.cursor_visible != 0;
+    out->follow_output = s->followOutput;
+    out->scrollback_commits = term_grid_scrollback_commit_count(&s->grid);
+    out->scrollback_drops = term_grid_scrollback_drop_count(&s->grid);
+    out->journal_captures = s->journal.capture_count;
+    out->journal_inserts = s->journal.insert_count;
+    out->journal_drops = s->journal.drop_count;
     return true;
 }
 
@@ -465,6 +554,7 @@ int terminal_create_interactive(const char* start_dir) {
     term_grid_init(&s->grid, s->gridRows, s->gridCols);
     term_grid_set_scrollback_cap(&s->grid, terminal_scrollback_extra_rows());
     term_grid_set_alternate_screen_enabled(&s->grid, g_terminal_enable_alternate_screen ? 1 : 0);
+    terminal_journal_init(&s->journal, terminal_scrollback_extra_rows(), s->gridCols);
     terminal_rebuild_session_model(s, "create_interactive");
     terminal_validate_invariants(s);
     g_active_index = idx;
@@ -479,6 +569,7 @@ void terminal_close_interactive(int index) {
     terminal_set_active(index);
     terminal_shutdown_shell();
     term_grid_free(&g_sessions[index].grid);
+    terminal_journal_free(&g_sessions[index].journal);
     // Shift sessions down.
     for (int i = index + 1; i < g_session_count; ++i) {
         g_sessions[i - 1] = g_sessions[i];
@@ -550,6 +641,7 @@ void terminal_clear_session(int index) {
     if (index < 0 || index >= g_session_count) return;
     TerminalSession* s = &g_sessions[index];
     term_grid_clear(&s->grid);
+    terminal_journal_clear(&s->journal);
     if (!s->scrollInitialized) {
         scroll_state_init(&s->scrollState, &kTerminalScrollConfig);
         s->scrollInitialized = true;
@@ -591,12 +683,8 @@ void initTerminal() {
         g_terminal_debug_pipeline_enabled = true;
     }
     const char* altScreen = getenv("IDE_TERMINAL_ENABLE_ALT_SCREEN");
-    if (altScreen && altScreen[0] && strcmp(altScreen, "0") != 0) {
-        g_terminal_enable_alternate_screen = true;
-    } else {
-        // Default to true terminal behavior.
-        g_terminal_enable_alternate_screen = true;
-    }
+    g_terminal_enable_alternate_screen =
+        (altScreen && altScreen[0] && strcmp(altScreen, "0") != 0);
     g_session_count = 0;
     g_active_index = 0;
     int buildIdx = terminal_create_task("Build", true, false);
@@ -622,6 +710,7 @@ void clearTerminal() {
     s->scrollState.offset_px = 0.0f;
     s->scrollState.target_offset_px = 0.0f;
     term_grid_clear(&s->grid);
+    terminal_journal_clear(&s->journal);
     s->lastViewportW = -1;
     s->lastViewportH = -1;
     s->lastBackendRows = -1;
@@ -684,9 +773,8 @@ void terminal_notify_font_metrics_changed(void) {
     }
 }
 
-static bool terminal_flush_backend_output(void) {
+static bool terminal_flush_backend_output(TerminalSession* s) {
     bool changed = false;
-    TerminalSession* s = active_session();
     if (!s || !s->backend) return false;
 
     size_t len = 0;
@@ -709,7 +797,8 @@ static bool terminal_flush_backend_output(void) {
     }
 
     if (s->backend->dead && !s->backendExitNotified) {
-        printToTerminal("[Terminal] Shell process exited.\n");
+        const char* exitMsg = "[Terminal] Shell process exited.\n";
+        terminal_feed_bytes(s, exitMsg, strlen(exitMsg));
         s->backendExitNotified = true;
         changed = true;
     }
@@ -803,21 +892,17 @@ void terminal_shutdown_shell(void) {
 
 bool terminal_tick_backend(void) {
     bool changed = false;
-    TerminalSession* s = active_session();
-    if (!s || !s->backend) return false;
-    fd_set readfds;
-    FD_ZERO(&readfds);
-    FD_SET(s->backend->master_fd, &readfds);
-    struct timeval tv = {0, 0}; // non-blocking poll
-    int ready = select(s->backend->master_fd + 1, &readfds, NULL, NULL, &tv);
-    if (ready > 0 && FD_ISSET(s->backend->master_fd, &readfds)) {
-        if (terminal_backend_read_output(s->backend) > 0) {
+    for (int i = 0; i < g_session_count; ++i) {
+        TerminalSession* s = &g_sessions[i];
+        if (!s->backend) continue;
+
+        if (!s->backend->dead && terminal_backend_read_output(s->backend) > 0) {
             changed = true;
         }
-    }
-    terminal_backend_poll_child(s->backend);
-    if (terminal_flush_backend_output()) {
-        changed = true;
+        terminal_backend_poll_child(s->backend);
+        if (terminal_flush_backend_output(s)) {
+            changed = true;
+        }
     }
     return changed;
 }
@@ -884,8 +969,10 @@ void terminal_resize_grid_for_pane(int width_px, int height_px) {
         term_grid_resize(&s->grid, desiredRows, viewCols);
     }
     term_grid_set_scrollback_cap(&s->grid, terminal_scrollback_extra_rows());
+    terminal_journal_configure(&s->journal, terminal_scrollback_extra_rows(), s->grid.cols);
     if (gridSizeChanged || viewportChanged) {
         term_grid_set_viewport_size(&s->grid, viewRows, viewCols);
+        terminal_capture_journal_snapshot(s, "resize");
         terminal_rebuild_session_model(s, "resize");
         terminal_validate_invariants(s);
         terminal_model_log("resize viewport=%dx%d grid=%dx%d", viewCols, viewRows, s->gridCols, s->gridRows);
@@ -933,6 +1020,7 @@ static int terminal_create_task(const char* name, bool isBuild, bool isRun) {
     term_grid_init(&s->grid, s->gridRows, s->gridCols);
     term_grid_set_scrollback_cap(&s->grid, terminal_scrollback_extra_rows());
     term_grid_set_alternate_screen_enabled(&s->grid, g_terminal_enable_alternate_screen ? 1 : 0);
+    terminal_journal_init(&s->journal, terminal_scrollback_extra_rows(), s->gridCols);
     terminal_rebuild_session_model(s, "create_task");
     terminal_validate_invariants(s);
     return idx;

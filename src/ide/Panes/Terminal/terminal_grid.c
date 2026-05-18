@@ -9,6 +9,7 @@
 
 #define ATTR_BOLD      (1 << 0)
 #define ATTR_UNDERLINE (1 << 1)
+#define ATTR_WIDE_CONTINUATION (1 << 7)
 
 #define TERM_DEFAULT_FG 0xFFFFFFFFu
 #define TERM_DEFAULT_BG 0x000000FFu
@@ -57,6 +58,19 @@ static void sync_active_state(TermGrid* grid) {
     if (used) grid->used_rows = *used;
     if (row) grid->cursor_row = *row;
     if (col) grid->cursor_col = *col;
+}
+
+static int scroll_region_top(const TermGrid* grid) {
+    if (!grid || grid->rows <= 0) return 0;
+    if (grid->scroll_top < 0 || grid->scroll_top >= grid->rows) return 0;
+    return grid->scroll_top;
+}
+
+static int scroll_region_bottom(const TermGrid* grid) {
+    if (!grid || grid->rows <= 0) return 0;
+    if (grid->scroll_bottom < 0 || grid->scroll_bottom >= grid->rows) return grid->rows - 1;
+    if (grid->scroll_bottom < scroll_region_top(grid)) return grid->rows - 1;
+    return grid->scroll_bottom;
 }
 
 static void commit_active_state(TermGrid* grid) {
@@ -167,6 +181,11 @@ static void grid_alloc(TermGrid* grid, int rows, int cols) {
     grid->scrollback_commit_count = 0;
     grid->scrollback_drop_count = 0;
     term_grid_clear(grid);
+    grid->scroll_top = 0;
+    grid->scroll_bottom = rows - 1;
+    grid->cursor_visible = 1;
+    grid->bracketed_paste = 0;
+    grid->mouse_mode = 0;
 }
 
 static void clamp_cursor(TermGrid* grid);
@@ -273,6 +292,11 @@ void term_grid_resize(TermGrid* grid, int rows, int cols) {
     }
     grid->rows = rows;
     grid->cols = cols;
+    if (grid->scroll_top < 0 || grid->scroll_top >= rows ||
+        grid->scroll_bottom < grid->scroll_top || grid->scroll_bottom >= rows) {
+        grid->scroll_top = 0;
+        grid->scroll_bottom = rows - 1;
+    }
     if (grid->viewport_rows < 1 || grid->viewport_rows > rows) grid->viewport_rows = rows;
     if (grid->viewport_cols < 1 || grid->viewport_cols > cols) grid->viewport_cols = cols;
     grid->cells = grid->using_alternate ? grid->alternate_cells : grid->primary_cells;
@@ -417,37 +441,197 @@ static void clamp_cursor(TermGrid* grid) {
     commit_active_state(grid);
 }
 
-static void scroll_up(TermGrid* grid) {
+static void clear_cell_to_style(TermGrid* grid, int row, int col) {
+    TermCell* cell = term_grid_cell(grid, row, col);
+    if (!cell) return;
+    cell->ch = ' ';
+    cell->fg = grid->cur_fg;
+    cell->bg = grid->cur_bg;
+    cell->attrs = 0;
+}
+
+static void scroll_up_region(TermGrid* grid, int top, int bottom) {
     if (!grid || !grid->cells || grid->rows <= 0) return;
-    if (!grid->using_alternate && grid->cols > 0) {
+    top = clamp_i(top, 0, grid->rows - 1);
+    bottom = clamp_i(bottom, top, grid->rows - 1);
+    if (!grid->using_alternate && top == 0 && bottom == grid->rows - 1 && grid->cols > 0) {
         push_scrollback_row(grid, grid->cells);
     }
 
-    memmove(grid->cells,
-            grid->cells + grid->cols,
-            (size_t)(grid->rows - 1) * (size_t)grid->cols * sizeof(TermCell));
-
-    for (int c = 0; c < grid->cols; ++c) {
-        TermCell* cell = term_grid_cell(grid, grid->rows - 1, c);
-        cell->ch = ' ';
-        cell->fg = grid->cur_fg;
-        cell->bg = grid->cur_bg;
-        cell->attrs = 0;
+    if (bottom > top) {
+        memmove(grid->cells + (size_t)top * (size_t)grid->cols,
+                grid->cells + (size_t)(top + 1) * (size_t)grid->cols,
+                (size_t)(bottom - top) * (size_t)grid->cols * sizeof(TermCell));
     }
 
-    if (grid->cursor_row > 0) grid->cursor_row--;
+    for (int c = 0; c < grid->cols; ++c) {
+        clear_cell_to_style(grid, bottom, c);
+    }
+
+    if (grid->used_rows < bottom + 1) grid->used_rows = bottom + 1;
+}
+
+static void scroll_down_region(TermGrid* grid, int top, int bottom) {
+    if (!grid || !grid->cells || grid->rows <= 0) return;
+    top = clamp_i(top, 0, grid->rows - 1);
+    bottom = clamp_i(bottom, top, grid->rows - 1);
+
+    if (bottom > top) {
+        memmove(grid->cells + (size_t)(top + 1) * (size_t)grid->cols,
+                grid->cells + (size_t)top * (size_t)grid->cols,
+                (size_t)(bottom - top) * (size_t)grid->cols * sizeof(TermCell));
+    }
+
+    for (int c = 0; c < grid->cols; ++c) {
+        clear_cell_to_style(grid, top, c);
+    }
+
+    if (grid->used_rows < bottom + 1) grid->used_rows = bottom + 1;
+}
+
+static void insert_blank_chars(TermGrid* grid, int n) {
+    if (!grid || !grid->cells || grid->cols <= 0) return;
+    if (n < 1) n = 1;
+    if (n > grid->cols - grid->cursor_col) n = grid->cols - grid->cursor_col;
+    if (n <= 0) return;
+    TermCell* row = grid->cells + (size_t)grid->cursor_row * (size_t)grid->cols;
+    memmove(row + grid->cursor_col + n,
+            row + grid->cursor_col,
+            (size_t)(grid->cols - grid->cursor_col - n) * sizeof(TermCell));
+    for (int c = 0; c < n; ++c) {
+        clear_cell_to_style(grid, grid->cursor_row, grid->cursor_col + c);
+    }
+}
+
+static void delete_chars(TermGrid* grid, int n) {
+    if (!grid || !grid->cells || grid->cols <= 0) return;
+    if (n < 1) n = 1;
+    if (n > grid->cols - grid->cursor_col) n = grid->cols - grid->cursor_col;
+    if (n <= 0) return;
+    TermCell* row = grid->cells + (size_t)grid->cursor_row * (size_t)grid->cols;
+    memmove(row + grid->cursor_col,
+            row + grid->cursor_col + n,
+            (size_t)(grid->cols - grid->cursor_col - n) * sizeof(TermCell));
+    for (int c = grid->cols - n; c < grid->cols; ++c) {
+        clear_cell_to_style(grid, grid->cursor_row, c);
+    }
+}
+
+static void erase_chars(TermGrid* grid, int n) {
+    if (!grid || !grid->cells || grid->cols <= 0) return;
+    if (n < 1) n = 1;
+    if (n > grid->cols - grid->cursor_col) n = grid->cols - grid->cursor_col;
+    for (int c = 0; c < n; ++c) {
+        clear_cell_to_style(grid, grid->cursor_row, grid->cursor_col + c);
+    }
+}
+
+static void insert_blank_lines(TermGrid* grid, int n) {
+    if (!grid || !grid->cells || grid->rows <= 0 || grid->cols <= 0) return;
+    int top = scroll_region_top(grid);
+    int bottom = scroll_region_bottom(grid);
+    if (grid->cursor_row < top || grid->cursor_row > bottom) return;
+    if (n < 1) n = 1;
+    if (n > bottom - grid->cursor_row + 1) n = bottom - grid->cursor_row + 1;
+    if (n <= 0) return;
+    if (bottom - grid->cursor_row + 1 > n) {
+        memmove(grid->cells + (size_t)(grid->cursor_row + n) * (size_t)grid->cols,
+                grid->cells + (size_t)grid->cursor_row * (size_t)grid->cols,
+                (size_t)(bottom - grid->cursor_row + 1 - n) * (size_t)grid->cols * sizeof(TermCell));
+    }
+    for (int r = 0; r < n; ++r) {
+        term_grid_clear_line(grid, grid->cursor_row + r);
+    }
+    if (grid->used_rows < bottom + 1) grid->used_rows = bottom + 1;
+}
+
+static void delete_lines(TermGrid* grid, int n) {
+    if (!grid || !grid->cells || grid->rows <= 0 || grid->cols <= 0) return;
+    int top = scroll_region_top(grid);
+    int bottom = scroll_region_bottom(grid);
+    if (grid->cursor_row < top || grid->cursor_row > bottom) return;
+    if (n < 1) n = 1;
+    if (n > bottom - grid->cursor_row + 1) n = bottom - grid->cursor_row + 1;
+    if (n <= 0) return;
+    if (bottom - grid->cursor_row + 1 > n) {
+        memmove(grid->cells + (size_t)grid->cursor_row * (size_t)grid->cols,
+                grid->cells + (size_t)(grid->cursor_row + n) * (size_t)grid->cols,
+                (size_t)(bottom - grid->cursor_row + 1 - n) * (size_t)grid->cols * sizeof(TermCell));
+    }
+    for (int r = bottom - n + 1; r <= bottom; ++r) {
+        term_grid_clear_line(grid, r);
+    }
+    if (grid->used_rows < bottom + 1) grid->used_rows = bottom + 1;
 }
 
 static void move_cursor_newline(TermGrid* grid) {
+    int previousRow = grid->cursor_row;
     grid->cursor_col = 0;
     grid->cursor_row++;
     if (grid->cursor_row + 1 > grid->used_rows) {
         grid->used_rows = grid->cursor_row + 1;
     }
-    if (grid->cursor_row >= grid->rows) {
-        scroll_up(grid);
+    int bottom = scroll_region_bottom(grid);
+    int top = scroll_region_top(grid);
+    if (previousRow >= top && previousRow <= bottom && grid->cursor_row > bottom) {
+        scroll_up_region(grid, top, bottom);
+        grid->cursor_row = bottom;
+        grid->used_rows = grid->rows;
+    } else if (grid->cursor_row >= grid->rows) {
+        scroll_up_region(grid, 0, grid->rows - 1);
         grid->cursor_row = grid->rows - 1;
         grid->used_rows = grid->rows;
+    }
+}
+
+static int codepoint_cell_width(uint32_t cp) {
+    if (cp == 0u) return 0;
+    if (cp < 0x20u || cp == 0x7Fu) return 0;
+    if (cp == 0x200Du) return 0; // zero-width joiner
+    if ((cp >= 0x0300u && cp <= 0x036Fu) ||
+        (cp >= 0x1AB0u && cp <= 0x1AFFu) ||
+        (cp >= 0x1DC0u && cp <= 0x1DFFu) ||
+        (cp >= 0x20D0u && cp <= 0x20FFu) ||
+        (cp >= 0xFE00u && cp <= 0xFE0Fu) ||
+        (cp >= 0xFE20u && cp <= 0xFE2Fu) ||
+        (cp >= 0xE0100u && cp <= 0xE01EFu)) {
+        return 0;
+    }
+
+    if ((cp >= 0x1100u && cp <= 0x115Fu) ||
+        cp == 0x2329u || cp == 0x232Au ||
+        (cp >= 0x2E80u && cp <= 0xA4CFu && cp != 0x303Fu) ||
+        (cp >= 0xAC00u && cp <= 0xD7A3u) ||
+        (cp >= 0xF900u && cp <= 0xFAFFu) ||
+        (cp >= 0xFE10u && cp <= 0xFE19u) ||
+        (cp >= 0xFE30u && cp <= 0xFE6Fu) ||
+        (cp >= 0xFF00u && cp <= 0xFF60u) ||
+        (cp >= 0xFFE0u && cp <= 0xFFE6u) ||
+        (cp >= 0x1F300u && cp <= 0x1FAFFu)) {
+        return 2;
+    }
+
+    return 1;
+}
+
+static void clear_wide_neighbor_if_needed(TermGrid* grid, int row, int col) {
+    if (!grid || !grid->cells || row < 0 || row >= grid->rows) return;
+
+    TermCell* current = term_grid_cell(grid, row, col);
+    if (current && (current->attrs & ATTR_WIDE_CONTINUATION) && col > 0) {
+        clear_cell_to_style(grid, row, col - 1);
+    }
+
+    if (col > 0) {
+        TermCell* prev = term_grid_cell(grid, row, col - 1);
+        if (prev && codepoint_cell_width(prev->ch) == 2) {
+            clear_cell_to_style(grid, row, col - 1);
+        }
+    }
+
+    TermCell* next = term_grid_cell(grid, row, col + 1);
+    if (next && (next->attrs & ATTR_WIDE_CONTINUATION)) {
+        clear_cell_to_style(grid, row, col + 1);
     }
 }
 
@@ -463,10 +647,16 @@ static void write_codepoint(TermGrid* grid, uint32_t cp) {
         return;
     }
 
-    if (cp < 0x20u || cp == 0x7Fu) {
+    int width = codepoint_cell_width(cp);
+    if (width <= 0) {
         return;
     }
+    if (width > 1 && grid->cols < 2) width = 1;
+    if (width > 1 && grid->cursor_col >= grid->cols - 1) {
+        move_cursor_newline(grid);
+    }
 
+    clear_wide_neighbor_if_needed(grid, grid->cursor_row, grid->cursor_col);
     TermCell* cell = term_grid_cell(grid, grid->cursor_row, grid->cursor_col);
     if (cell) {
         cell->ch = cp;
@@ -474,11 +664,20 @@ static void write_codepoint(TermGrid* grid, uint32_t cp) {
         cell->bg = grid->cur_bg;
         cell->attrs = grid->cur_attrs;
     }
+    if (width > 1 && grid->cursor_col + 1 < grid->cols) {
+        TermCell* continuation = term_grid_cell(grid, grid->cursor_row, grid->cursor_col + 1);
+        if (continuation) {
+            continuation->ch = ' ';
+            continuation->fg = grid->cur_fg;
+            continuation->bg = grid->cur_bg;
+            continuation->attrs = (uint8_t)(grid->cur_attrs | ATTR_WIDE_CONTINUATION);
+        }
+    }
     if (grid->cursor_row + 1 > grid->used_rows) {
         grid->used_rows = grid->cursor_row + 1;
     }
 
-    grid->cursor_col++;
+    grid->cursor_col += width;
     if (grid->cursor_col >= grid->cols) {
         move_cursor_newline(grid);
     }
@@ -698,6 +897,18 @@ static void handle_private_mode(TermGrid* grid, const int* values, int count, in
                 }
                 term_grid_set_alternate(grid, setMode, setMode, 1, !setMode);
                 break;
+            case 25:
+                grid->cursor_visible = setMode ? 1 : 0;
+                break;
+            case 1000:
+            case 1002:
+            case 1003:
+            case 1006:
+                grid->mouse_mode = setMode ? mode : 0;
+                break;
+            case 2004:
+                grid->bracketed_paste = setMode ? 1 : 0;
+                break;
             default:
                 break;
         }
@@ -737,6 +948,9 @@ static void handle_csi(TermGrid* grid, const char* params, int paramLen, char co
 
     int n = values[0] ? values[0] : 1;
     switch (command) {
+        case '@': // ICH
+            insert_blank_chars(grid, n);
+            break;
         case 'A': // CUU
             grid->cursor_row -= n;
             clamp_cursor(grid);
@@ -779,6 +993,18 @@ static void handle_csi(TermGrid* grid, const char* params, int paramLen, char co
             clamp_cursor(grid);
             break;
         }
+        case 'L': // IL
+            insert_blank_lines(grid, n);
+            break;
+        case 'M': // DL
+            delete_lines(grid, n);
+            break;
+        case 'P': // DCH
+            delete_chars(grid, n);
+            break;
+        case 'X': // ECH
+            erase_chars(grid, n);
+            break;
         case 'd': { // VPA
             int row = (values[0] > 0) ? values[0] - 1 : 0;
             if (row < 0) row = 0;
@@ -856,6 +1082,23 @@ static void handle_csi(TermGrid* grid, const char* params, int paramLen, char co
         case 'm': // SGR
             apply_sgr(grid, values, count);
             break;
+        case 'r': { // DECSTBM
+            int top = 0;
+            int bottom = grid->rows - 1;
+            if (count >= 2 && values[0] > 0 && values[1] > 0) {
+                top = values[0] - 1;
+                bottom = values[1] - 1;
+            }
+            if (top < 0 || bottom <= top || bottom >= grid->rows) {
+                top = 0;
+                bottom = grid->rows - 1;
+            }
+            grid->scroll_top = top;
+            grid->scroll_bottom = bottom;
+            grid->cursor_row = 0;
+            grid->cursor_col = 0;
+            break;
+        }
         default:
             break;
     }
@@ -915,6 +1158,15 @@ void term_emulator_feed(TermGrid* grid, const char* data, size_t len) {
                     grid->csi_len = 0;
                 } else if (ch == ']') {
                     grid->parser_state = STATE_OSC;
+                } else if (ch == 'M') {
+                    int top = scroll_region_top(grid);
+                    if (grid->cursor_row <= top) {
+                        scroll_down_region(grid, top, scroll_region_bottom(grid));
+                        grid->cursor_row = top;
+                    } else {
+                        grid->cursor_row--;
+                    }
+                    grid->parser_state = STATE_TEXT;
                 } else if (ch == '7') {
                     term_grid_save_cursor(grid);
                     grid->parser_state = STATE_TEXT;

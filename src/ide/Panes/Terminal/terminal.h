@@ -27,7 +27,9 @@ typedef struct {
 
 typedef struct {
     int projected_row;
+    int journal_row;
     int grid_row;
+    bool from_journal;
     bool from_scrollback;
 } TerminalProjectionRow;
 
@@ -37,8 +39,16 @@ typedef struct {
     int cursor_col;
     int viewport_rows;
     int viewport_cols;
+    int journal_rows;
     int scrollback_rows;
     int projected_rows;
+    bool cursor_visible;
+    bool follow_output;
+    unsigned long long scrollback_commits;
+    unsigned long long scrollback_drops;
+    unsigned long long journal_captures;
+    unsigned long long journal_inserts;
+    unsigned long long journal_drops;
 } TerminalDebugStats;
 
 void initTerminal(void);
@@ -65,6 +75,7 @@ int terminal_projection_row_count(void);
 bool terminal_projection_get_row(int index, TerminalProjectionRow* out_row);
 const TermCell* terminal_projection_rowcol_to_cell(int row, int col);
 bool terminal_projection_rowcol_to_grid(int row, int col, int* out_grid_row, int* out_grid_col);
+bool terminal_cursor_projection_position(int* out_row, int* out_col);
 bool terminal_get_debug_stats(TerminalDebugStats* out);
 bool terminal_debug_overlay_enabled(void);
 int terminal_cell_width(void);

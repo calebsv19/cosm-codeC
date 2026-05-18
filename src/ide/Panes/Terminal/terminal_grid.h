@@ -30,9 +30,14 @@ typedef struct {
     int alternate_used_rows;
     int alternate_cursor_row;
     int alternate_cursor_col;
+    int scroll_top;
+    int scroll_bottom;
     int saved_cursor_row;
     int saved_cursor_col;
     uint8_t has_saved_cursor;
+    uint8_t cursor_visible;
+    uint8_t bracketed_paste;
+    int mouse_mode;
 
     uint32_t cur_fg;
     uint32_t cur_bg;

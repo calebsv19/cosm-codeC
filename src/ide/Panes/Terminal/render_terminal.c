@@ -19,6 +19,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define TERMINAL_ATTR_BOLD      (1 << 0)
+#define TERMINAL_ATTR_UNDERLINE (1 << 1)
+#define TERMINAL_ATTR_WIDE_CONTINUATION (1 << 7)
+#define TERMINAL_DEFAULT_BG     0x000000FFu
+
+static SDL_Color term_color_from_rgba(uint32_t packed) {
+    SDL_Color color = {
+        (Uint8)((packed >> 24) & 0xFFu),
+        (Uint8)((packed >> 16) & 0xFFu),
+        (Uint8)((packed >> 8) & 0xFFu),
+        (Uint8)(packed & 0xFFu)
+    };
+    return color;
+}
+
 static int encode_codepoint_utf8(uint32_t cp, char out[4]) {
     if (cp <= 0x7Fu) {
         out[0] = (char)cp;
@@ -44,6 +59,340 @@ static int encode_codepoint_utf8(uint32_t cp, char out[4]) {
     }
     out[0] = '?';
     return 1;
+}
+
+static bool terminal_cells_same_style(const TermCell* a, const TermCell* b) {
+    if (!a || !b) return false;
+    return a->fg == b->fg &&
+           a->bg == b->bg &&
+           a->attrs == b->attrs;
+}
+
+static bool terminal_codepoint_is_combining(uint32_t cp) {
+    return (cp >= 0x0300u && cp <= 0x036Fu) ||
+           (cp >= 0x1AB0u && cp <= 0x1AFFu) ||
+           (cp >= 0x1DC0u && cp <= 0x1DFFu) ||
+           (cp >= 0x20D0u && cp <= 0x20FFu) ||
+           (cp >= 0xFE20u && cp <= 0xFE2Fu);
+}
+
+static bool terminal_codepoint_is_box_drawing(uint32_t cp) {
+    return cp >= 0x2500u && cp <= 0x257Fu;
+}
+
+static bool terminal_cell_is_visible_text(const TermCell* cell) {
+    if (!cell) return false;
+    uint32_t cp = cell->ch;
+    return cp != 0u &&
+           cp != (uint32_t)' ' &&
+           cp >= 0x20u &&
+           cp != 0x7Fu &&
+           !terminal_codepoint_is_combining(cp) &&
+           (cell->attrs & TERMINAL_ATTR_WIDE_CONTINUATION) == 0;
+}
+
+static void terminal_draw_box_drawing_cell(SDL_Renderer* renderer,
+                                           int x,
+                                           int y,
+                                           int cellW,
+                                           int cellH,
+                                           SDL_Color color,
+                                           uint32_t cp) {
+    if (!renderer || cellW <= 0 || cellH <= 0) return;
+
+    bool left = false;
+    bool right = false;
+    bool up = false;
+    bool down = false;
+    bool thick = false;
+
+    switch (cp) {
+        case 0x2500: right = left = true; break;              // ─
+        case 0x2501: right = left = true; thick = true; break; // ━
+        case 0x2502: up = down = true; break;                 // │
+        case 0x2503: up = down = true; thick = true; break;    // ┃
+        case 0x250C: right = down = true; break;              // ┌
+        case 0x2510: left = down = true; break;               // ┐
+        case 0x2514: right = up = true; break;                // └
+        case 0x2518: left = up = true; break;                 // ┘
+        case 0x251C: right = up = down = true; break;         // ├
+        case 0x2524: left = up = down = true; break;          // ┤
+        case 0x252C: left = right = down = true; break;       // ┬
+        case 0x2534: left = right = up = true; break;         // ┴
+        case 0x253C: left = right = up = down = true; break;  // ┼
+        case 0x2574: left = true; break;                      // ╴
+        case 0x2575: up = true; break;                        // ╵
+        case 0x2576: right = true; break;                     // ╶
+        case 0x2577: down = true; break;                      // ╷
+        case 0x2578: left = true; thick = true; break;
+        case 0x2579: up = true; thick = true; break;
+        case 0x257A: right = true; thick = true; break;
+        case 0x257B: down = true; thick = true; break;
+        default:
+            if (cp >= 0x2550u && cp <= 0x256Cu) {
+                left = right = up = down = true;
+            } else {
+                left = right = true;
+            }
+            break;
+    }
+
+    int cx = x + cellW / 2;
+    int cy = y + cellH / 2;
+    int minX = x + 1;
+    int maxX = x + cellW - 2;
+    int minY = y + 2;
+    int maxY = y + cellH - 3;
+    if (maxX < minX) maxX = minX;
+    if (maxY < minY) maxY = minY;
+
+    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+    for (int pass = 0; pass < (thick ? 2 : 1); ++pass) {
+        int off = pass;
+        if (left) SDL_RenderDrawLine(renderer, minX, cy + off, cx, cy + off);
+        if (right) SDL_RenderDrawLine(renderer, cx, cy + off, maxX, cy + off);
+        if (up) SDL_RenderDrawLine(renderer, cx + off, minY, cx + off, cy);
+        if (down) SDL_RenderDrawLine(renderer, cx + off, cy, cx + off, maxY);
+    }
+}
+
+static bool terminal_font_has_glyph(TTF_Font* font, uint32_t cp) {
+    if (!font) return false;
+#if SDL_TTF_VERSION_ATLEAST(2, 0, 18)
+    return TTF_GlyphIsProvided32(font, (Uint32)cp) != 0;
+#else
+    if (cp > 0xFFFFu) return false;
+    return TTF_GlyphIsProvided(font, (Uint16)cp) != 0;
+#endif
+}
+
+static bool terminal_cell_needs_fixed_glyph_draw(TTF_Font* font, const TermCell* cell) {
+    if (!terminal_cell_is_visible_text(cell)) return false;
+    uint32_t cp = cell->ch;
+    if (terminal_codepoint_is_box_drawing(cp)) return true;
+    return !terminal_font_has_glyph(font, cp);
+}
+
+static void terminal_draw_cell_glyph(SDL_Renderer* renderer,
+                                     TTF_Font* font,
+                                     int x,
+                                     int y,
+                                     int textYOffset,
+                                     int cellW,
+                                     int cellH,
+                                     const TermCell* cell) {
+    if (!renderer || !font || !cell) return;
+
+    uint32_t cp = cell->ch;
+    if (cp == 0u || cp == (uint32_t)' ' || cp < 0x20u || cp == 0x7Fu) return;
+    if (terminal_codepoint_is_combining(cp)) return;
+
+    SDL_Color fg = term_color_from_rgba(cell->fg);
+    if (terminal_codepoint_is_box_drawing(cp)) {
+        terminal_draw_box_drawing_cell(renderer, x, y, cellW, cellH, fg, cp);
+        return;
+    }
+
+    bool bold = (cell->attrs & TERMINAL_ATTR_BOLD) != 0;
+    char enc[4];
+    int encLen = 0;
+    if (!terminal_font_has_glyph(font, cp)) {
+        cp = 0x25A1u; // white square fallback keeps unsupported glyphs cell-aligned.
+        if (!terminal_font_has_glyph(font, cp)) cp = (uint32_t)'?';
+    }
+    encLen = encode_codepoint_utf8(cp, enc);
+    char text[5] = {0};
+    for (int i = 0; i < encLen; ++i) text[i] = enc[i];
+    text[encLen] = '\0';
+    drawTextUTF8WithFontColor(x, y + textYOffset, text, font, fg, bold);
+}
+
+static uint32_t terminal_run_codepoint(const TermCell* cell) {
+    if (!cell) return (uint32_t)' ';
+    uint32_t cp = cell->ch;
+    if (cp == 0u || cp < 0x20u || cp == 0x7Fu || terminal_codepoint_is_combining(cp)) {
+        return (uint32_t)' ';
+    }
+    if ((cell->attrs & TERMINAL_ATTR_WIDE_CONTINUATION) != 0) {
+        return (uint32_t)' ';
+    }
+    return cp;
+}
+
+static void terminal_draw_text_run(SDL_Renderer* renderer,
+                                   TTF_Font* font,
+                                   const SDL_Rect* viewport,
+                                   int rowIndex,
+                                   int drawY,
+                                   int textYOffset,
+                                   int cellW,
+                                   int startCol,
+                                   int endCol) {
+    if (!renderer || !font || !viewport || startCol < 0 || endCol <= startCol) return;
+
+    const TermCell* first = terminal_projection_rowcol_to_cell(rowIndex, startCol);
+    if (!first) return;
+
+    size_t cap = (size_t)(endCol - startCol) * 4u + 1u;
+    char* text = (char*)malloc(cap);
+    if (!text) return;
+
+    size_t outLen = 0;
+    for (int c = startCol; c < endCol; ++c) {
+        const TermCell* cell = terminal_projection_rowcol_to_cell(rowIndex, c);
+        uint32_t cp = terminal_run_codepoint(cell);
+        char enc[4];
+        int encLen = encode_codepoint_utf8(cp, enc);
+        if (outLen + (size_t)encLen >= cap) break;
+        for (int i = 0; i < encLen; ++i) {
+            text[outLen++] = enc[i];
+        }
+    }
+    text[outLen] = '\0';
+
+    if (outLen > 0) {
+        SDL_Color fg = term_color_from_rgba(first->fg);
+        bool bold = (first->attrs & TERMINAL_ATTR_BOLD) != 0;
+        drawTextUTF8WithFontColor(viewport->x + startCol * cellW,
+                                  drawY + textYOffset,
+                                  text,
+                                  font,
+                                  fg,
+                                  bold);
+    }
+
+    free(text);
+}
+
+static void render_terminal_cell_row(SDL_Renderer* renderer,
+                                     TTF_Font* font,
+                                     const SDL_Rect* viewport,
+                                     int rowIndex,
+                                     int drawY,
+                                     int textYOffset,
+                                     int cols,
+                                     int cellW,
+                                     int cellH) {
+    if (!renderer || !font || !viewport || cols <= 0 || cellW <= 0 || cellH <= 0) return;
+
+    int c = 0;
+    while (c < cols) {
+        const TermCell* first = terminal_projection_rowcol_to_cell(rowIndex, c);
+        if (!first) {
+            c++;
+            continue;
+        }
+
+        int runStart = c;
+        int runEnd = c + 1;
+        while (runEnd < cols) {
+            const TermCell* next = terminal_projection_rowcol_to_cell(rowIndex, runEnd);
+            if (!terminal_cells_same_style(first, next)) break;
+            runEnd++;
+        }
+
+        int runCells = runEnd - runStart;
+        if (first->bg != TERMINAL_DEFAULT_BG) {
+            SDL_Color bg = term_color_from_rgba(first->bg);
+            SDL_Rect bgRect = {
+                viewport->x + runStart * cellW,
+                drawY,
+                runCells * cellW,
+                cellH
+            };
+            SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, bg.a);
+            SDL_RenderFillRect(renderer, &bgRect);
+        }
+
+        if ((first->attrs & TERMINAL_ATTR_UNDERLINE) != 0) {
+            SDL_Color fg = term_color_from_rgba(first->fg);
+            int underlineY = drawY + cellH - 3;
+            if (underlineY < drawY) underlineY = drawY + cellH - 1;
+            SDL_SetRenderDrawColor(renderer, fg.r, fg.g, fg.b, fg.a);
+            SDL_RenderDrawLine(renderer,
+                               viewport->x + runStart * cellW,
+                               underlineY,
+                               viewport->x + runEnd * cellW - 1,
+                               underlineY);
+        }
+
+        c = runEnd;
+    }
+
+    c = 0;
+    while (c < cols) {
+        const TermCell* cell = terminal_projection_rowcol_to_cell(rowIndex, c);
+        if (!cell) {
+            c++;
+            continue;
+        }
+        if (terminal_cell_needs_fixed_glyph_draw(font, cell)) {
+            terminal_draw_cell_glyph(renderer,
+                                     font,
+                                     viewport->x + c * cellW,
+                                     drawY,
+                                     textYOffset,
+                                     cellW,
+                                     cellH,
+                                     cell);
+            c++;
+            continue;
+        }
+        if (!terminal_cell_is_visible_text(cell)) {
+            c++;
+            continue;
+        }
+
+        int runStart = c;
+        int runEnd = c + 1;
+        while (runEnd < cols) {
+            const TermCell* next = terminal_projection_rowcol_to_cell(rowIndex, runEnd);
+            if (!terminal_cells_same_style(cell, next)) break;
+            if (terminal_cell_needs_fixed_glyph_draw(font, next)) break;
+            runEnd++;
+        }
+        terminal_draw_text_run(renderer,
+                               font,
+                               viewport,
+                               rowIndex,
+                               drawY,
+                               textYOffset,
+                               cellW,
+                               runStart,
+                               runEnd);
+        c = runEnd;
+    }
+}
+
+static void terminal_apply_scroll_layout(PaneScrollState* scroll,
+                                         float viewportHeight,
+                                         float contentHeight,
+                                         bool usingAlternate,
+                                         bool followingOutput) {
+    if (!scroll) return;
+
+    float preservedOffset = scroll_state_get_offset(scroll);
+    scroll_state_set_viewport(scroll, viewportHeight);
+    scroll_state_set_content_height(scroll, contentHeight);
+
+    if (usingAlternate) {
+        scroll->offset_px = 0.0f;
+        scroll->target_offset_px = 0.0f;
+        return;
+    }
+
+    float maxOffset = contentHeight - scroll->viewport_height_px;
+    if (maxOffset < 0.0f) maxOffset = 0.0f;
+
+    if (followingOutput) {
+        scroll->target_offset_px = maxOffset;
+        scroll->offset_px = maxOffset;
+        return;
+    }
+
+    scroll->offset_px = preservedOffset;
+    scroll->target_offset_px = preservedOffset;
+    scroll_state_clamp(scroll);
 }
 
 void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* core) {
@@ -197,7 +546,6 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     bool usingAlternate = haveStats ? stats.using_alternate : false;
 
     PaneScrollState* scroll = terminal_get_scroll_state();
-    scroll_state_set_viewport(scroll, (float)viewport.h);
     int contentRows = terminal_projection_row_count();
     if (usingAlternate) {
         int altRows = grid->viewport_rows;
@@ -208,30 +556,27 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     int cellH = terminal_cell_height();
     int cellW = terminal_cell_width();
     float contentHeight = (float)cellH * (float)contentRows;
-    scroll_state_set_content_height(scroll, contentHeight);
-
-    if (usingAlternate) {
-        scroll->offset_px = 0.0f;
-        scroll->target_offset_px = 0.0f;
-    } else if (terminal_is_following_output()) {
-        float maxOffset = contentHeight - scroll->viewport_height_px;
-        if (maxOffset < 0.0f) maxOffset = 0.0f;
-        scroll->target_offset_px = maxOffset;
-        scroll->offset_px = maxOffset;
-    } else {
-        scroll_state_clamp(scroll);
-    }
+    terminal_apply_scroll_layout(scroll,
+                                 (float)viewport.h,
+                                 contentHeight,
+                                 usingAlternate,
+                                 terminal_is_following_output());
 
     float offset = scroll_state_get_offset(scroll);
     if (usingAlternate) offset = 0.0f;
+    int rowsToFit = (viewport.h > 0 && cellH > 0) ? ((viewport.h + cellH - 1) / cellH) : 1;
+    if (rowsToFit < 1) rowsToFit = 1;
+    int maxFirstRow = contentRows - rowsToFit;
+    if (maxFirstRow < 0) maxFirstRow = 0;
     int firstRow = (cellH > 0) ? (int)(offset / (float)cellH) : 0;
-    if (firstRow < 0) firstRow = 0;
-    if (firstRow > contentRows) firstRow = contentRows;
-    float intraLineOffset = offset - (float)firstRow * (float)cellH;
-    float shortContentPad = 0.0f;
-    if (contentHeight < scroll->viewport_height_px) {
-        shortContentPad = scroll->viewport_height_px - contentHeight;
+    if (!usingAlternate && scroll && terminal_is_following_output()) {
+        firstRow = maxFirstRow;
     }
+    if (firstRow < 0) firstRow = 0;
+    if (firstRow > maxFirstRow) firstRow = maxFirstRow;
+    offset = (float)firstRow * (float)cellH;
+    float intraLineOffset = 0.0f;
+    float shortContentPad = 0.0f;
 
     pushClipRect(&viewport);
 
@@ -283,42 +628,15 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         }
 
         if (!font) continue;
-        if (usingAlternate) {
-            char* runBuf = (char*)malloc((size_t)cols * 4u + 1u);
-            if (!runBuf) continue;
-            int outLen = 0;
-            for (int c = 0; c < cols; ++c) {
-                const TermCell* cell = term_grid_cell(grid, rowIndex, c);
-                uint32_t cp = cell ? cell->ch : (uint32_t)' ';
-                if (cp == 0u) cp = (uint32_t)' ';
-                char enc[4];
-                int encLen = encode_codepoint_utf8(cp, enc);
-                if (outLen + encLen >= cols * 4) break;
-                for (int i = 0; i < encLen; ++i) runBuf[outLen++] = enc[i];
-            }
-            runBuf[outLen] = '\0';
-            if (outLen > 0) {
-                int textY = drawY + textYOffset;
-                SDL_Color fgColor = {220, 220, 226, 255};
-                drawTextUTF8WithFontColor(viewport.x, textY, runBuf, font, fgColor, false);
-            }
-            free(runBuf);
-        } else {
-            int lineLen = terminal_line_length(rowIndex, false);
-            if (lineLen > 0) {
-                // `lineLen` is in terminal cells, but UTF-8 output can need up to 4 bytes/cell.
-                int cap = cols * 4 + 1;
-                if (cap < lineLen + 1) cap = lineLen + 1;
-                char* lineBuf = (char*)malloc((size_t)cap);
-                if (lineBuf) {
-                    terminal_line_to_string(rowIndex, lineBuf, cap, false);
-                    SDL_Color fgColor = {220, 220, 226, 255};
-                    int textY = drawY + textYOffset;
-                    drawTextUTF8WithFontColor(viewport.x, textY, lineBuf, font, fgColor, false);
-                    free(lineBuf);
-                }
-            }
-        }
+        render_terminal_cell_row(renderer,
+                                 font,
+                                 &viewport,
+                                 rowIndex,
+                                 drawY,
+                                 textYOffset,
+                                 cols,
+                                 cellW,
+                                 cellH);
     }
 
     popClipRect();
@@ -347,39 +665,27 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         terminal_set_scroll_track(NULL, NULL);
     }
 
-    if (paneActive) {
-        // Caret at grid cursor position
-        int caretRow = haveStats ? stats.cursor_row : grid->cursor_row;
-        int caretCol = haveStats ? stats.cursor_col : grid->cursor_col;
-        if (!usingAlternate) {
-            int viewportRows = grid->viewport_rows;
-            if (viewportRows < 1 || viewportRows > grid->rows) viewportRows = grid->rows;
-            int usedRows = grid->used_rows;
-            if (usedRows < 1) usedRows = 1;
-            if (usedRows > grid->rows) usedRows = grid->rows;
-            int viewportStart = usedRows - viewportRows;
-            if (viewportStart < 0) viewportStart = 0;
-            int localRow = caretRow - viewportStart;
-            if (localRow < 0) localRow = 0;
-            if (localRow >= viewportRows) localRow = viewportRows - 1;
-            caretRow = stats.scrollback_rows + localRow;
-        }
-        if (caretRow < 0) caretRow = 0;
-        if (caretRow >= contentRows) caretRow = contentRows - 1;
+    if (paneActive && (!haveStats || stats.cursor_visible)) {
+        int caretRow = 0;
+        int caretCol = 0;
+        bool caretVisible = terminal_cursor_projection_position(&caretRow, &caretCol);
+        if (caretRow < firstRow || caretRow >= firstRow + rowsToRender) caretVisible = false;
         if (caretCol < 0) caretCol = 0;
         if (caretCol > cols) caretCol = cols;
 
-        int caretX = viewport.x + caretCol * cellW;
-        int caretY = viewport.y + (int)shortContentPad + (caretRow - firstRow) * cellH - (int)intraLineOffset;
-        int caretW = 2;
-        if (caretW > cellW) caretW = cellW;
-        int caretH = cellH - 2;
-        if (caretH < 2) caretH = 2;
-        caretY += 1;
-        if (caretY >= viewport.y && caretY < viewport.y + viewport.h) {
-            SDL_Rect caret = { caretX, caretY, caretW, caretH };
-            SDL_SetRenderDrawColor(renderer, 200, 200, 220, 220);
-            SDL_RenderFillRect(renderer, &caret);
+        if (caretVisible) {
+            int caretX = viewport.x + caretCol * cellW;
+            int caretY = viewport.y + (int)shortContentPad + (caretRow - firstRow) * cellH - (int)intraLineOffset;
+            int caretW = 2;
+            if (caretW > cellW) caretW = cellW;
+            int caretH = cellH - 2;
+            if (caretH < 2) caretH = 2;
+            caretY += 1;
+            if (caretY >= viewport.y && caretY < viewport.y + viewport.h) {
+                SDL_Rect caret = { caretX, caretY, caretW, caretH };
+                SDL_SetRenderDrawColor(renderer, 200, 200, 220, 220);
+                SDL_RenderFillRect(renderer, &caret);
+            }
         }
     }
 
@@ -388,21 +694,31 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         if (terminal_get_debug_stats(&stats)) {
             char lineA[128];
             char lineB[128];
+            char lineC[160];
             snprintf(lineA, sizeof(lineA),
                      "mode:%s cursor:%d,%d viewport:%dx%d",
                      stats.using_alternate ? "alt" : "primary",
                      stats.cursor_row, stats.cursor_col,
                      stats.viewport_rows, stats.viewport_cols);
             snprintf(lineB, sizeof(lineB),
-                     "scrollback:%d projected:%d",
-                     stats.scrollback_rows, stats.projected_rows);
-            SDL_Rect overlay = { viewport.x + 8, viewport.y + 8, 280, 34 };
+                     "journal:%d scrollback:%d projected:%d",
+                     stats.journal_rows, stats.scrollback_rows, stats.projected_rows);
+            snprintf(lineC, sizeof(lineC),
+                     "first:%d offset:%.1f follow:%d commits:%llu journal:%llu drops:%llu",
+                     firstRow,
+                     offset,
+                     stats.follow_output ? 1 : 0,
+                     stats.scrollback_commits,
+                     stats.journal_inserts,
+                     stats.journal_drops);
+            SDL_Rect overlay = { viewport.x + 8, viewport.y + 8, 520, 50 };
             SDL_SetRenderDrawColor(renderer, 20, 26, 34, 220);
             SDL_RenderFillRect(renderer, &overlay);
             SDL_SetRenderDrawColor(renderer, 90, 120, 180, 220);
             SDL_RenderDrawRect(renderer, &overlay);
             drawTextWithTier(overlay.x + 6, overlay.y + 3, lineA, CORE_FONT_TEXT_SIZE_CAPTION);
             drawTextWithTier(overlay.x + 6, overlay.y + 17, lineB, CORE_FONT_TEXT_SIZE_CAPTION);
+            drawTextWithTier(overlay.x + 6, overlay.y + 31, lineC, CORE_FONT_TEXT_SIZE_CAPTION);
         }
     }
 }

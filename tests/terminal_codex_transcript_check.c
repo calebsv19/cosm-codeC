@@ -10,6 +10,18 @@ static TermCell* at(TermGrid* g, int r, int c) {
     return cell;
 }
 
+static void feed(TermGrid* g, const char* text) {
+    term_emulator_feed(g, text, strlen(text));
+}
+
+static void feed_box_separator(TermGrid* g, int cells) {
+    feed(g, "\x1b[90m");
+    for (int i = 0; i < cells; ++i) {
+        term_emulator_feed(g, "\xE2\x94\x80", 3); // U+2500 box drawings light horizontal.
+    }
+    feed(g, "\x1b[0m\n");
+}
+
 static void test_codex_like_transcript(void) {
     TermGrid g;
     term_grid_init(&g, 10, 40);
@@ -54,6 +66,54 @@ static void test_codex_like_transcript(void) {
     term_grid_free(&g);
 }
 
+static void test_codex_ui_pattern_replay(void) {
+    TermGrid g;
+    term_grid_init(&g, 12, 80);
+
+    feed(&g, "\x1b[1m\xE2\x80\xA2 Explored\x1b[0m\n");
+    feed(&g, "  \x1b[38;5;45mRead\x1b[39m architecture.md, README.md, Makefile, current_truth.md\n");
+    feed_box_separator(&g, 64);
+    feed(&g, "\xE2\x80\xA2 This repo is a C/SDL simulation app called \x1b[36mgravity_orbit_sim\x1b[39m.\n");
+    feed(&g, "- Entry/app wrapper: \x1b[36msrc/main.c\x1b[39m, \x1b[36msrc/app/gravity_orbit_sim_app_main.c\x1b[39m\n");
+    feed_box_separator(&g, 64);
+    feed(&g, "\x1b[33mgpt-5.3-codex medium\x1b[39m \xC2\xB7 \x1b[32m~/Desktop/CodeWork/gravity_orbit_sim\x1b[39m\n");
+    feed(&g, "\xE2\x80\xBA Write tests for @filename");
+
+    assert(at(&g, 0, 0)->ch == 0x2022u);
+    assert((at(&g, 0, 2)->attrs & (1u << 0)) != 0);
+
+    assert(at(&g, 1, 2)->ch == 'R');
+    assert(at(&g, 1, 2)->fg == 0x00D7FFFFu);
+    assert(at(&g, 1, 7)->ch == 'a');
+    assert(at(&g, 1, 7)->fg == 0xFFFFFFFFu);
+
+    for (int c = 0; c < 64; ++c) {
+        assert(at(&g, 2, c)->ch == 0x2500u);
+        assert(at(&g, 2, c)->fg == 0x555555FFu);
+        assert(at(&g, 5, c)->ch == 0x2500u);
+        assert(at(&g, 5, c)->fg == 0x555555FFu);
+    }
+
+    assert(at(&g, 3, 45)->ch == 'g');
+    assert(at(&g, 3, 45)->fg == 0x00AAAAFFu);
+    assert(at(&g, 4, 21)->ch == 's');
+    assert(at(&g, 4, 21)->fg == 0x00AAAAFFu);
+
+    assert(at(&g, 6, 0)->ch == 'g');
+    assert(at(&g, 6, 0)->fg == 0xAA5500FFu);
+    assert(at(&g, 6, 21)->ch == 0x00B7u);
+    assert(at(&g, 6, 23)->ch == '~');
+    assert(at(&g, 6, 23)->fg == 0x00AA00FFu);
+
+    assert(at(&g, 7, 0)->ch == 0x203Au);
+    assert(at(&g, 7, 2)->ch == 'W');
+    assert(g.cursor_row == 7);
+    assert(g.cursor_col == 27);
+    assert(g.cursor_visible == 1);
+
+    term_grid_free(&g);
+}
+
 static void test_wrapping_stability(void) {
     TermGrid g;
     term_grid_init(&g, 4, 8);
@@ -72,6 +132,7 @@ static void test_wrapping_stability(void) {
 
 int main(void) {
     test_codex_like_transcript();
+    test_codex_ui_pattern_replay();
     test_wrapping_stability();
     printf("terminal_codex_transcript_check: ok\n");
     return 0;

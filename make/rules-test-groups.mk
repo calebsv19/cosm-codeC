@@ -1,6 +1,7 @@
 .PHONY: test-list
 test-list:
 	@echo "Smoke tests:      $(TEST_SMOKE_TARGETS)"
+	@echo "Terminal tests:   $(TEST_TERMINAL_TARGETS)"
 	@echo "IDE bridge stable: $(TEST_IDEBRIDGE_STABLE_TARGETS)"
 	@echo "IDE bridge legacy: $(TEST_IDEBRIDGE_LEGACY_TARGETS)"
 	@echo "Extended tests:   $(TEST_EXTENDED_TARGETS)"
