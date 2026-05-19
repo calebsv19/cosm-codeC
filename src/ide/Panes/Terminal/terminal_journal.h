@@ -6,8 +6,11 @@
 typedef struct TerminalJournal {
     TermCell* rows;
     int row_count;
+    int durable_count;
+    int live_count;
     int cap_rows;
     int cols;
+    int scrollback_rows_seen;
     unsigned long long capture_count;
     unsigned long long insert_count;
     unsigned long long append_count;

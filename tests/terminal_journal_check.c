@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -21,6 +22,14 @@ static void write_row(TermGrid* grid, int row, const char* text) {
     }
 }
 
+static void clear_rows(TermGrid* grid) {
+    assert(grid != NULL);
+    for (int r = 0; r < grid->rows; ++r) {
+        write_row(grid, r, "");
+    }
+    grid->used_rows = grid->rows;
+}
+
 static void assert_row_text(const TerminalJournal* journal, int row, const char* text) {
     const TermCell* cells = terminal_journal_row(journal, row);
     assert(cells != NULL);
@@ -30,7 +39,32 @@ static void assert_row_text(const TerminalJournal* journal, int row, const char*
     }
 }
 
-static void test_journal_merges_expanded_viewport_prefix_and_suffix(void) {
+static int count_rows_containing(const TerminalJournal* journal, const char* text) {
+    assert(journal != NULL);
+    assert(text != NULL);
+    int count = 0;
+    int len = (int)strlen(text);
+    for (int r = 0; r < terminal_journal_count(journal); ++r) {
+        const TermCell* cells = terminal_journal_row(journal, r);
+        assert(cells != NULL);
+        for (int c = 0; c <= journal->cols - len; ++c) {
+            bool match = true;
+            for (int i = 0; i < len; ++i) {
+                if (cells[c + i].ch != (unsigned char)text[i]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                count++;
+                break;
+            }
+        }
+    }
+    return count;
+}
+
+static void test_journal_replaces_live_viewport_on_expand(void) {
     TermGrid grid;
     term_grid_init(&grid, 6, 16);
     TerminalJournal journal;
@@ -59,7 +93,7 @@ static void test_journal_merges_expanded_viewport_prefix_and_suffix(void) {
     term_grid_free(&grid);
 }
 
-static void test_journal_appends_new_tail_from_scrolling_snapshot(void) {
+static void test_journal_replaces_shifted_live_viewport_without_append(void) {
     TermGrid grid;
     term_grid_init(&grid, 6, 16);
     TerminalJournal journal;
@@ -73,11 +107,28 @@ static void test_journal_appends_new_tail_from_scrolling_snapshot(void) {
     terminal_journal_capture_viewport(&journal, &grid, 0, 3, 2);
     terminal_journal_capture_viewport(&journal, &grid, 1, 3, 3);
 
-    assert(terminal_journal_count(&journal) == 4);
+    assert(terminal_journal_count(&journal) == 3);
+    assert_row_text(&journal, 0, "bravo");
+    assert_row_text(&journal, 1, "charlie");
+    assert_row_text(&journal, 2, "delta");
+
+    terminal_journal_free(&journal);
+    term_grid_free(&grid);
+}
+
+static void test_journal_appends_explicit_scrollback_rows_as_durable(void) {
+    TermGrid grid;
+    term_grid_init(&grid, 3, 16);
+    term_grid_set_scrollback_cap(&grid, 16);
+    TerminalJournal journal;
+    terminal_journal_init(&journal, 32, grid.cols);
+
+    term_emulator_feed(&grid, "alpha\nbravo\ncharlie\ndelta\n", 26);
+    terminal_journal_capture_viewport(&journal, &grid, 0, grid.rows, grid.cursor_row);
+
+    assert(term_grid_scrollback_count(&grid) > 0);
+    assert(journal.durable_count == term_grid_scrollback_count(&grid));
     assert_row_text(&journal, 0, "alpha");
-    assert_row_text(&journal, 1, "bravo");
-    assert_row_text(&journal, 2, "charlie");
-    assert_row_text(&journal, 3, "delta");
 
     terminal_journal_free(&journal);
     term_grid_free(&grid);
@@ -134,11 +185,130 @@ static void test_journal_replaces_live_prompt_row_during_typing(void) {
     term_grid_free(&grid);
 }
 
+static void test_journal_replaces_repainted_codex_footer(void) {
+    TermGrid grid;
+    term_grid_init(&grid, 6, 80);
+    TerminalJournal journal;
+    terminal_journal_init(&journal, 32, grid.cols);
+
+    write_row(&grid, 0, "OpenAI Codex");
+    write_row(&grid, 1, "Run /review on my current changes");
+    write_row(&grid, 2, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/gravity_orbit_sim");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 3, 1);
+    assert(terminal_journal_count(&journal) == 3);
+
+    write_row(&grid, 2, "gpt-5.4-mini high          .     ~/Desktop/CodeWork/gravity_orbit_sim");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 3, 1);
+    assert(terminal_journal_count(&journal) == 3);
+    assert_row_text(&journal, 2, "gpt-5.4-mini high");
+
+    terminal_journal_free(&journal);
+    term_grid_free(&grid);
+}
+
+static void test_journal_replaces_repainted_progress_status(void) {
+    TermGrid grid;
+    term_grid_init(&grid, 6, 80);
+    TerminalJournal journal;
+    terminal_journal_init(&journal, 32, grid.cols);
+
+    write_row(&grid, 0, "OpenAI Codex");
+    write_row(&grid, 1, "Booting MCP server: codex_apps (0s - esc to interrupt)");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 2, 1);
+    assert(terminal_journal_count(&journal) == 2);
+
+    write_row(&grid, 1, "Booting MCP server: codex_apps (1s - esc to interrupt)");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 2, 1);
+    assert(terminal_journal_count(&journal) == 2);
+    assert_row_text(&journal, 1, "Booting MCP server: codex_apps (1s");
+
+    terminal_journal_free(&journal);
+    term_grid_free(&grid);
+}
+
+static void test_codex_startup_repaint_and_resize_stays_live(void) {
+    TermGrid grid;
+    term_grid_init(&grid, 8, 80);
+    TerminalJournal journal;
+    terminal_journal_init(&journal, 64, grid.cols);
+
+    write_row(&grid, 0, "[Terminal] Started shell");
+    write_row(&grid, 1, "calebsv@Mac ide % codex");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 2, 1);
+    assert(terminal_journal_count(&journal) == 2);
+
+    clear_rows(&grid);
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "Booting MCP server: codex_apps (0s - esc to interrupt)");
+    write_row(&grid, 6, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 7, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 7);
+    assert_row_text(&journal, 0, "calebsv@Mac ide % codex");
+    assert(count_rows_containing(&journal, "OpenAI Codex") == 1);
+
+    write_row(&grid, 1, "Booting MCP server: codex_apps (1s - esc to interrupt)");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 7);
+    assert_row_text(&journal, 0, "calebsv@Mac ide % codex");
+    assert(count_rows_containing(&journal, "OpenAI Codex") == 1);
+    assert(count_rows_containing(&journal, "Booting MCP server") == 1);
+
+    term_grid_resize(&grid, 10, 80);
+    clear_rows(&grid);
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "Booting MCP server: codex_apps (2s - esc to interrupt)");
+    write_row(&grid, 8, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 9, "\xE2\x80\xBA ");
+    terminal_journal_configure(&journal, 64, grid.cols);
+    terminal_journal_capture_viewport(&journal, &grid, 0, 10, 9);
+    assert_row_text(&journal, 0, "calebsv@Mac ide % codex");
+    assert(count_rows_containing(&journal, "OpenAI Codex") == 1);
+    assert(count_rows_containing(&journal, "Booting MCP server") == 1);
+
+    terminal_journal_free(&journal);
+    term_grid_free(&grid);
+}
+
+static void test_codex_disappeared_transcript_rows_become_scrollback(void) {
+    TermGrid grid;
+    term_grid_init(&grid, 8, 80);
+    TerminalJournal journal;
+    terminal_journal_init(&journal, 64, grid.cols);
+
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "• Explored");
+    write_row(&grid, 2, "  Read architecture.md and terminal_journal.c");
+    write_row(&grid, 6, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 7, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 7);
+    assert(terminal_journal_count(&journal) == 8);
+
+    clear_rows(&grid);
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "Working (1s - esc to interrupt)");
+    write_row(&grid, 6, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 7, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 7);
+
+    assert(journal.durable_count == 2);
+    assert_row_text(&journal, 0, "• Explored");
+    assert_row_text(&journal, 1, "  Read architecture.md and terminal_journal.c");
+    assert(count_rows_containing(&journal, "OpenAI Codex") == 1);
+    assert(count_rows_containing(&journal, "Working (1s") == 1);
+
+    terminal_journal_free(&journal);
+    term_grid_free(&grid);
+}
+
 int main(void) {
-    test_journal_merges_expanded_viewport_prefix_and_suffix();
-    test_journal_appends_new_tail_from_scrolling_snapshot();
+    test_journal_replaces_live_viewport_on_expand();
+    test_journal_replaces_shifted_live_viewport_without_append();
+    test_journal_appends_explicit_scrollback_rows_as_durable();
     test_journal_preserves_internal_blank_rows();
     test_journal_replaces_live_prompt_row_during_typing();
+    test_journal_replaces_repainted_codex_footer();
+    test_journal_replaces_repainted_progress_status();
+    test_codex_startup_repaint_and_resize_stays_live();
+    test_codex_disappeared_transcript_rows_become_scrollback();
     printf("terminal_journal_check: ok\n");
     return 0;
 }
