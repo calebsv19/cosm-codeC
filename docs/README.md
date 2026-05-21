@@ -1,7 +1,9 @@
-# IDE Docs Index
+# codeC Docs Index
 
-Start here for public IDE documentation.
+Start here for public codeC documentation.
 Last audited: 2026-05-04.
+
+Repository and source-level identifiers still use `ide`.
 
 ## Scaffold State
 - `docs/current_truth.md`: current scaffold/runtime structure and verification snapshot.
@@ -9,8 +11,10 @@ Last audited: 2026-05-04.
 - post-scaffold font-size lane is complete and tracked in `docs/current_truth.md`.
 - Intel macOS `x86_64` packaging parity is complete and tracked in `docs/current_truth.md` and `docs/desktop_packaging.md`.
 - migration-friendly verification gate lanes:
-  - `make -C ide run-headless-smoke`
-  - `make -C ide visual-harness`
+  - `make -C ide run-headless-smoke`:
+    aggregate non-interactive smoke coverage
+  - `make -C ide visual-harness`:
+    build-only visual readiness, not an unattended runtime pass
   - `make -C ide test-stable`
   - `make -C ide test-legacy`
 

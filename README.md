@@ -1,8 +1,10 @@
-# Custom C IDE
+# codeC
 
-*A minimalist IDE and pane-based code editor built from scratch for C projects and beyond.*
+*A minimalist pane-based code editor built from scratch for C projects and beyond.*
 
-This is an experimental IDE designed for full control over input handling, editor behavior, and rendering. It is being
+The repository and source-level program key remain `ide`.
+
+This is an experimental desktop IDE designed for full control over input handling, editor behavior, and rendering. It is being
 developed as part of a broader ecosystem for simulation, compiler development, and creative coding tools.
 
 ---
@@ -106,6 +108,16 @@ make run-ide-theme-hud
 ```
 
 Optional: set `IDE_DEFAULT_WORKSPACE=/path/to/project` to choose the default workspace directory on first launch.
+
+Startup workspace precedence is:
+
+1. stored workspace path from `~/.custom_c_ide/config.ini` when it still exists
+2. `IDE_DEFAULT_WORKSPACE` when set to a valid directory
+3. `~/Desktop/CodeWork` when that directory exists
+4. the current working directory as the final fallback
+
+If the stored workspace is unavailable, codeC warns and falls back to the next
+valid default workspace root instead of reusing the broken path.
 
 Current release version:
 

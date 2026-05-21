@@ -1,5 +1,6 @@
 #include "project.h"
 #include "core_state.h"
+#include "workspace_startup_policy.h"
 #include "workspace_prefs.h"
 #include "core/Watcher/file_watcher.h"
 #include "ide/Panes/PaneInfo/pane.h" // for UIPane
@@ -22,22 +23,15 @@ static bool project_loader_debug_enabled(void) {
 }
 
 static void resolveDefaultWorkspacePath(char* out, size_t out_cap) {
+    char cwd_path[1024];
+    const char* cwd = getcwd(cwd_path, sizeof(cwd_path)) != NULL ? cwd_path : NULL;
     if (!out || out_cap == 0) return;
     out[0] = '\0';
-
-    const char* overridePath = getenv("IDE_DEFAULT_WORKSPACE");
-    if (overridePath && overridePath[0]) {
-        snprintf(out, out_cap, "%s", overridePath);
-        return;
-    }
-
-    const char* home = getenv("HOME");
-    if (home && home[0]) {
-        snprintf(out, out_cap, "%s/Desktop/CodeWork", home);
-        return;
-    }
-
-    if (getcwd(out, out_cap) == NULL) {
+    if (!ide_workspace_startup_build_default_root(getenv("IDE_DEFAULT_WORKSPACE"),
+                                                  getenv("HOME"),
+                                                  cwd,
+                                                  out,
+                                                  out_cap)) {
         snprintf(out, out_cap, ".");
     }
 }

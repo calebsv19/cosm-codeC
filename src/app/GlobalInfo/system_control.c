@@ -2,6 +2,7 @@
 #include "system_control.h"
 #include "core_state.h"
 #include "runtime_paths.h"
+#include "workspace_startup_policy.h"
 
 #include "project.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
@@ -165,22 +166,16 @@ static void ensureIdeFilesDir(const char* root) {
 
 static const char* getDefaultWorkspacePath(void) {
     static char fallbackPath[1024];
-    const char* overridePath = getenv("IDE_DEFAULT_WORKSPACE");
-    if (overridePath && overridePath[0]) {
-        return overridePath;
+    char cwdPath[1024];
+    const char* cwd = getcwd(cwdPath, sizeof(cwdPath)) != NULL ? cwdPath : NULL;
+    if (!ide_workspace_startup_build_default_root(getenv("IDE_DEFAULT_WORKSPACE"),
+                                                  getenv("HOME"),
+                                                  cwd,
+                                                  fallbackPath,
+                                                  sizeof(fallbackPath))) {
+        snprintf(fallbackPath, sizeof(fallbackPath), ".");
     }
-
-    const char* home = getenv("HOME");
-    if (home && home[0]) {
-        snprintf(fallbackPath, sizeof(fallbackPath), "%s/Desktop/CodeWork", home);
-        return fallbackPath;
-    }
-
-    if (getcwd(fallbackPath, sizeof(fallbackPath)) != NULL) {
-        return fallbackPath;
-    }
-
-    return ".";
+    return fallbackPath;
 }
 
 static void loadInitialWorkspace(void) {
@@ -188,25 +183,24 @@ static void loadInitialWorkspace(void) {
     static char workspaceUnavailableMessage[1200];
     const char* requestedPath = getWorkspacePath();
     const char* defaultPath = getDefaultWorkspacePath();
+    char selectedPath[1024];
     const char* finalPath = NULL;
+    bool requestedPathValid = pathIsDirectory(requestedPath);
+    bool defaultPathValid = pathIsDirectory(defaultPath);
     bool pathChanged = false;
 
-    if (pathIsDirectory(requestedPath)) {
-        finalPath = requestedPath;
-    } else {
+    if (!ide_workspace_startup_select_root(requestedPath,
+                                           requestedPathValid,
+                                           defaultPath,
+                                           defaultPathValid,
+                                           selectedPath,
+                                           sizeof(selectedPath),
+                                           &pathChanged)) {
         if (requestedPath && requestedPath[0]) {
             fprintf(stderr, "[Workspace] Stored workspace unavailable: %s\n", requestedPath);
         }
-
-        if (pathIsDirectory(defaultPath)) {
-            finalPath = defaultPath;
-            pathChanged = true;
-            snprintf(workspaceFallbackMessage,
-                     sizeof(workspaceFallbackMessage),
-                     "Stored workspace unavailable. Switched to default workspace root: %s",
-                     finalPath);
-            enqueuePopup(POPUP_TYPE_WARNING, workspaceFallbackMessage);
-        }
+    } else {
+        finalPath = selectedPath;
     }
 
     if (!finalPath) {
@@ -217,6 +211,14 @@ static void loadInitialWorkspace(void) {
         enqueuePopup(POPUP_TYPE_ERROR, workspaceUnavailableMessage);
         projectRoot = NULL;
         return;
+    }
+
+    if (pathChanged) {
+        snprintf(workspaceFallbackMessage,
+                 sizeof(workspaceFallbackMessage),
+                 "Stored workspace unavailable. Switched to default workspace root: %s",
+                 finalPath);
+        enqueuePopup(POPUP_TYPE_WARNING, workspaceFallbackMessage);
     }
 
     ide_apply_workspace_root_input(finalPath, pathChanged);

@@ -40,6 +40,15 @@ test-runtime-startup-defaults:
 	@$(RUNTIME_STARTUP_DEFAULTS_TEST_OUT) || (echo "runtime startup defaults test failed."; exit 1)
 	@echo "Runtime startup defaults test passed."
 
+.PHONY: test-workspace-startup-policy
+test-workspace-startup-policy:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling workspace startup policy test..."
+	@$(CC) $(CFLAGS) $(INC_DIRS) tests/workspace_startup_policy_test.c src/app/GlobalInfo/workspace_startup_policy.c -o $(WORKSPACE_STARTUP_POLICY_TEST_OUT) $(LIB_DIRS) || (echo "workspace startup policy test compile failed."; exit 1)
+	@echo "Running workspace startup policy test..."
+	@$(WORKSPACE_STARTUP_POLICY_TEST_OUT) || (echo "workspace startup policy test failed."; exit 1)
+	@echo "Workspace startup policy test passed."
+
 .PHONY: test-terminal-grid-phase1
 test-terminal-grid-phase1:
 	@mkdir -p $(TEST_BUILD_DIR)
