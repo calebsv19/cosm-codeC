@@ -299,6 +299,75 @@ static void test_codex_disappeared_transcript_rows_become_scrollback(void) {
     term_grid_free(&grid);
 }
 
+static void test_codex_pending_rows_survive_blank_intermediate_capture(void) {
+    TermGrid grid;
+    term_grid_init(&grid, 8, 80);
+    TerminalJournal journal;
+    terminal_journal_init(&journal, 64, grid.cols);
+
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "• Edited");
+    write_row(&grid, 2, "  Updated terminal_journal.c with pending rows");
+    write_row(&grid, 6, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 7, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 7);
+    assert(journal.pending_count == 2);
+
+    clear_rows(&grid);
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 0);
+
+    assert(journal.durable_count == 2);
+    assert(journal.pending_count == 0);
+    assert_row_text(&journal, 0, "• Edited");
+    assert_row_text(&journal, 1, "  Updated terminal_journal.c with pending rows");
+
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "Working (1s - esc to interrupt)");
+    write_row(&grid, 6, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 7, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 7);
+
+    assert(journal.durable_count == 2);
+    assert(count_rows_containing(&journal, "OpenAI Codex") == 1);
+    assert(count_rows_containing(&journal, "Working (1s") == 1);
+
+    terminal_journal_free(&journal);
+    term_grid_free(&grid);
+}
+
+static void test_codex_pending_rows_are_not_duplicated_while_visible(void) {
+    TermGrid grid;
+    term_grid_init(&grid, 8, 80);
+    TerminalJournal journal;
+    terminal_journal_init(&journal, 64, grid.cols);
+
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "• Analyzed");
+    write_row(&grid, 2, "  Found terminal history gap");
+    write_row(&grid, 6, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 7, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 7);
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 7);
+
+    assert(journal.durable_count == 0);
+    assert(journal.pending_count == 2);
+    assert(count_rows_containing(&journal, "• Analyzed") == 1);
+
+    clear_rows(&grid);
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "Thinking (2s - esc to interrupt)");
+    write_row(&grid, 6, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 7, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 7);
+
+    assert(journal.durable_count == 2);
+    assert(count_rows_containing(&journal, "• Analyzed") == 1);
+    assert(count_rows_containing(&journal, "Found terminal history gap") == 1);
+
+    terminal_journal_free(&journal);
+    term_grid_free(&grid);
+}
+
 int main(void) {
     test_journal_replaces_live_viewport_on_expand();
     test_journal_replaces_shifted_live_viewport_without_append();
@@ -309,6 +378,8 @@ int main(void) {
     test_journal_replaces_repainted_progress_status();
     test_codex_startup_repaint_and_resize_stays_live();
     test_codex_disappeared_transcript_rows_become_scrollback();
+    test_codex_pending_rows_survive_blank_intermediate_capture();
+    test_codex_pending_rows_are_not_duplicated_while_visible();
     printf("terminal_journal_check: ok\n");
     return 0;
 }

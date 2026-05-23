@@ -5,9 +5,12 @@
 
 typedef struct TerminalJournal {
     TermCell* rows;
+    TermCell* pending_rows;
     int row_count;
     int durable_count;
     int live_count;
+    int pending_count;
+    int pending_cap_rows;
     int cap_rows;
     int cols;
     int scrollback_rows_seen;

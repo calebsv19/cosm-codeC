@@ -1,11 +1,13 @@
 #include "ide/Panes/Terminal/terminal_journal.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 static const uint32_t kJournalDefaultFg = 0xFFFFFFFFu;
 static const uint32_t kJournalDefaultBg = 0x000000FFu;
+static const int kJournalPendingCapRows = 128;
 
 static void journal_fill_row(TermCell* row, int cols) {
     if (!row || cols <= 0) return;
@@ -47,11 +49,6 @@ static bool rows_equal(const TermCell* a, int a_cols, const TermCell* b, int b_c
     }
     return true;
 }
-
-static int journal_find_recent_equal(const TerminalJournal* journal,
-                                     const TermCell* row,
-                                     int row_cols,
-                                     int max_lookback);
 
 static bool row_contains_ascii(const TermCell* row, int cols, const char* needle) {
     if (!row || cols <= 0 || !needle || !needle[0]) return false;
@@ -109,6 +106,12 @@ static bool row_is_codex_live_control(const TermCell* row, int cols) {
     if (first >= 0) {
         uint32_t ch = row[first].ch;
         if (ch == 0x203Au || ch == (uint32_t)'>') return true;
+        if (first + 2 < cols &&
+            row[first].ch == 0xE2u &&
+            row[first + 1].ch == 0x80u &&
+            row[first + 2].ch == 0xBAu) {
+            return true;
+        }
     }
     return false;
 }
@@ -142,6 +145,31 @@ static bool rows_contain_equal(const TermCell* rows,
     return false;
 }
 
+static bool journal_trace_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char* value = getenv("IDE_TERMINAL_JOURNAL_TRACE");
+        cached = (value && value[0] && strcmp(value, "0") != 0) ? 1 : 0;
+    }
+    return cached != 0;
+}
+
+static void journal_trace_row(const char* event, const TermCell* row, int cols) {
+    if (!journal_trace_enabled() || !event || !row || cols <= 0) return;
+    fprintf(stderr, "[terminal_journal] %s: ", event);
+    for (int c = 0; c < cols; ++c) {
+        uint32_t ch = row[c].ch ? row[c].ch : (uint32_t)' ';
+        if (ch == (uint32_t)' ') {
+            fputc(' ', stderr);
+        } else if (ch >= 32u && ch <= 126u) {
+            fputc((int)ch, stderr);
+        } else {
+            fprintf(stderr, "\\u%04x", (unsigned int)ch);
+        }
+    }
+    fputc('\n', stderr);
+}
+
 static void journal_drop_front(TerminalJournal* journal, int rows) {
     if (!journal || rows <= 0 || journal->row_count <= 0) return;
     if (rows >= journal->row_count) {
@@ -167,14 +195,13 @@ static void journal_drop_front(TerminalJournal* journal, int rows) {
     journal->drop_count += (unsigned long long)rows;
 }
 
-static int journal_find_recent_equal(const TerminalJournal* journal,
-                                     const TermCell* row,
-                                     int row_cols,
-                                     int max_lookback) {
-    if (!journal || !row || row_cols <= 0 || max_lookback <= 0) return -1;
-    int start = journal->row_count - max_lookback;
-    if (start < 0) start = 0;
-    for (int i = journal->row_count - 1; i >= start; --i) {
+static int journal_find_durable_equal(const TerminalJournal* journal,
+                                      const TermCell* row,
+                                      int row_cols) {
+    if (!journal || !row || row_cols <= 0) return -1;
+    int limit = journal->durable_count;
+    if (limit > journal->row_count) limit = journal->row_count;
+    for (int i = limit - 1; i >= 0; --i) {
         const TermCell* candidate = terminal_journal_row(journal, i);
         if (candidate && rows_equal(candidate, journal->cols, row, row_cols)) return i;
     }
@@ -224,6 +251,7 @@ static void journal_append_durable_row(TerminalJournal* journal, const TermCell*
     journal_insert_one_raw(journal, index, row, row_cols);
     journal->durable_count = index + 1;
     if (journal->durable_count > journal->row_count) journal->durable_count = journal->row_count;
+    journal_trace_row("durable", row, row_cols);
 }
 
 static void journal_replace_live_tail(TerminalJournal* journal,
@@ -271,7 +299,7 @@ static void journal_commit_submitted_command_if_needed(TerminalJournal* journal,
         const TermCell* live = terminal_journal_row(journal, i);
         if (!live || !row_is_shell_command_candidate(live, journal->cols)) continue;
         if (rows_contain_equal(snap, snap_count, snap_cols, live, journal->cols)) continue;
-        if (journal_find_recent_equal(journal, live, journal->cols, journal->durable_count) >= 0) continue;
+        if (journal_find_durable_equal(journal, live, journal->cols) >= 0) continue;
         TermCell* copy = (TermCell*)malloc((size_t)journal->cols * sizeof(TermCell));
         if (!copy) return;
         memcpy(copy, live, (size_t)journal->cols * sizeof(TermCell));
@@ -301,10 +329,117 @@ static void journal_commit_disappeared_codex_rows(TerminalJournal* journal,
         const TermCell* live = live_copy + (size_t)i * (size_t)cols;
         if (row_is_codex_live_control(live, cols)) continue;
         if (rows_contain_equal(snap, snap_count, snap_cols, live, cols)) continue;
-        if (journal_find_recent_equal(journal, live, cols, journal->durable_count) >= 0) continue;
+        if (journal_find_durable_equal(journal, live, cols) >= 0) continue;
         journal_append_durable_row(journal, live, cols);
     }
     free(live_copy);
+}
+
+static int journal_pending_find_equal(const TerminalJournal* journal, const TermCell* row, int row_cols) {
+    if (!journal || !journal->pending_rows || !row || row_cols <= 0) return -1;
+    for (int i = journal->pending_count - 1; i >= 0; --i) {
+        const TermCell* candidate = journal->pending_rows + (size_t)i * (size_t)journal->cols;
+        if (rows_equal(candidate, journal->cols, row, row_cols)) return i;
+    }
+    return -1;
+}
+
+static bool journal_pending_configure(TerminalJournal* journal, int cols) {
+    if (!journal || cols <= 0) return false;
+    if (journal->pending_rows && journal->pending_cap_rows == kJournalPendingCapRows && journal->cols == cols) {
+        return true;
+    }
+
+    TermCell* old_rows = journal->pending_rows;
+    int old_count = journal->pending_count;
+    int old_cols = journal->cols;
+
+    TermCell* next = (TermCell*)malloc((size_t)kJournalPendingCapRows * (size_t)cols * sizeof(TermCell));
+    if (!next) return false;
+    for (int r = 0; r < kJournalPendingCapRows; ++r) {
+        journal_fill_row(next + (size_t)r * (size_t)cols, cols);
+    }
+
+    int copy_count = old_count;
+    if (copy_count > kJournalPendingCapRows) copy_count = kJournalPendingCapRows;
+    if (old_rows && old_cols > 0) {
+        int copy_cols = old_cols < cols ? old_cols : cols;
+        for (int r = 0; r < copy_count; ++r) {
+            const TermCell* src = old_rows + (size_t)r * (size_t)old_cols;
+            TermCell* dst = next + (size_t)r * (size_t)cols;
+            memcpy(dst, src, (size_t)copy_cols * sizeof(TermCell));
+        }
+    }
+
+    free(old_rows);
+    journal->pending_rows = next;
+    journal->pending_count = copy_count;
+    journal->pending_cap_rows = kJournalPendingCapRows;
+    return true;
+}
+
+static void journal_pending_add(TerminalJournal* journal, const TermCell* row, int row_cols) {
+    if (!journal || !row || row_cols <= 0) return;
+    if (row_is_codex_live_control(row, row_cols)) return;
+    if (journal_find_durable_equal(journal, row, row_cols) >= 0) return;
+    if (!journal_pending_configure(journal, journal->cols)) return;
+    if (journal_pending_find_equal(journal, row, row_cols) >= 0) return;
+
+    if (journal->pending_count >= journal->pending_cap_rows) {
+        memmove(journal->pending_rows,
+                journal->pending_rows + (size_t)journal->cols,
+                (size_t)(journal->pending_cap_rows - 1) * (size_t)journal->cols * sizeof(TermCell));
+        journal->pending_count = journal->pending_cap_rows - 1;
+    }
+
+    TermCell* dst = journal->pending_rows + (size_t)journal->pending_count * (size_t)journal->cols;
+    int copy_cols = row_cols < journal->cols ? row_cols : journal->cols;
+    journal_fill_row(dst, journal->cols);
+    memcpy(dst, row, (size_t)copy_cols * sizeof(TermCell));
+    journal->pending_count++;
+    journal_trace_row("pending", row, row_cols);
+}
+
+static void journal_pending_remove_at(TerminalJournal* journal, int index) {
+    if (!journal || !journal->pending_rows || index < 0 || index >= journal->pending_count) return;
+    if (index + 1 < journal->pending_count) {
+        memmove(journal->pending_rows + (size_t)index * (size_t)journal->cols,
+                journal->pending_rows + (size_t)(index + 1) * (size_t)journal->cols,
+                (size_t)(journal->pending_count - index - 1) * (size_t)journal->cols * sizeof(TermCell));
+    }
+    journal->pending_count--;
+}
+
+static void journal_commit_pending_codex_rows(TerminalJournal* journal,
+                                              const TermCell* snap,
+                                              int snap_count,
+                                              int snap_cols,
+                                              bool commit_all) {
+    if (!journal || !journal->pending_rows || journal->pending_count <= 0) return;
+    for (int i = 0; i < journal->pending_count;) {
+        const TermCell* pending = journal->pending_rows + (size_t)i * (size_t)journal->cols;
+        bool still_visible = !commit_all && rows_contain_equal(snap, snap_count, snap_cols, pending, journal->cols);
+        if (still_visible) {
+            i++;
+            continue;
+        }
+        if (journal_find_durable_equal(journal, pending, journal->cols) < 0) {
+            journal_append_durable_row(journal, pending, journal->cols);
+        }
+        journal_pending_remove_at(journal, i);
+    }
+}
+
+static void journal_track_codex_pending_rows(TerminalJournal* journal,
+                                             const TermCell* snap,
+                                             int snap_count,
+                                             int snap_cols) {
+    if (!journal || !snap || snap_count <= 0 || snap_cols <= 0) return;
+    if (!rows_look_like_codex_screen(snap, snap_count, snap_cols)) return;
+    for (int r = 0; r < snap_count; ++r) {
+        const TermCell* row = snap + (size_t)r * (size_t)snap_cols;
+        journal_pending_add(journal, row, snap_cols);
+    }
 }
 
 void terminal_journal_init(TerminalJournal* journal, int cap_rows, int cols) {
@@ -316,6 +451,7 @@ void terminal_journal_init(TerminalJournal* journal, int cap_rows, int cols) {
 void terminal_journal_free(TerminalJournal* journal) {
     if (!journal) return;
     free(journal->rows);
+    free(journal->pending_rows);
     memset(journal, 0, sizeof(*journal));
 }
 
@@ -325,13 +461,17 @@ void terminal_journal_clear(TerminalJournal* journal) {
     journal->durable_count = 0;
     journal->live_count = 0;
     journal->scrollback_rows_seen = 0;
+    journal->pending_count = 0;
 }
 
 void terminal_journal_configure(TerminalJournal* journal, int cap_rows, int cols) {
     if (!journal) return;
     if (cap_rows < 0) cap_rows = 0;
     if (cols < 1) cols = 1;
-    if (journal->cap_rows == cap_rows && journal->cols == cols && journal->rows) return;
+    if (journal->cap_rows == cap_rows && journal->cols == cols && journal->rows) {
+        journal_pending_configure(journal, cols);
+        return;
+    }
 
     TermCell* old_rows = journal->rows;
     int old_count = journal->row_count;
@@ -381,6 +521,7 @@ void terminal_journal_configure(TerminalJournal* journal, int cap_rows, int cols
     if (journal->live_count < 0) journal->live_count = 0;
     journal->cap_rows = cap_rows;
     journal->cols = cols;
+    journal_pending_configure(journal, cols);
 }
 
 int terminal_journal_count(const TerminalJournal* journal) {
@@ -427,7 +568,21 @@ void terminal_journal_capture_viewport(TerminalJournal* journal,
             last = r;
         }
     }
-    if (first < 0 || last < first) return;
+    if (first < 0 || last < first) {
+        if (journal->live_count > 0) {
+            int live_start = journal->row_count - journal->live_count;
+            const TermCell* live_rows = live_start >= 0
+                ? journal->rows + (size_t)live_start * (size_t)journal->cols
+                : NULL;
+            if (rows_look_like_codex_screen(live_rows, journal->live_count, journal->cols)) {
+                journal_commit_pending_codex_rows(journal, NULL, 0, grid->cols, true);
+                journal_commit_disappeared_codex_rows(journal, NULL, 0, grid->cols);
+                journal->row_count = journal->durable_count;
+                journal->live_count = 0;
+            }
+        }
+        return;
+    }
 
     const int snap_count = last - first + 1;
     const TermCell* snap = grid->cells + (size_t)(start_row + first) * (size_t)grid->cols;
@@ -435,7 +590,9 @@ void terminal_journal_capture_viewport(TerminalJournal* journal,
 
     (void)cursor_row;
     journal_commit_submitted_command_if_needed(journal, snap, snap_count, grid->cols);
+    journal_commit_pending_codex_rows(journal, snap, snap_count, grid->cols, false);
     journal_commit_disappeared_codex_rows(journal, snap, snap_count, grid->cols);
+    journal_track_codex_pending_rows(journal, snap, snap_count, grid->cols);
     journal->row_count = journal->durable_count;
     journal->live_count = 0;
     journal_sync_scrollback_rows(journal, grid);
