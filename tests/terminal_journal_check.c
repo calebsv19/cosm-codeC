@@ -368,6 +368,177 @@ static void test_codex_pending_rows_are_not_duplicated_while_visible(void) {
     term_grid_free(&grid);
 }
 
+static void test_codex_modal_rows_are_live_only(void) {
+    TermGrid grid;
+    term_grid_init(&grid, 12, 96);
+    TerminalJournal journal;
+    terminal_journal_init(&journal, 96, grid.cols);
+
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "• Story line before modal");
+    write_row(&grid, 2, "  Durable assistant text");
+    write_row(&grid, 10, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 11, "\xE2\x80\xBA Run /review on my current changes");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 12, 11);
+
+    clear_rows(&grid);
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "Select Model and Effort");
+    write_row(&grid, 2, "Access legacy models by running codex -m <model_name> or in your config.toml");
+    write_row(&grid, 3, "1. gpt-5.5 (default)    Frontier model for complex coding, research, and real-world work.");
+    write_row(&grid, 4, "2. gpt-5.4 (current)    Strong model for everyday coding.");
+    write_row(&grid, 5, "5. gpt-5.3-codex-spark  Ultra-fast coding model.");
+    write_row(&grid, 6, "Press enter to confirm or esc to go back");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 12, 6);
+
+    assert(count_rows_containing(&journal, "Select Model and Effort") == 1);
+    assert(count_rows_containing(&journal, "gpt-5.3-codex-spark") == 1);
+
+    clear_rows(&grid);
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "• Model changed to gpt-5.3-codex medium");
+    write_row(&grid, 10, "gpt-5.3-codex medium      .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 11, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 12, 11);
+
+    assert(count_rows_containing(&journal, "Select Model and Effort") == 0);
+    assert(count_rows_containing(&journal, "gpt-5.3-codex-spark") == 0);
+    assert(count_rows_containing(&journal, "Story line before modal") == 1);
+    assert(count_rows_containing(&journal, "Durable assistant text") == 1);
+
+    terminal_journal_free(&journal);
+    term_grid_free(&grid);
+}
+
+static void test_codex_submitted_prompt_becomes_durable(void) {
+    TermGrid grid;
+    term_grid_init(&grid, 8, 96);
+    TerminalJournal journal;
+    terminal_journal_init(&journal, 96, grid.cols);
+
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 6, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 7, "\xE2\x80\xBA Run /review on my current changes");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 7);
+    assert(journal.durable_count == 0);
+    assert(count_rows_containing(&journal, "Run /review on my current changes") == 1);
+
+    clear_rows(&grid);
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "Working (1s - esc to interrupt)");
+    write_row(&grid, 6, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 7, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 8, 7);
+
+    assert(journal.durable_count == 1);
+    assert_row_text(&journal, 0, "\xE2\x80\xBA Run /review on my current changes");
+    assert(count_rows_containing(&journal, "Run /review on my current changes") == 1);
+    assert(count_rows_containing(&journal, "Working (1s") == 1);
+
+    terminal_journal_free(&journal);
+    term_grid_free(&grid);
+}
+
+static void test_codex_slash_help_and_reasoning_rows_are_live_only(void) {
+    TermGrid grid;
+    term_grid_init(&grid, 16, 104);
+    TerminalJournal journal;
+    terminal_journal_init(&journal, 128, grid.cols);
+
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "• Stable assistant row");
+    write_row(&grid, 2, "  Real answer text");
+    write_row(&grid, 14, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 15, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 16, 15);
+
+    clear_rows(&grid);
+    write_row(&grid, 0, "\xE2\x95\xAD────────────────");
+    write_row(&grid, 1, "  Tip: New Use /fast to enable our fastest inference with increased plan usage.");
+    write_row(&grid, 2, "  /model         choose what model and reasoning effort to use");
+    write_row(&grid, 3, "  /ide           include current selection, open files, and other context from your IDE");
+    write_row(&grid, 4, "  /permissions   choose what Codex is allowed to do");
+    write_row(&grid, 5, "  /keymap        remap TUI shortcuts");
+    write_row(&grid, 6, "  /vim           toggle Vim mode for the composer");
+    write_row(&grid, 7, "  /experimental  toggle experimental features");
+    write_row(&grid, 8, "  /approve       approve one retry of a recent auto-review denial");
+    write_row(&grid, 9, "  /memories      configure memory use and generation");
+    write_row(&grid, 10, "  /mention       mention a file");
+    write_row(&grid, 11, "  /mcp           list configured MCP tools; use /mcp verbose for details");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 16, 11);
+
+    assert(count_rows_containing(&journal, "/permissions") == 1);
+    assert(count_rows_containing(&journal, "Use /fast") == 1);
+
+    clear_rows(&grid);
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "model:     loading   /model to change");
+    write_row(&grid, 2, "Select Reasoning Level for gpt-5.3-codex");
+    write_row(&grid, 3, "1. Low                         Fast responses with lighter reasoning");
+    write_row(&grid, 4, "3. High                        Greater reasoning depth for complex problems");
+    write_row(&grid, 5, "MCP client for `computer-use` failed to start: MCP startup failed");
+    write_row(&grid, 6, "  closed: initialize response");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 16, 6);
+
+    assert(count_rows_containing(&journal, "Reasoning Level") == 1);
+    assert(count_rows_containing(&journal, "closed: initialize response") == 1);
+
+    clear_rows(&grid);
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "Working (1s - esc to interrupt)");
+    write_row(&grid, 14, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 15, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 16, 15);
+
+    assert(count_rows_containing(&journal, "/permissions") == 0);
+    assert(count_rows_containing(&journal, "Use /fast") == 0);
+    assert(count_rows_containing(&journal, "Reasoning Level") == 0);
+    assert(count_rows_containing(&journal, "closed: initialize response") == 0);
+    assert(count_rows_containing(&journal, "Stable assistant row") == 1);
+    assert(count_rows_containing(&journal, "Real answer text") == 1);
+
+    terminal_journal_free(&journal);
+    term_grid_free(&grid);
+}
+
+static void test_codex_modal_answer_is_not_durable_prompt(void) {
+    TermGrid grid;
+    term_grid_init(&grid, 12, 104);
+    TerminalJournal journal;
+    terminal_journal_init(&journal, 128, grid.cols);
+
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "• Existing assistant text");
+    write_row(&grid, 10, "gpt-5.4-mini medium        .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 11, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 12, 11);
+
+    clear_rows(&grid);
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "Select Model and Effort");
+    write_row(&grid, 2, "Keep current model");
+    write_row(&grid, 3, "Upgrade to gpt-5.5");
+    write_row(&grid, 4, "Press enter to confirm or esc to go back");
+    write_row(&grid, 11, "\xE2\x80\xBA Keep current model");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 12, 11);
+
+    assert(count_rows_containing(&journal, "Keep current model") == 2);
+
+    clear_rows(&grid);
+    write_row(&grid, 0, "OpenAI Codex (v0.130.0)");
+    write_row(&grid, 1, "• Model changed to gpt-5.4 medium");
+    write_row(&grid, 10, "gpt-5.4 medium             .     ~/Desktop/CodeWork/ide");
+    write_row(&grid, 11, "\xE2\x80\xBA ");
+    terminal_journal_capture_viewport(&journal, &grid, 0, 12, 11);
+
+    assert(count_rows_containing(&journal, "Keep current model") == 0);
+    assert(count_rows_containing(&journal, "Existing assistant text") == 1);
+    assert(count_rows_containing(&journal, "Model changed to") == 1);
+
+    terminal_journal_free(&journal);
+    term_grid_free(&grid);
+}
+
 int main(void) {
     test_journal_replaces_live_viewport_on_expand();
     test_journal_replaces_shifted_live_viewport_without_append();
@@ -380,6 +551,10 @@ int main(void) {
     test_codex_disappeared_transcript_rows_become_scrollback();
     test_codex_pending_rows_survive_blank_intermediate_capture();
     test_codex_pending_rows_are_not_duplicated_while_visible();
+    test_codex_modal_rows_are_live_only();
+    test_codex_submitted_prompt_becomes_durable();
+    test_codex_slash_help_and_reasoning_rows_are_live_only();
+    test_codex_modal_answer_is_not_durable_prompt();
     printf("terminal_journal_check: ok\n");
     return 0;
 }

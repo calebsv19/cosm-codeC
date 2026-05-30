@@ -9,6 +9,14 @@ static const uint32_t kJournalDefaultFg = 0xFFFFFFFFu;
 static const uint32_t kJournalDefaultBg = 0x000000FFu;
 static const int kJournalPendingCapRows = 128;
 
+typedef enum CodexRowClass {
+    CODEX_ROW_EMPTY,
+    CODEX_ROW_CHROME_LIVE,
+    CODEX_ROW_MODAL_LIVE,
+    CODEX_ROW_PROMPT_LIVE,
+    CODEX_ROW_TRANSCRIPT
+} CodexRowClass;
+
 static void journal_fill_row(TermCell* row, int cols) {
     if (!row || cols <= 0) return;
     for (int c = 0; c < cols; ++c) {
@@ -87,33 +95,164 @@ static int row_first_text_col(const TermCell* row, int cols) {
     return -1;
 }
 
-static bool row_is_codex_live_control(const TermCell* row, int cols) {
-    if (!row || cols <= 0 || !row_has_text(row, cols)) return true;
+static bool row_is_codex_prompt(const TermCell* row, int cols) {
+    int first = row_first_text_col(row, cols);
+    if (first < 0) return false;
+    uint32_t ch = row[first].ch;
+    if (ch == 0x203Au || ch == (uint32_t)'>') return true;
+    return first + 2 < cols &&
+           row[first].ch == 0xE2u &&
+           row[first + 1].ch == 0x80u &&
+           row[first + 2].ch == 0xBAu;
+}
+
+static bool row_is_codex_prompt_with_input(const TermCell* row, int cols) {
+    if (!row_is_codex_prompt(row, cols)) return false;
+    int first = row_first_text_col(row, cols);
+    if (first < 0) return false;
+    int start = first + 1;
+    if (first + 2 < cols &&
+        row[first].ch == 0xE2u &&
+        row[first + 1].ch == 0x80u &&
+        row[first + 2].ch == 0xBAu) {
+        start = first + 3;
+    }
+    for (int c = start; c < cols; ++c) {
+        uint32_t ch = row[c].ch ? row[c].ch : (uint32_t)' ';
+        if (ch != (uint32_t)' ') return true;
+    }
+    return false;
+}
+
+static bool row_is_codex_prompt_control_input(const TermCell* row, int cols) {
+    if (!row_is_codex_prompt_with_input(row, cols)) return false;
+    if (row_contains_ascii(row, cols, "Keep current model") ||
+        row_contains_ascii(row, cols, "Upgrade to") ||
+        row_contains_ascii(row, cols, "current model")) {
+        return true;
+    }
+
+    int first = row_first_text_col(row, cols);
+    if (first < 0) return false;
+    int start = first + 1;
+    if (first + 2 < cols &&
+        row[first].ch == 0xE2u &&
+        row[first + 1].ch == 0x80u &&
+        row[first + 2].ch == 0xBAu) {
+        start = first + 3;
+    }
+    while (start < cols) {
+        uint32_t ch = row[start].ch ? row[start].ch : (uint32_t)' ';
+        if (ch != (uint32_t)' ') break;
+        start++;
+    }
+    if (start >= cols) return false;
+    uint32_t ch = row[start].ch;
+    return ch == (uint32_t)'/' || (ch >= (uint32_t)'0' && ch <= (uint32_t)'9');
+}
+
+static bool row_first_text_is_ascii(const TermCell* row, int cols, char ch) {
+    int first = row_first_text_col(row, cols);
+    return first >= 0 && row[first].ch == (uint32_t)(unsigned char)ch;
+}
+
+static bool row_first_text_is_digit(const TermCell* row, int cols) {
+    int first = row_first_text_col(row, cols);
+    if (first < 0) return false;
+    uint32_t ch = row[first].ch;
+    return ch >= (uint32_t)'0' && ch <= (uint32_t)'9';
+}
+
+static bool row_is_box_or_border(const TermCell* row, int cols) {
+    int first = row_first_text_col(row, cols);
+    if (first < 0) return false;
+    uint32_t ch = row[first].ch;
+    if (ch == 0xE2u && first + 1 < cols) {
+        uint32_t next = row[first + 1].ch;
+        return next == 0x94u || next == 0x95u;
+    }
+    return ch == 0x2500u ||
+           ch == 0x2502u ||
+           ch == 0x256Du ||
+           ch == 0x256Eu ||
+           ch == 0x256Fu ||
+           ch == 0x2570u;
+}
+
+static CodexRowClass codex_row_classify(const TermCell* row, int cols) {
+    if (!row || cols <= 0 || !row_has_text(row, cols)) return CODEX_ROW_EMPTY;
+    if (row_contains_ascii(row, cols, "Select Model and Effort") ||
+        row_contains_ascii(row, cols, "Select Reasoning Level") ||
+        row_contains_ascii(row, cols, "Access legacy models") ||
+        row_contains_ascii(row, cols, "Press enter to confirm") ||
+        row_contains_ascii(row, cols, "esc to go back") ||
+        row_contains_ascii(row, cols, "Keep current model") ||
+        row_contains_ascii(row, cols, "Upgrade to") ||
+        row_contains_ascii(row, cols, "choose what model") ||
+        row_contains_ascii(row, cols, "choose what Codex") ||
+        row_contains_ascii(row, cols, "include current selection") ||
+        row_contains_ascii(row, cols, "choose what Codex is allowed") ||
+        row_contains_ascii(row, cols, "remap TUI shortcuts") ||
+        row_contains_ascii(row, cols, "toggle Vim mode") ||
+        row_contains_ascii(row, cols, "toggle experimental") ||
+        row_contains_ascii(row, cols, "approve one retry") ||
+        row_contains_ascii(row, cols, "configure memory") ||
+        row_contains_ascii(row, cols, "mention a file") ||
+        row_contains_ascii(row, cols, "list configured MCP") ||
+        row_contains_ascii(row, cols, "Use /fast to enable") ||
+        row_contains_ascii(row, cols, "fastest inference") ||
+        row_contains_ascii(row, cols, "Low               Fast responses") ||
+        row_contains_ascii(row, cols, "Medium            ") ||
+        row_contains_ascii(row, cols, "High              Greater") ||
+        row_contains_ascii(row, cols, "Extra high") ||
+        row_first_text_is_ascii(row, cols, '/') ||
+        (row_first_text_is_digit(row, cols) &&
+         (row_contains_ascii(row, cols, ". Low") ||
+          row_contains_ascii(row, cols, ". Medium") ||
+          row_contains_ascii(row, cols, ". High") ||
+          row_contains_ascii(row, cols, ". Extra high") ||
+          row_contains_ascii(row, cols, ". gpt-")))) {
+        return CODEX_ROW_MODAL_LIVE;
+    }
     if (row_contains_ascii(row, cols, "OpenAI Codex") ||
+        row_contains_ascii(row, cols, "Update available") ||
+        row_contains_ascii(row, cols, "Run brew upgrade") ||
+        row_contains_ascii(row, cols, "release notes") ||
+        row_contains_ascii(row, cols, "github.com/openai/codex/releases") ||
+        row_contains_ascii(row, cols, "Tip: Try the Codex App") ||
+        row_contains_ascii(row, cols, "directory: ~/") ||
+        row_contains_ascii(row, cols, "MCP client for `") ||
+        row_contains_ascii(row, cols, "MCP startup incomplete") ||
+        row_contains_ascii(row, cols, "MCP startup failed") ||
+        row_contains_ascii(row, cols, "closed: initialize response") ||
+        row_contains_ascii(row, cols, "Model changed to ") ||
+        row_contains_ascii(row, cols, "model:     loading") ||
+        row_contains_ascii(row, cols, "/model to change") ||
         row_contains_ascii(row, cols, "Booting MCP server") ||
         row_contains_ascii(row, cols, "esc to interrupt") ||
         row_contains_ascii(row, cols, "Working (") ||
-        row_contains_ascii(row, cols, "Thinking (")) {
-        return true;
+        row_contains_ascii(row, cols, "Thinking (") ||
+        row_is_box_or_border(row, cols)) {
+        return CODEX_ROW_CHROME_LIVE;
     }
     if (row_contains_ascii(row, cols, "gpt-") &&
         (row_contains_ascii(row, cols, "~/Desktop/CodeWork") ||
          row_contains_ascii(row, cols, "medium") ||
          row_contains_ascii(row, cols, "high"))) {
-        return true;
+        return CODEX_ROW_CHROME_LIVE;
     }
-    int first = row_first_text_col(row, cols);
-    if (first >= 0) {
-        uint32_t ch = row[first].ch;
-        if (ch == 0x203Au || ch == (uint32_t)'>') return true;
-        if (first + 2 < cols &&
-            row[first].ch == 0xE2u &&
-            row[first + 1].ch == 0x80u &&
-            row[first + 2].ch == 0xBAu) {
-            return true;
-        }
+    if (row_is_codex_prompt(row, cols)) {
+        return CODEX_ROW_PROMPT_LIVE;
     }
-    return false;
+    return CODEX_ROW_TRANSCRIPT;
+}
+
+static bool row_is_codex_live_control(const TermCell* row, int cols) {
+    CodexRowClass cls = codex_row_classify(row, cols);
+    return cls == CODEX_ROW_EMPTY ||
+           cls == CODEX_ROW_CHROME_LIVE ||
+           cls == CODEX_ROW_MODAL_LIVE ||
+           cls == CODEX_ROW_PROMPT_LIVE;
 }
 
 static bool rows_contain_text(const TermCell* rows, int row_count, int cols, const char* text) {
@@ -124,13 +263,23 @@ static bool rows_contain_text(const TermCell* rows, int row_count, int cols, con
     return false;
 }
 
+static bool rows_contain_class(const TermCell* rows, int row_count, int cols, CodexRowClass cls) {
+    if (!rows || row_count <= 0 || cols <= 0) return false;
+    for (int r = 0; r < row_count; ++r) {
+        if (codex_row_classify(rows + (size_t)r * (size_t)cols, cols) == cls) return true;
+    }
+    return false;
+}
+
 static bool rows_look_like_codex_screen(const TermCell* rows, int row_count, int cols) {
     if (!rows || row_count <= 0 || cols <= 0) return false;
     return rows_contain_text(rows, row_count, cols, "OpenAI Codex") ||
            rows_contain_text(rows, row_count, cols, "gpt-") ||
            rows_contain_text(rows, row_count, cols, "esc to interrupt") ||
            rows_contain_text(rows, row_count, cols, "Working (") ||
-           rows_contain_text(rows, row_count, cols, "Thinking (");
+           rows_contain_text(rows, row_count, cols, "Thinking (") ||
+           rows_contain_text(rows, row_count, cols, "Select Model and Effort") ||
+           rows_contain_text(rows, row_count, cols, "Select Reasoning Level");
 }
 
 static bool rows_contain_equal(const TermCell* rows,
@@ -309,6 +458,43 @@ static void journal_commit_submitted_command_if_needed(TerminalJournal* journal,
     }
 }
 
+static void journal_commit_submitted_codex_prompt_if_needed(TerminalJournal* journal,
+                                                            const TermCell* snap,
+                                                            int snap_count,
+                                                            int snap_cols) {
+    if (!journal || !journal->rows || journal->live_count <= 0 || !snap || snap_count <= 0) return;
+    if (rows_contain_text(snap, snap_count, snap_cols, "Select Model and Effort") ||
+        rows_contain_text(snap, snap_count, snap_cols, "Select Reasoning Level")) {
+        return;
+    }
+    if (!rows_contain_text(snap, snap_count, snap_cols, "Working (") &&
+        !rows_contain_text(snap, snap_count, snap_cols, "Thinking (") &&
+        !rows_contain_text(snap, snap_count, snap_cols, "• ") &&
+        !rows_contain_text(snap, snap_count, snap_cols, "Model changed to ")) {
+        return;
+    }
+
+    int live_start = journal->row_count - journal->live_count;
+    if (live_start < 0) live_start = 0;
+    const TermCell* live_rows = journal->rows + (size_t)live_start * (size_t)journal->cols;
+    if (rows_contain_class(live_rows, journal->live_count, journal->cols, CODEX_ROW_MODAL_LIVE)) {
+        return;
+    }
+    for (int i = journal->row_count - 1; i >= live_start; --i) {
+        const TermCell* live = terminal_journal_row(journal, i);
+        if (!live || !row_is_codex_prompt_with_input(live, journal->cols)) continue;
+        if (row_is_codex_prompt_control_input(live, journal->cols)) continue;
+        if (rows_contain_equal(snap, snap_count, snap_cols, live, journal->cols)) continue;
+        if (journal_find_durable_equal(journal, live, journal->cols) >= 0) continue;
+        TermCell* copy = (TermCell*)malloc((size_t)journal->cols * sizeof(TermCell));
+        if (!copy) return;
+        memcpy(copy, live, (size_t)journal->cols * sizeof(TermCell));
+        journal_append_durable_row(journal, copy, journal->cols);
+        free(copy);
+        return;
+    }
+}
+
 static void journal_commit_disappeared_codex_rows(TerminalJournal* journal,
                                                   const TermCell* snap,
                                                   int snap_count,
@@ -380,7 +566,7 @@ static bool journal_pending_configure(TerminalJournal* journal, int cols) {
 
 static void journal_pending_add(TerminalJournal* journal, const TermCell* row, int row_cols) {
     if (!journal || !row || row_cols <= 0) return;
-    if (row_is_codex_live_control(row, row_cols)) return;
+    if (codex_row_classify(row, row_cols) != CODEX_ROW_TRANSCRIPT) return;
     if (journal_find_durable_equal(journal, row, row_cols) >= 0) return;
     if (!journal_pending_configure(journal, journal->cols)) return;
     if (journal_pending_find_equal(journal, row, row_cols) >= 0) return;
@@ -590,6 +776,7 @@ void terminal_journal_capture_viewport(TerminalJournal* journal,
 
     (void)cursor_row;
     journal_commit_submitted_command_if_needed(journal, snap, snap_count, grid->cols);
+    journal_commit_submitted_codex_prompt_if_needed(journal, snap, snap_count, grid->cols);
     journal_commit_pending_codex_rows(journal, snap, snap_count, grid->cols, false);
     journal_commit_disappeared_codex_rows(journal, snap, snap_count, grid->cols);
     journal_track_codex_pending_rows(journal, snap, snap_count, grid->cols);

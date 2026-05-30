@@ -53,7 +53,7 @@ test-workspace-startup-policy:
 test-terminal-grid-phase1:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling terminal grid phase-1 test..."
-	@$(CC) $(CFLAGS) tests/terminal_grid_phase1_check.c src/ide/Panes/Terminal/terminal_grid.c src/ide/Panes/Terminal/terminal_grid_sgr_helpers.c -o $(TERMINAL_GRID_PHASE1_TEST_OUT) $(LIB_DIRS) || (echo "terminal grid phase-1 compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/terminal_grid_phase1_check.c src/ide/Panes/Terminal/terminal_grid.c src/ide/Panes/Terminal/terminal_grid_buffer.c src/ide/Panes/Terminal/terminal_grid_sgr_helpers.c -o $(TERMINAL_GRID_PHASE1_TEST_OUT) $(LIB_DIRS) || (echo "terminal grid phase-1 compile failed."; exit 1)
 	@echo "Running terminal grid phase-1 test..."
 	@$(TERMINAL_GRID_PHASE1_TEST_OUT) || (echo "terminal grid phase-1 test failed."; exit 1)
 	@echo "Terminal grid phase-1 test passed."
@@ -62,7 +62,7 @@ test-terminal-grid-phase1:
 test-terminal-codex-transcript:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling terminal Codex transcript test..."
-	@$(CC) $(CFLAGS) tests/terminal_codex_transcript_check.c src/ide/Panes/Terminal/terminal_grid.c src/ide/Panes/Terminal/terminal_grid_sgr_helpers.c -o $(TERMINAL_CODEX_TRANSCRIPT_TEST_OUT) $(LIB_DIRS) || (echo "terminal Codex transcript compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/terminal_codex_transcript_check.c src/ide/Panes/Terminal/terminal_grid.c src/ide/Panes/Terminal/terminal_grid_buffer.c src/ide/Panes/Terminal/terminal_grid_sgr_helpers.c -o $(TERMINAL_CODEX_TRANSCRIPT_TEST_OUT) $(LIB_DIRS) || (echo "terminal Codex transcript compile failed."; exit 1)
 	@echo "Running terminal Codex transcript test..."
 	@$(TERMINAL_CODEX_TRANSCRIPT_TEST_OUT) || (echo "terminal Codex transcript test failed."; exit 1)
 	@echo "Terminal Codex transcript test passed."
@@ -71,7 +71,7 @@ test-terminal-codex-transcript:
 test-terminal-journal:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling terminal journal test..."
-	@$(CC) $(CFLAGS) tests/terminal_journal_check.c src/ide/Panes/Terminal/terminal_journal.c src/ide/Panes/Terminal/terminal_grid.c src/ide/Panes/Terminal/terminal_grid_sgr_helpers.c -o $(TERMINAL_JOURNAL_TEST_OUT) $(LIB_DIRS) || (echo "terminal journal compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/terminal_journal_check.c src/ide/Panes/Terminal/terminal_journal.c src/ide/Panes/Terminal/terminal_grid.c src/ide/Panes/Terminal/terminal_grid_buffer.c src/ide/Panes/Terminal/terminal_grid_sgr_helpers.c -o $(TERMINAL_JOURNAL_TEST_OUT) $(LIB_DIRS) || (echo "terminal journal compile failed."; exit 1)
 	@echo "Running terminal journal test..."
 	@$(TERMINAL_JOURNAL_TEST_OUT) || (echo "terminal journal test failed."; exit 1)
 	@echo "Terminal journal test passed."
