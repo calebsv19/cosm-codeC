@@ -1,7 +1,7 @@
 # codeC Docs Index
 
 Start here for public codeC documentation.
-Last audited: 2026-05-04.
+Last audited: 2026-06-09.
 
 Repository and source-level identifiers still use `ide`.
 
@@ -24,7 +24,9 @@ Repository and source-level identifiers still use `ide`.
 - `docs/desktop_packaging.md`
   - includes full `package-desktop*` flow, launcher `--print-config`, and launcher logfile checks
 - `docs/compiler_contract_integration.md`
-  - versioned `fisiCs` compiler contract boundary, compatibility behavior, and degraded-mode policy
+  - versioned `fisiCs` compiler contract boundary, compatibility behavior,
+    degraded-mode policy, enriched diagnostics publication, units attachments,
+    build graph summaries, and runtime memory report sidecar publication
 
 ## Private Planning Docs
 - Active private scaffold docs live in:

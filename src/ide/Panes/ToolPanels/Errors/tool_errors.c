@@ -196,8 +196,14 @@ static bool snapshot_replace_diags(int idx, const AnalysisFileDiagnostics* src) 
         f->diags[i].filePath = f->path ? f->path : src->path;
         f->diags[i].line = src->diags[i].line;
         f->diags[i].column = src->diags[i].column;
+        f->diags[i].length = src->diags[i].length;
         f->diags[i].message = src->diags[i].message;
+        f->diags[i].hint = src->diags[i].hint;
         f->diags[i].severity = src->diags[i].severity;
+        f->diags[i].category = src->diags[i].category;
+        f->diags[i].codeId = src->diags[i].codeId;
+        f->diags[i].codeName = src->diags[i].codeName;
+        f->diags[i].stage = src->diags[i].stage;
     }
     return true;
 }
@@ -289,7 +295,7 @@ void errors_get_layout_metrics(const UIPane* pane,
     if (lh < 14) lh = 14;
     if (lineHeight) *lineHeight = lh;
     if (headerHeight) *headerHeight = lh;
-    if (diagHeight) *diagHeight = lh * 2;
+    if (diagHeight) *diagHeight = lh * 3;
     if (contentTop && pane) {
         ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
         const int paddingY = d.controls_top + d.button_h + d.row_gap + d.button_h + d.row_gap;
@@ -524,13 +530,23 @@ static void copy_diag(const Diagnostic* d) {
     const char* sev = (d->severity == DIAG_SEVERITY_ERROR) ? "[E]"
                      : (d->severity == DIAG_SEVERITY_WARNING) ? "[W]"
                      : "[I]";
+    const char* category = diagnostic_category_name(d->category);
+    const char* codeName = (d->codeName && d->codeName[0]) ? d->codeName : diagnostic_code_name(d->codeId);
+    const char* stage = (d->stage && d->stage[0]) ? d->stage : diagnostic_stage_name(d->codeId);
     char buf[1024];
-    snprintf(buf, sizeof(buf), "%s %s:%d:%d\n    %s",
+    snprintf(buf, sizeof(buf), "%s %s:%d:%d\n    %s\n    %s%s%s%s%s%s%s",
              sev,
              d->filePath ? d->filePath : "(unknown)",
              d->line,
              d->column,
-             d->message ? d->message : "(no message)");
+             d->message ? d->message : "(no message)",
+             category ? category : "unknown",
+             (codeName && codeName[0]) ? " / " : "",
+             (codeName && codeName[0]) ? codeName : "",
+             (stage && stage[0]) ? " / " : "",
+             (stage && stage[0]) ? stage : "",
+             (d->hint && d->hint[0]) ? " / hint: " : "",
+             (d->hint && d->hint[0]) ? d->hint : "");
     clipboard_copy_text(buf);
 }
 
@@ -558,12 +574,24 @@ bool errors_copy_selection_to_clipboard(void) {
             const char* sev = (d->severity == DIAG_SEVERITY_ERROR) ? "[E]"
                              : (d->severity == DIAG_SEVERITY_WARNING) ? "[W]"
                              : "[I]";
-            snprintf(line, sizeof(line), "  %s %s:%d:%d\n      %s\n",
+            const char* category = diagnostic_category_name(d->category);
+            const char* codeName = (d->codeName && d->codeName[0]) ? d->codeName : diagnostic_code_name(d->codeId);
+            const char* stage = (d->stage && d->stage[0]) ? d->stage : diagnostic_stage_name(d->codeId);
+            snprintf(line,
+                     sizeof(line),
+                     "  %s %s:%d:%d\n      %s\n      %s%s%s%s%s%s%s\n",
                      sev,
                      d->filePath ? d->filePath : "(unknown)",
                      d->line,
                      d->column,
-                     d->message ? d->message : "(no message)");
+                     d->message ? d->message : "(no message)",
+                     category ? category : "unknown",
+                     (codeName && codeName[0]) ? " / " : "",
+                     (codeName && codeName[0]) ? codeName : "",
+                     (stage && stage[0]) ? " / " : "",
+                     (stage && stage[0]) ? stage : "",
+                     (d->hint && d->hint[0]) ? " / hint: " : "",
+                     (d->hint && d->hint[0]) ? d->hint : "");
         }
         size_t add = strlen(line);
         if (len + add + 1 > cap) {

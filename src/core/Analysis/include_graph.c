@@ -19,13 +19,14 @@ typedef struct {
 static IncludeEdgeEntry* g_entries = NULL;
 static size_t g_entry_count = 0;
 static size_t g_entry_capacity = 0;
+static uint64_t g_combined_stamp = 0;
 static pthread_mutex_t g_include_graph_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static void include_graph_lock(void) {
+void include_graph_lock(void) {
     pthread_mutex_lock(&g_include_graph_mutex);
 }
 
-static void include_graph_unlock(void) {
+void include_graph_unlock(void) {
     pthread_mutex_unlock(&g_include_graph_mutex);
 }
 
@@ -94,8 +95,13 @@ static bool is_under_root(const char* path, const char* root) {
     return path[root_len] == '/' || path[root_len] == '\\' || path[root_len] == '\0';
 }
 
+static void include_graph_note_mutation_locked(void) {
+    g_combined_stamp++;
+}
+
 void include_graph_clear(void) {
     include_graph_lock();
+    bool had_entries = g_entry_count > 0;
     for (size_t i = 0; i < g_entry_count; ++i) {
         free_entry(&g_entries[i]);
     }
@@ -103,6 +109,9 @@ void include_graph_clear(void) {
     g_entries = NULL;
     g_entry_count = 0;
     g_entry_capacity = 0;
+    if (had_entries) {
+        include_graph_note_mutation_locked();
+    }
     include_graph_unlock();
 }
 
@@ -116,6 +125,7 @@ void include_graph_remove_source(const char* source_path) {
             g_entries[i - 1] = g_entries[i];
         }
         g_entry_count--;
+        include_graph_note_mutation_locked();
     }
     include_graph_unlock();
 }
@@ -159,6 +169,7 @@ void include_graph_replace_from_result(const char* source_path,
         (void)entry_add_dep(entry, dep);
     }
 
+    include_graph_note_mutation_locked();
     include_graph_unlock();
 }
 
@@ -198,6 +209,27 @@ void include_graph_free_path_list(char** paths, size_t count) {
         free(paths[i]);
     }
     free(paths);
+}
+
+uint64_t include_graph_combined_stamp(void) {
+    uint64_t out = 0;
+    include_graph_lock();
+    out = g_combined_stamp;
+    include_graph_unlock();
+    return out;
+}
+
+size_t include_graph_entry_count(void) {
+    return g_entry_count;
+}
+
+const IncludeGraphEntryView include_graph_entry_at(size_t index) {
+    IncludeGraphEntryView out = {0};
+    if (index >= g_entry_count) return out;
+    out.source_path = g_entries[index].source_path;
+    out.deps = g_entries[index].deps;
+    out.dep_count = g_entries[index].dep_count;
+    return out;
 }
 
 static void ensure_ide_dir(const char* workspace_root) {
@@ -312,6 +344,9 @@ void include_graph_load(const char* workspace_root) {
                 (void)entry_add_dep(entry, dep);
             }
         }
+    }
+    if (g_entry_count > 0) {
+        include_graph_note_mutation_locked();
     }
     include_graph_unlock();
     json_object_put(root);

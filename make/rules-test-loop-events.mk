@@ -38,7 +38,7 @@ test-loop-events-dispatch-integration:
 test-fisics-bridge-events-regression:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling fisics bridge events regression test..."
-	@$(CC) $(CFLAGS) tests/fisics_bridge_events_regression_test.c src/core/Analysis/fisics_bridge.c src/core/LoopEvents/event_queue.c src/core/Analysis/analysis_store.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/analysis_token_store.c src/core/Diagnostics/diagnostics_engine.c src/core/LoopKernel/mainthread_context.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/fisics_bridge_events_regression_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "fisics bridge events regression test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/fisics_bridge_events_regression_test.c src/core/Analysis/fisics_bridge.c src/core/LoopEvents/event_queue.c src/core/Analysis/analysis_store.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/analysis_token_store.c src/core/Analysis/analysis_units_store.c src/core/Diagnostics/diagnostics_engine.c src/core/LoopKernel/mainthread_context.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/fisics_bridge_events_regression_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "fisics bridge events regression test compile failed."; exit 1)
 	@echo "Running fisics bridge events regression test..."
 	@$(TEST_BUILD_DIR)/fisics_bridge_events_regression_test || (echo "fisics bridge events regression test failed."; exit 1)
 	@echo "Fisics bridge events regression test passed."
@@ -78,6 +78,15 @@ test-library-index-stamp-regression:
 	@echo "Running library index stamp regression test..."
 	@$(TEST_BUILD_DIR)/library_index_stamp_regression_test || (echo "library index stamp regression test failed."; exit 1)
 	@echo "Library index stamp regression test passed."
+
+.PHONY: test-include-graph-snapshot
+test-include-graph-snapshot:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling include graph snapshot test..."
+	@$(CC) $(CFLAGS) tests/include_graph_snapshot_test.c src/core/Analysis/include_graph.c -o $(TEST_BUILD_DIR)/include_graph_snapshot_test $(LIB_DIRS) -ljson-c -lpthread || (echo "include graph snapshot test compile failed."; exit 1)
+	@echo "Running include graph snapshot test..."
+	@$(TEST_BUILD_DIR)/include_graph_snapshot_test || (echo "include graph snapshot test failed."; exit 1)
+	@echo "Include graph snapshot test passed."
 
 .PHONY: test-idle-efficiency-sanity
 test-idle-efficiency-sanity:

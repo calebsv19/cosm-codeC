@@ -111,6 +111,16 @@ One-shot lane:
 make release-distribute APPLE_SIGN_IDENTITY="Developer ID Application: <Name> (<TEAMID>)" APPLE_NOTARY_PROFILE="<profile>"
 ```
 
+Current release guardrails:
+
+- `release-distribute` now requires the full notarized chain:
+  `release-verify-signed -> release-notarize -> release-staple -> release-verify-notarized -> release-artifact`
+- a signed-but-unnotarized `spctl` result such as `source=Unnotarized Developer ID`
+  is valid only for pre-notary `release-verify`; it no longer satisfies
+  `release-artifact` or `release-distribute`
+- the release manifest now records `signed=1`, `notarized=1`, and the
+  `notary_submit.json` evidence path for distribution-grade artifacts
+
 Intel target packaging note:
 
 - `make ... TARGET_ARCH=x86_64` now emits Intel artifact names in the form `codeC-<version>-macOS-x86_64-stable.*`

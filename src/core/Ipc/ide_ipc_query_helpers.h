@@ -7,5 +7,7 @@ json_object* ide_ipc_build_diag_result(json_object* args, const char* project_ro
 json_object* ide_ipc_build_symbol_result(json_object* args, const char* project_root);
 json_object* ide_ipc_build_token_result(json_object* args, const char* project_root);
 json_object* ide_ipc_build_includes_result(json_object* args);
+json_object* ide_ipc_build_graph_result(json_object* args, const char* project_root);
+json_object* ide_ipc_build_memory_reports_result(json_object* args, const char* project_root);
 
 #endif

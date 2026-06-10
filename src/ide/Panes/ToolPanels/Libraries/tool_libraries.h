@@ -7,6 +7,8 @@
 #include "ide/UI/panel_control_widgets.h"
 #include "ide/UI/panel_metrics.h"
 #include "ide/UI/scroll_manager.h"
+#include "core_viewport2d.h"
+#include "kit_graph_struct.h"
 #include <SDL2/SDL.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -14,8 +16,23 @@
 typedef enum {
     LIB_NODE_BUCKET = 0,
     LIB_NODE_HEADER,
-    LIB_NODE_USAGE
+    LIB_NODE_USAGE,
+    LIB_NODE_DEP_SOURCE,
+    LIB_NODE_DEP_TARGET
 } LibraryNodeType;
+
+typedef enum {
+    LIB_PANEL_VIEW_HEADERS = 0,
+    LIB_PANEL_VIEW_DEPENDENCIES,
+    LIB_PANEL_VIEW_GRAPH
+} LibraryPanelViewMode;
+
+typedef struct {
+    uint32_t id;
+    char* label;
+    char* path;
+    LibraryNodeType type;
+} LibraryGraphNodeInfo;
 
 typedef struct {
     LibraryNodeType type;
@@ -54,14 +71,33 @@ typedef struct {
     int selectedCapacity;
     bool includeSystemHeaders;
     uint64_t last_published_index_stamp;
-    UIPanelTaggedRect control_hit_storage[2];
+    uint64_t last_include_graph_stamp;
+    LibraryPanelViewMode viewMode;
+    LibraryGraphNodeInfo* graphNodes;
+    KitGraphStructEdge* graphEdges;
+    KitGraphStructNodeLayout* graphLayouts;
+    int graphNodeCount;
+    int graphNodeCapacity;
+    int graphEdgeCount;
+    int graphEdgeCapacity;
+    int hiddenGraphNodeCount;
+    uint32_t selectedGraphNodeId;
+    uint32_t hoveredGraphNodeId;
+    CoreViewport2D graphCamera;
+    KitGraphStructViewport graphViewport;
+    SDL_Rect graphBounds;
+    bool graphDragging;
+    int graphLastMouseX;
+    int graphLastMouseY;
+    UIPanelTaggedRect control_hit_storage[3];
     UIPanelTaggedRectList control_hits;
 } LibraryPanelState;
 
 typedef enum {
     LIB_TOP_CONTROL_NONE = 0,
     LIB_TOP_CONTROL_SYSTEM_TOGGLE = 1,
-    LIB_TOP_CONTROL_LOGS_TOGGLE = 2
+    LIB_TOP_CONTROL_LOGS_TOGGLE = 2,
+    LIB_TOP_CONTROL_VIEW_MODE = 3
 } LibraryTopControlId;
 
 LibraryPanelState* libraries_panel_state(void);
@@ -69,6 +105,10 @@ LibraryPanelState* libraries_panel_state(void);
 void initLibrariesPanel(void);
 void handleLibraryEntryClick(UIPane* pane, int clickX, int clickY, Uint16 modifiers);
 void updateHoveredLibraryMousePosition(int x, int y);
+bool handleLibraryGraphMouseDown(UIPane* pane, int clickX, int clickY);
+void updateLibraryGraphMouseMotion(int x, int y);
+void endLibraryGraphDrag(void);
+bool handleLibraryGraphWheel(UIPane* pane, SDL_Event* event);
 void updateLibraryDragSelection(UIPane* pane, int mouseY);
 void endLibrarySelectionDrag(void);
 void rebuildLibraryFlatRows(void);

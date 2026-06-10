@@ -14,6 +14,9 @@ metadata that powers diagnostics, symbols, tokens, and the Libraries panel.
 | `analysis_store.*` | Stores per-file diagnostics and persists them to disk. |
 | `analysis_symbols_store.*` | Stores extracted symbol data and persists it across sessions. |
 | `analysis_token_store.*` | Stores token spans used by UI surfaces that need lexical data. |
+| `analysis_units_store.*` | Stores symbol-attached dimensional and concrete unit metadata from the `fisiCs` extension contract lane. |
+| `analysis_build_graph_store.*` | Stores normalized summaries from `fisiCs.build_graph` source and manifest dry-run artifacts, including translation-unit and planned-action diagnostic status. |
+| `analysis_memory_report_store.*` | Stores normalized summaries from `memory_check_report_v1` runtime sidecars, including summary counters and allocation leak sites. |
 | `include_graph.*` | Tracks include relationships so dependent files can be invalidated correctly. |
 | `include_path_resolver.*` | Resolves build flags/include paths and persists them alongside the analysis cache. |
 | `library_index.*` + `library_index_build.c` | Builds the library/include usage index shown in the Libraries panel. |
@@ -44,3 +47,12 @@ Contract boundary note:
 - For contract `1.4.x`, producers advertise explicit `capabilities` flags:
   - IDE gates optional lanes (for example symbols/tokens) from advertised flags instead of relying only on inferred minor-version behavior.
   - Missing optional capabilities do not force full degraded mode; incompatible contract id/major still does.
+  - Units attachments are consumed only when `FISICS_CONTRACT_CAP_EXTENSION_UNITS_ATTACHMENTS` is advertised; concrete unit identity fields are kept only when `FISICS_CONTRACT_CAP_EXTENSION_UNITS_CONCRETE` is also advertised.
+- Build graph summaries are ingested through the separate `fisiCs.build_graph`
+  artifact lane, not the frontend ABI. The IDE normalizes top-level,
+  translation-unit, and planned-action `diagnostic_summary` state for IPC and
+  cache consumers.
+- Runtime memory-check reports are ingested through the separate
+  `memory_check_report_v1` sidecar lane, not the frontend ABI and not compiler
+  diagnostics. The IDE keeps summary counters and leak allocation sites in a
+  dedicated report store.

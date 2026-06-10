@@ -1,9 +1,14 @@
 #include "core/Ipc/ide_ipc_query_helpers.h"
 
+#include "core/Analysis/analysis_build_graph_store.h"
+#include "core/Analysis/analysis_memory_report_store.h"
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
+#include "core/Analysis/analysis_units_store.h"
 #include "core/Analysis/library_index.h"
 #include "core/BuildSystem/build_diagnostics.h"
+#include "core/Diagnostics/diagnostic_context.h"
+#include "core/Diagnostics/diagnostic_explanations.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 
 #include <stdbool.h>
@@ -52,6 +57,38 @@ static void symbol_stable_id_hex(uint64_t value, char out[19]) {
     snprintf(out, 19, "0x%016llx", (unsigned long long)value);
 }
 
+static void add_symbol_units_fields(json_object* symbol_obj, const FisicsSymbol* sym) {
+    if (!symbol_obj || !sym || sym->stable_id == 0) return;
+    analysis_units_store_lock();
+    const AnalysisUnitsAttachment* units = analysis_units_store_find_by_symbol_id(sym->stable_id);
+    if (!units) {
+        analysis_units_store_unlock();
+        return;
+    }
+
+    json_object* ju = json_object_new_object();
+    char stable_id_hex[19];
+    symbol_stable_id_hex(units->symbol_stable_id, stable_id_hex);
+    json_object_object_add(ju, "symbol_stable_id", json_object_new_string(stable_id_hex));
+    json_object_object_add(ju, "symbol_name", json_object_new_string(units->symbol_name ? units->symbol_name : ""));
+    json_object_object_add(ju, "dim_text", json_object_new_string(units->dim_text ? units->dim_text : ""));
+    json_object* dim = json_object_new_array();
+    for (size_t i = 0; i < FISICS_UNITS_DIM_SLOTS; ++i) {
+        json_object_array_add(dim, json_object_new_int((int)units->dim[i]));
+    }
+    json_object_object_add(ju, "dim", dim);
+    json_object_object_add(ju, "resolved", json_object_new_boolean(units->resolved));
+    if (units->has_concrete_unit) {
+        json_object_object_add(ju, "unit_source_text", json_object_new_string(units->unit_source_text ? units->unit_source_text : ""));
+        json_object_object_add(ju, "unit_name", json_object_new_string(units->unit_name ? units->unit_name : ""));
+        json_object_object_add(ju, "unit_symbol", json_object_new_string(units->unit_symbol ? units->unit_symbol : ""));
+        json_object_object_add(ju, "unit_family", json_object_new_string(units->unit_family ? units->unit_family : ""));
+        json_object_object_add(ju, "unit_resolved", json_object_new_boolean(units->unit_resolved));
+    }
+    json_object_object_add(symbol_obj, "units", ju);
+    analysis_units_store_unlock();
+}
+
 static const char* normalize_or_project_path(const char* input,
                                              const char* project_root,
                                              char* out,
@@ -92,7 +129,9 @@ static void add_diag_taxonomy_fields(json_object* d,
                                      DiagTaxonomySeverity sev,
                                      const char* category,
                                      const char* code_text,
-                                     int code_id) {
+                                     int code_id,
+                                     const char* code_name,
+                                     const char* stage) {
     if (!d) return;
     const char* safe_category = (category && category[0]) ? category : "unknown";
     const char* safe_code = (code_text && code_text[0]) ? code_text : "";
@@ -100,8 +139,64 @@ static void add_diag_taxonomy_fields(json_object* d,
     json_object_object_add(d, "severity_name", json_object_new_string(diag_severity_normalized_name(sev)));
     json_object_object_add(d, "severity_id", json_object_new_int((int)sev));
     json_object_object_add(d, "category", json_object_new_string(safe_category));
+    json_object_object_add(d, "category_name", json_object_new_string(safe_category));
     json_object_object_add(d, "code", json_object_new_string(safe_code));
     json_object_object_add(d, "code_id", json_object_new_int(code_id));
+    json_object_object_add(d, "code_name", json_object_new_string(code_name ? code_name : ""));
+    json_object_object_add(d, "stage", json_object_new_string(stage ? stage : ""));
+}
+
+static void add_diag_explanation_field(json_object* d, int code_id, const char* code_name) {
+    if (!d || code_id == 0) return;
+    const DiagnosticExplanation* explanation = diagnostic_explanations_find_by_code(code_id);
+    if (!explanation && code_name && code_name[0]) {
+        explanation = diagnostic_explanations_find_by_name(code_name);
+    }
+    if (!explanation) return;
+
+    json_object* obj = json_object_new_object();
+    json_object_object_add(obj, "code_id", json_object_new_int(explanation->codeId));
+    json_object_object_add(obj, "code_name", json_object_new_string(explanation->codeName ? explanation->codeName : ""));
+    json_object_object_add(obj, "description", json_object_new_string(explanation->description ? explanation->description : ""));
+    json_object_object_add(obj, "common_causes", json_object_new_string(explanation->commonCauses ? explanation->commonCauses : ""));
+    json_object_object_add(obj, "next_action", json_object_new_string(explanation->nextAction ? explanation->nextAction : ""));
+    json_object_object_add(d, "explanation", obj);
+}
+
+static void add_diag_context_fields(json_object* d, const Diagnostic* dg) {
+    if (!d || !dg) return;
+    const DiagnosticContextRecord* context =
+        diagnostic_context_find(dg->filePath,
+                                dg->line,
+                                dg->column,
+                                dg->codeId,
+                                dg->codeName ? dg->codeName : diagnostic_code_name(dg->codeId),
+                                dg->message);
+    if (!context) return;
+    if (context->includeStackJson) {
+        json_object* parsed = json_tokener_parse(context->includeStackJson);
+        if (parsed && json_object_is_type(parsed, json_type_array)) {
+            json_object_object_add(d, "include_stack", parsed);
+        } else if (parsed) {
+            json_object_put(parsed);
+        }
+    }
+    if (context->macroTraceJson) {
+        json_object* parsed = json_tokener_parse(context->macroTraceJson);
+        if (parsed && json_object_is_type(parsed, json_type_array)) {
+            json_object_object_add(d, "macro_trace", parsed);
+        } else if (parsed) {
+            json_object_put(parsed);
+        }
+    }
+    if (context->detailsJson) {
+        json_object* parsed = json_tokener_parse(context->detailsJson);
+        if (parsed && json_object_is_type(parsed, json_type_object)) {
+            json_object_object_add(d, "details", parsed);
+        } else if (parsed) {
+            json_object_put(parsed);
+        }
+    }
 }
 
 json_object* ide_ipc_build_diag_result(json_object* args, const char* project_root) {
@@ -145,7 +240,9 @@ json_object* ide_ipc_build_diag_result(json_object* args, const char* project_ro
                                  build[i].isError ? DIAG_TAXONOMY_ERROR : DIAG_TAXONOMY_WARNING,
                                  "build",
                                  "",
-                                 0);
+                                 0,
+                                 "",
+                                 "build");
         json_object_object_add(d, "source", json_object_new_string("build"));
         json_object_array_add(arr, d);
         returned++;
@@ -169,15 +266,26 @@ json_object* ide_ipc_build_diag_result(json_object* args, const char* project_ro
         json_object_object_add(d, "line", json_object_new_int(dg->line));
         json_object_object_add(d, "col", json_object_new_int(dg->column));
         json_object_object_add(d, "endLine", json_object_new_int(dg->line));
-        json_object_object_add(d, "endCol", json_object_new_int(dg->column + 1));
+        int length = dg->length > 0 ? dg->length : 1;
+        json_object_object_add(d, "endCol", json_object_new_int(dg->column + length));
+        json_object_object_add(d, "length", json_object_new_int(length));
         json_object_object_add(d, "message", json_object_new_string(dg->message ? dg->message : ""));
+        if (dg->hint && dg->hint[0]) {
+            json_object_object_add(d, "hint", json_object_new_string(dg->hint));
+        }
         char code_text[32];
         snprintf(code_text, sizeof(code_text), "%d", dg->codeId);
         add_diag_taxonomy_fields(d,
                                  sev,
                                  diagnostic_category_name(dg->category),
                                  dg->codeId ? code_text : "",
-                                 dg->codeId);
+                                 dg->codeId,
+                                 dg->codeName ? dg->codeName : diagnostic_code_name(dg->codeId),
+                                 dg->stage ? dg->stage : diagnostic_stage_name(dg->codeId));
+        add_diag_explanation_field(d,
+                                   dg->codeId,
+                                   dg->codeName ? dg->codeName : diagnostic_code_name(dg->codeId));
+        add_diag_context_fields(d, dg);
         json_object_object_add(d, "source", json_object_new_string("analysis"));
         json_object_array_add(arr, d);
         returned++;
@@ -260,6 +368,7 @@ json_object* ide_ipc_build_symbol_result(json_object* args, const char* project_
             json_object_object_add(s, "parent_kind", json_object_new_string(symbol_kind_name(sym->parent_kind)));
             json_object_object_add(s, "is_definition", json_object_new_boolean(sym->is_definition));
             json_object_object_add(s, "is_variadic", json_object_new_boolean(sym->is_variadic));
+            add_symbol_units_fields(s, sym);
 
             char signature[1024];
             signature[0] = '\0';
@@ -341,6 +450,200 @@ json_object* ide_ipc_build_token_result(json_object* args, const char* project_r
 
     json_object_object_add(result, "tokens", arr);
     json_object_object_add(result, "total_count", json_object_new_int(total));
+    json_object_object_add(result, "returned_count", json_object_new_int(returned));
+    json_object_object_add(result, "truncated", json_object_new_boolean(max_items >= 0 && returned < total));
+    return result;
+}
+
+static json_object* build_graph_summary_to_json(const AnalysisBuildGraphDiagnosticSummary* summary) {
+    json_object* obj = json_object_new_object();
+    json_object_object_add(obj, "available", json_object_new_boolean(summary ? summary->available : false));
+    json_object_object_add(obj, "total", json_object_new_int(summary ? summary->total : 0));
+    json_object_object_add(obj, "errors", json_object_new_int(summary ? summary->errors : 0));
+    json_object_object_add(obj, "warnings", json_object_new_int(summary ? summary->warnings : 0));
+    json_object_object_add(obj, "notes", json_object_new_int(summary ? summary->notes : 0));
+    json_object_object_add(obj, "partial", json_object_new_boolean(summary ? summary->partial : false));
+    json_object_object_add(obj, "fatal", json_object_new_boolean(summary ? summary->fatal : false));
+    return obj;
+}
+
+static json_object* build_graph_snapshot_to_json(const AnalysisBuildGraphSnapshot* snapshot) {
+    json_object* obj = json_object_new_object();
+    json_object_object_add(obj, "path", json_object_new_string(snapshot->path ? snapshot->path : ""));
+    json_object_object_add(obj, "schema", json_object_new_string(snapshot->schema ? snapshot->schema : ""));
+    json_object_object_add(obj, "version", json_object_new_int(snapshot->version));
+    json_object_object_add(obj, "mode", json_object_new_string(snapshot->mode ? snapshot->mode : ""));
+    json_object_object_add(obj, "project_root", json_object_new_string(snapshot->project_root ? snapshot->project_root : ""));
+    json_object_object_add(obj, "partial", json_object_new_boolean(snapshot->partial));
+    json_object_object_add(obj, "fatal", json_object_new_boolean(snapshot->fatal));
+    json_object_object_add(obj, "diagnostic_summary", build_graph_summary_to_json(&snapshot->diagnostic_summary));
+
+    json_object* tus = json_object_new_array();
+    for (size_t i = 0; i < snapshot->translation_unit_count; ++i) {
+        const AnalysisBuildGraphTranslationUnit* tu = &snapshot->translation_units[i];
+        json_object* jt = json_object_new_object();
+        json_object_object_add(jt, "id", json_object_new_string(tu->id ? tu->id : ""));
+        json_object_object_add(jt, "source", json_object_new_string(tu->source ? tu->source : ""));
+        json_object_object_add(jt, "object", json_object_new_string(tu->object ? tu->object : ""));
+        json_object_object_add(jt, "status", json_object_new_string(tu->status ? tu->status : ""));
+        json_object_object_add(jt, "diagnostic_summary", build_graph_summary_to_json(&tu->diagnostic_summary));
+        json_object_array_add(tus, jt);
+    }
+    json_object_object_add(obj, "translation_units", tus);
+    json_object_object_add(obj, "translation_unit_count", json_object_new_int((int)snapshot->translation_unit_count));
+
+    json_object* actions = json_object_new_array();
+    for (size_t i = 0; i < snapshot->action_count; ++i) {
+        const AnalysisBuildGraphAction* action = &snapshot->actions[i];
+        json_object* ja = json_object_new_object();
+        json_object_object_add(ja, "id", json_object_new_string(action->id ? action->id : ""));
+        json_object_object_add(ja, "kind", json_object_new_string(action->kind ? action->kind : ""));
+        json_object_object_add(ja, "status", json_object_new_string(action->status ? action->status : ""));
+        json_object_object_add(ja, "will_execute", json_object_new_boolean(action->will_execute));
+        json_object_object_add(ja, "source", json_object_new_string(action->source ? action->source : ""));
+        json_object_object_add(ja, "object", json_object_new_string(action->object ? action->object : ""));
+        json_object_object_add(ja, "output", json_object_new_string(action->output ? action->output : ""));
+        json_object_object_add(ja, "diagnostic_summary", build_graph_summary_to_json(&action->diagnostic_summary));
+        json_object_array_add(actions, ja);
+    }
+    json_object_object_add(obj, "actions", actions);
+    json_object_object_add(obj, "action_count", json_object_new_int((int)snapshot->action_count));
+    return obj;
+}
+
+json_object* ide_ipc_build_graph_result(json_object* args, const char* project_root) {
+    int max_items = -1;
+    char graph_path[1024] = {0};
+    if (args) {
+        json_object* jmax = NULL;
+        json_object* jpath = NULL;
+        if (json_object_object_get_ex(args, "max", &jmax) &&
+            jmax && json_object_is_type(jmax, json_type_int)) {
+            max_items = json_object_get_int(jmax);
+            if (max_items < 0) max_items = -1;
+        }
+        if (json_object_object_get_ex(args, "path", &jpath) &&
+            jpath && json_object_is_type(jpath, json_type_string)) {
+            normalize_or_project_path(json_object_get_string(jpath), project_root, graph_path, sizeof(graph_path));
+        }
+    }
+
+    bool ingested = false;
+    if (graph_path[0]) {
+        ingested = analysis_build_graph_store_load_file(graph_path);
+    }
+
+    json_object* result = json_object_new_object();
+    json_object_object_add(result, "ingested", json_object_new_boolean(ingested));
+    if (graph_path[0]) {
+        json_object_object_add(result, "ingested_path", json_object_new_string(graph_path));
+    }
+
+    json_object* arr = json_object_new_array();
+    int total = 0;
+    int returned = 0;
+    analysis_build_graph_store_lock();
+    size_t count = analysis_build_graph_store_snapshot_count();
+    for (size_t i = 0; i < count; ++i) {
+        const AnalysisBuildGraphSnapshot* snapshot = analysis_build_graph_store_snapshot_at(i);
+        if (!snapshot) continue;
+        total++;
+        if (max_items >= 0 && returned >= max_items) continue;
+        json_object_array_add(arr, build_graph_snapshot_to_json(snapshot));
+        returned++;
+    }
+    analysis_build_graph_store_unlock();
+
+    json_object_object_add(result, "snapshots", arr);
+    json_object_object_add(result, "snapshot_count", json_object_new_int(total));
+    json_object_object_add(result, "returned_count", json_object_new_int(returned));
+    json_object_object_add(result, "truncated", json_object_new_boolean(max_items >= 0 && returned < total));
+    return result;
+}
+
+static json_object* memory_report_summary_to_json(const AnalysisMemoryReportSummary* summary) {
+    json_object* obj = json_object_new_object();
+    json_object_object_add(obj, "active", json_object_new_int(summary ? summary->active : 0));
+    json_object_object_add(obj, "leaked_bytes", json_object_new_int64((long long)(summary ? summary->leaked_bytes : 0)));
+    json_object_object_add(obj, "allocs", json_object_new_int(summary ? summary->allocs : 0));
+    json_object_object_add(obj, "frees", json_object_new_int(summary ? summary->frees : 0));
+    json_object_object_add(obj, "double_free", json_object_new_int(summary ? summary->double_free : 0));
+    json_object_object_add(obj, "unknown_free", json_object_new_int(summary ? summary->unknown_free : 0));
+    json_object_object_add(obj, "tracker_failures", json_object_new_int(summary ? summary->tracker_failures : 0));
+    return obj;
+}
+
+static json_object* memory_report_snapshot_to_json(const AnalysisMemoryReportSnapshot* snapshot) {
+    json_object* obj = json_object_new_object();
+    json_object_object_add(obj, "path", json_object_new_string(snapshot->path ? snapshot->path : ""));
+    json_object_object_add(obj, "profile", json_object_new_string(snapshot->profile ? snapshot->profile : ""));
+    json_object_object_add(obj, "schema_version", json_object_new_int(snapshot->schema_version));
+    json_object_object_add(obj, "runtime", json_object_new_string(snapshot->runtime ? snapshot->runtime : ""));
+    json_object_object_add(obj, "trigger", json_object_new_string(snapshot->trigger ? snapshot->trigger : ""));
+    json_object_object_add(obj, "summary", memory_report_summary_to_json(&snapshot->summary));
+    json_object_object_add(obj, "leak_count", json_object_new_int((int)snapshot->leak_count));
+    json_object_object_add(obj, "stamp", json_object_new_int64((long long)snapshot->stamp));
+
+    json_object* leaks = json_object_new_array();
+    for (size_t i = 0; i < snapshot->leak_count; ++i) {
+        const AnalysisMemoryReportLeak* leak = &snapshot->leaks[i];
+        json_object* jl = json_object_new_object();
+        json_object_object_add(jl, "size", json_object_new_int64((long long)leak->size));
+        json_object* allocated_at = json_object_new_object();
+        json_object_object_add(allocated_at, "file", json_object_new_string(leak->file ? leak->file : ""));
+        json_object_object_add(allocated_at, "line", json_object_new_int(leak->line));
+        json_object_object_add(jl, "allocated_at", allocated_at);
+        json_object_array_add(leaks, jl);
+    }
+    json_object_object_add(obj, "leaks", leaks);
+    return obj;
+}
+
+json_object* ide_ipc_build_memory_reports_result(json_object* args, const char* project_root) {
+    int max_items = -1;
+    char report_path[1024] = {0};
+    if (args) {
+        json_object* jmax = NULL;
+        json_object* jpath = NULL;
+        if (json_object_object_get_ex(args, "max", &jmax) &&
+            jmax && json_object_is_type(jmax, json_type_int)) {
+            max_items = json_object_get_int(jmax);
+            if (max_items < 0) max_items = -1;
+        }
+        if (json_object_object_get_ex(args, "path", &jpath) &&
+            jpath && json_object_is_type(jpath, json_type_string)) {
+            normalize_or_project_path(json_object_get_string(jpath), project_root, report_path, sizeof(report_path));
+        }
+    }
+
+    bool ingested = false;
+    if (report_path[0]) {
+        ingested = analysis_memory_report_store_load_file(report_path);
+    }
+
+    json_object* result = json_object_new_object();
+    json_object_object_add(result, "ingested", json_object_new_boolean(ingested));
+    if (report_path[0]) {
+        json_object_object_add(result, "ingested_path", json_object_new_string(report_path));
+    }
+
+    json_object* arr = json_object_new_array();
+    int total = 0;
+    int returned = 0;
+    analysis_memory_report_store_lock();
+    size_t count = analysis_memory_report_store_snapshot_count();
+    for (size_t i = 0; i < count; ++i) {
+        const AnalysisMemoryReportSnapshot* snapshot = analysis_memory_report_store_snapshot_at(i);
+        if (!snapshot) continue;
+        total++;
+        if (max_items >= 0 && returned >= max_items) continue;
+        json_object_array_add(arr, memory_report_snapshot_to_json(snapshot));
+        returned++;
+    }
+    analysis_memory_report_store_unlock();
+
+    json_object_object_add(result, "reports", arr);
+    json_object_object_add(result, "report_count", json_object_new_int(total));
     json_object_object_add(result, "returned_count", json_object_new_int(returned));
     json_object_object_add(result, "truncated", json_object_new_boolean(max_items >= 0 && returned < total));
     return result;

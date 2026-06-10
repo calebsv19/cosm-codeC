@@ -23,3 +23,4 @@ Contract lane note:
   - `severity_id`, `category_id`, `code_id`
   - legacy fields remain present for backward compatibility consumers
 - For contract `1.4.x`, optional IPC analysis lanes (for example symbols/tokens) are gated by producer-advertised contract capability flags.
+- Phase 3 analysis publication also exposes `build_graph` and `memory_reports` query results from IDE-owned sidecar stores. These commands keep ingestion optional through `args.path` and publish additive context without removing legacy response fields.

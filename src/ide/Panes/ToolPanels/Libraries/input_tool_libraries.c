@@ -29,6 +29,12 @@ void handleLibrariesMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
     LibraryPanelState* st = libraries_panel_state();
 
+    if (st->viewMode == LIB_PANEL_VIEW_GRAPH && event->type == SDL_MOUSEWHEEL) {
+        if (handleLibraryGraphWheel(pane, event)) {
+            return;
+        }
+    }
+
     if (ui_scroll_input_consume(&st->scroll, event, &st->scrollTrack, &st->scrollThumb)) {
         return;
     }
@@ -37,13 +43,22 @@ void handleLibrariesMouseInput(UIPane* pane, SDL_Event* event) {
         if (handleLibraryHeaderClick(pane, event->button.x, event->button.y)) {
             return;
         }
+        if (st->viewMode == LIB_PANEL_VIEW_GRAPH &&
+            handleLibraryGraphMouseDown(pane, event->button.x, event->button.y)) {
+            return;
+        }
         handleLibraryEntryClick(pane,
                                 event->button.x,
                                 event->button.y,
                                 (Uint16)SDL_GetModState());
     } else if (event->type == SDL_MOUSEMOTION) {
-        updateLibraryDragSelection(pane, event->motion.y);
+        if (st->viewMode == LIB_PANEL_VIEW_GRAPH) {
+            updateLibraryGraphMouseMotion(event->motion.x, event->motion.y);
+        } else {
+            updateLibraryDragSelection(pane, event->motion.y);
+        }
     } else if (event->type == SDL_MOUSEBUTTONUP && event->button.button == SDL_BUTTON_LEFT) {
+        endLibraryGraphDrag();
         endLibrarySelectionDrag();
     }
 }
@@ -51,10 +66,16 @@ void handleLibrariesMouseInput(UIPane* pane, SDL_Event* event) {
 void handleLibrariesScrollInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !event || event->type != SDL_MOUSEWHEEL) return;
     LibraryPanelState* st = libraries_panel_state();
+    if (st->viewMode == LIB_PANEL_VIEW_GRAPH && handleLibraryGraphWheel(pane, event)) return;
     (void)ui_scroll_input_consume(&st->scroll, event, &st->scrollTrack, &st->scrollThumb);
 }
 
 void handleLibrariesHoverInput(UIPane* pane, int x, int y) {
     (void)pane;
+    LibraryPanelState* st = libraries_panel_state();
+    if (st->viewMode == LIB_PANEL_VIEW_GRAPH) {
+        updateLibraryGraphMouseMotion(x, y);
+        return;
+    }
     updateHoveredLibraryMousePosition(x, y);
 }

@@ -4,6 +4,7 @@
 #include "app/GlobalInfo/project.h"
 #include "app/GlobalInfo/core_state.h"
 #include "core/Analysis/library_index.h"
+#include "core/Analysis/include_graph.h"
 #include "core/Analysis/analysis_status.h"
 #include "ide/UI/editor_navigation.h"
 #include "ide/UI/flat_list_selection.h"
@@ -24,6 +25,8 @@ static void libraries_panel_init_state(void* ptr);
 static void libraries_panel_destroy_state(void* ptr);
 static void toggle_bucket(int bucketIndex);
 static void toggle_header(int bucketIndex, int headerIndex);
+static void clear_library_graph(LibraryPanelState* st);
+static const char* skip_project_root_prefix_local(const char* path);
 
 LibraryPanelState* libraries_panel_state(void) {
     return (LibraryPanelState*)tool_panel_resolve_state_slot(
@@ -66,6 +69,130 @@ static int ensure_header_expand_capacity(int bucketIndex, size_t count) {
     return 1;
 }
 
+static void clear_library_graph(LibraryPanelState* st) {
+    if (!st) return;
+    if (st->graphNodes) {
+        for (int i = 0; i < st->graphNodeCount; ++i) {
+            free(st->graphNodes[i].label);
+            free(st->graphNodes[i].path);
+            st->graphNodes[i].label = NULL;
+            st->graphNodes[i].path = NULL;
+        }
+    }
+    st->graphNodeCount = 0;
+    st->graphEdgeCount = 0;
+    st->hiddenGraphNodeCount = 0;
+    st->selectedGraphNodeId = 0;
+    st->hoveredGraphNodeId = 0;
+}
+
+static int ensure_graph_node_capacity(LibraryPanelState* st, int needed) {
+    if (!st || needed <= st->graphNodeCapacity) return 1;
+    int newCap = st->graphNodeCapacity ? st->graphNodeCapacity * 2 : 32;
+    while (newCap < needed) newCap *= 2;
+    LibraryGraphNodeInfo* nodes = realloc(st->graphNodes, (size_t)newCap * sizeof(LibraryGraphNodeInfo));
+    if (!nodes) return 0;
+    KitGraphStructNodeLayout* layouts =
+        realloc(st->graphLayouts, (size_t)newCap * sizeof(KitGraphStructNodeLayout));
+    if (!layouts) {
+        st->graphNodes = nodes;
+        return 0;
+    }
+    st->graphNodes = nodes;
+    st->graphLayouts = layouts;
+    st->graphNodeCapacity = newCap;
+    return 1;
+}
+
+static int ensure_graph_edge_capacity(LibraryPanelState* st, int needed) {
+    if (!st || needed <= st->graphEdgeCapacity) return 1;
+    int newCap = st->graphEdgeCapacity ? st->graphEdgeCapacity * 2 : 64;
+    while (newCap < needed) newCap *= 2;
+    KitGraphStructEdge* edges = realloc(st->graphEdges, (size_t)newCap * sizeof(KitGraphStructEdge));
+    if (!edges) return 0;
+    st->graphEdges = edges;
+    st->graphEdgeCapacity = newCap;
+    return 1;
+}
+
+static int find_graph_node_by_path(const LibraryPanelState* st, const char* path) {
+    if (!st || !path) return -1;
+    for (int i = 0; i < st->graphNodeCount; ++i) {
+        if (st->graphNodes[i].path && strcmp(st->graphNodes[i].path, path) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int add_graph_node(LibraryPanelState* st, const char* path, LibraryNodeType type) {
+    if (!st || !path || !*path) return -1;
+    int existing = find_graph_node_by_path(st, path);
+    if (existing >= 0) return existing;
+    if (!ensure_graph_node_capacity(st, st->graphNodeCount + 1)) return -1;
+    int idx = st->graphNodeCount++;
+    LibraryGraphNodeInfo* node = &st->graphNodes[idx];
+    memset(node, 0, sizeof(*node));
+    node->id = (uint32_t)(idx + 1);
+    node->type = type;
+    node->label = dup_label(skip_project_root_prefix_local(path));
+    node->path = dup_label(path);
+    if (!node->label || !node->path) {
+        free(node->label);
+        free(node->path);
+        memset(node, 0, sizeof(*node));
+        st->graphNodeCount--;
+        return -1;
+    }
+    return idx;
+}
+
+static int graph_edge_exists(const LibraryPanelState* st, uint32_t from_id, uint32_t to_id) {
+    if (!st) return 0;
+    for (int i = 0; i < st->graphEdgeCount; ++i) {
+        if (st->graphEdges[i].from_id == from_id && st->graphEdges[i].to_id == to_id) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void add_graph_edge(LibraryPanelState* st, uint32_t from_id, uint32_t to_id) {
+    if (!st || from_id == 0 || to_id == 0 || from_id == to_id) return;
+    if (graph_edge_exists(st, from_id, to_id)) return;
+    if (!ensure_graph_edge_capacity(st, st->graphEdgeCount + 1)) return;
+    st->graphEdges[st->graphEdgeCount++] = (KitGraphStructEdge){
+        .from_id = from_id,
+        .to_id = to_id
+    };
+}
+
+static void rebuild_library_graph_from_include_graph(LibraryPanelState* st) {
+    if (!st) return;
+    clear_library_graph(st);
+
+    include_graph_lock();
+    size_t entryCount = include_graph_entry_count();
+    for (size_t i = 0; i < entryCount; ++i) {
+        IncludeGraphEntryView entry = include_graph_entry_at(i);
+        if (entry.dep_count == 0) {
+            if (entry.source_path && entry.source_path[0]) {
+                st->hiddenGraphNodeCount++;
+            }
+            continue;
+        }
+        int src_idx = add_graph_node(st, entry.source_path, LIB_NODE_DEP_SOURCE);
+        if (src_idx < 0) continue;
+        uint32_t src_id = st->graphNodes[src_idx].id;
+        for (size_t d = 0; d < entry.dep_count; ++d) {
+            int dep_idx = add_graph_node(st, entry.deps[d], LIB_NODE_DEP_TARGET);
+            if (dep_idx < 0) continue;
+            add_graph_edge(st, src_id, st->graphNodes[dep_idx].id);
+        }
+    }
+    include_graph_unlock();
+}
+
 static const char* bucket_label_local(LibraryBucketKind kind) {
     switch (kind) {
         case LIB_BUCKET_PROJECT:    return "Project headers";
@@ -74,6 +201,14 @@ static const char* bucket_label_local(LibraryBucketKind kind) {
         case LIB_BUCKET_UNRESOLVED: return "Unresolved headers";
         default:                    return "Headers";
     }
+}
+
+static const char* skip_project_root_prefix_local(const char* path) {
+    if (!path || !*path || !projectPath[0]) return path;
+    size_t root_len = strlen(projectPath);
+    if (strncmp(path, projectPath, root_len) != 0) return path;
+    if (path[root_len] == '/' || path[root_len] == '\\') return path + root_len + 1;
+    return path;
 }
 
 static void select_range(int a, int b) {
@@ -102,6 +237,82 @@ void rebuildLibraryFlatRows(void) {
     LibraryPanelState* st = libraries_panel_state();
     clear_flat_rows(st);
     st->flatCount = 0;
+    if (st->viewMode == LIB_PANEL_VIEW_GRAPH) {
+        if (st->selected && st->selectedCapacity > 0) {
+            memset(st->selected, 0, (size_t)st->selectedCapacity * sizeof(bool));
+        }
+        rebuild_library_graph_from_include_graph(st);
+        scroll_state_clamp(&st->scroll);
+        return;
+    }
+
+    if (st->viewMode == LIB_PANEL_VIEW_DEPENDENCIES) {
+        clear_library_graph(st);
+        int estimated = 0;
+        include_graph_lock();
+        size_t entryCount = include_graph_entry_count();
+        estimated += (int)entryCount;
+        for (size_t i = 0; i < entryCount; ++i) {
+            IncludeGraphEntryView entry = include_graph_entry_at(i);
+            estimated += (int)entry.dep_count;
+        }
+        if (estimated > st->flatCapacity) {
+            int newCap = (st->flatCapacity == 0) ? (estimated + 16) : (st->flatCapacity * 2);
+            if (newCap < estimated) newCap = estimated + 16;
+            LibraryFlatRow* tmp = realloc(st->flatRows, newCap * sizeof(LibraryFlatRow));
+            if (!tmp) {
+                include_graph_unlock();
+                return;
+            }
+            st->flatRows = tmp;
+            st->flatCapacity = newCap;
+            bool* selTmp = realloc(st->selected, newCap * sizeof(bool));
+            if (selTmp) {
+                st->selected = selTmp;
+                st->selectedCapacity = newCap;
+            }
+        }
+        if (st->selected && st->selectedCapacity > 0) {
+            memset(st->selected, 0, (size_t)st->selectedCapacity * sizeof(bool));
+        }
+
+        for (size_t i = 0; i < entryCount; ++i) {
+            IncludeGraphEntryView entry = include_graph_entry_at(i);
+            if (!entry.source_path || !*entry.source_path) continue;
+            LibraryFlatRow* src = &st->flatRows[st->flatCount++];
+            memset(src, 0, sizeof(*src));
+            src->type = LIB_NODE_DEP_SOURCE;
+            src->bucketIndex = (int)i;
+            src->headerIndex = -1;
+            src->usageIndex = -1;
+            src->depth = 0;
+            src->bucketHeaderCount = (int)entry.dep_count;
+            src->labelPrimary = dup_label(skip_project_root_prefix_local(entry.source_path));
+            src->labelSecondary = dup_label(entry.source_path);
+
+            for (size_t d = 0; d < entry.dep_count; ++d) {
+                const char* dep = entry.deps[d];
+                if (!dep || !*dep) continue;
+                LibraryFlatRow* row = &st->flatRows[st->flatCount++];
+                memset(row, 0, sizeof(*row));
+                row->type = LIB_NODE_DEP_TARGET;
+                row->bucketIndex = (int)i;
+                row->headerIndex = -1;
+                row->usageIndex = (int)d;
+                row->depth = 1;
+                row->labelPrimary = dup_label(skip_project_root_prefix_local(dep));
+                row->labelSecondary = dup_label(dep);
+            }
+        }
+        include_graph_unlock();
+
+        if (st->selectedRow >= st->flatCount) st->selectedRow = -1;
+        if (st->hoveredRow >= st->flatCount) st->hoveredRow = -1;
+        scroll_state_clamp(&st->scroll);
+        return;
+    }
+
+    clear_library_graph(st);
 
     // Reserve space (rough heuristic)
     int estimated = 0;
@@ -227,6 +438,12 @@ static void libraries_panel_init_state(void* ptr) {
     }
     st->includeSystemHeaders = true;
     st->last_published_index_stamp = library_index_published_stamp();
+    st->last_include_graph_stamp = include_graph_combined_stamp();
+    st->viewMode = LIB_PANEL_VIEW_HEADERS;
+    (void)core_viewport2d_init(&st->graphCamera);
+    st->graphCamera.min_zoom = 0.18f;
+    st->graphCamera.max_zoom = 3.5f;
+    kit_graph_struct_viewport_default(&st->graphViewport);
     st->control_hits.items = st->control_hit_storage;
     st->control_hits.capacity =
         (int)(sizeof(st->control_hit_storage) / sizeof(st->control_hit_storage[0]));
@@ -242,6 +459,15 @@ static void libraries_panel_release_dynamic_state(LibraryPanelState* st) {
     free(st->selected);
     st->selected = NULL;
     st->selectedCapacity = 0;
+    clear_library_graph(st);
+    free(st->graphNodes);
+    st->graphNodes = NULL;
+    st->graphNodeCapacity = 0;
+    free(st->graphEdges);
+    st->graphEdges = NULL;
+    st->graphEdgeCapacity = 0;
+    free(st->graphLayouts);
+    st->graphLayouts = NULL;
     for (int i = 0; i < LIB_BUCKET_COUNT; ++i) {
         free(st->headerExpanded[i]);
         st->headerExpanded[i] = NULL;
@@ -300,11 +526,16 @@ static void toggle_header(int bucketIndex, int headerIndex) {
 }
 
 static void open_usage(const LibraryFlatRow* row) {
-    if (!row || row->type != LIB_NODE_USAGE) return;
+    if (!row) return;
     if (!row->labelPrimary) return;
-    (void)ui_open_path_at_location_in_active_editor(row->labelPrimary,
-                                                    row->usageLine,
-                                                    row->usageColumn);
+    if (row->type == LIB_NODE_USAGE) {
+        (void)ui_open_path_at_location_in_active_editor(row->labelPrimary,
+                                                        row->usageLine,
+                                                        row->usageColumn);
+    } else if ((row->type == LIB_NODE_DEP_SOURCE || row->type == LIB_NODE_DEP_TARGET) &&
+               row->labelSecondary && row->labelSecondary[0]) {
+        (void)ui_open_path_at_location_in_active_editor(row->labelSecondary, 1, 1);
+    }
 }
 
 typedef struct LibraryRowActivationState {
@@ -397,6 +628,13 @@ void copy_selected_rows(void) {
                      row->labelPrimary ? row->labelPrimary : "(usage)",
                      row->usageLine,
                      row->usageColumn);
+        } else if (row->type == LIB_NODE_DEP_SOURCE) {
+            snprintf(line, sizeof(line), "[Source] %s (%d deps)",
+                     row->labelPrimary ? row->labelPrimary : "(source)",
+                     row->bucketHeaderCount);
+        } else if (row->type == LIB_NODE_DEP_TARGET) {
+            snprintf(line, sizeof(line), "[Depends] %s",
+                     row->labelPrimary ? row->labelPrimary : "(dependency)");
         }
 
         size_t add = strlen(line);
@@ -436,6 +674,10 @@ bool handleLibraryHeaderClick(UIPane* pane, int clickX, int clickY) {
             st->includeSystemHeaders = !st->includeSystemHeaders;
             rebuildLibraryFlatRows();
             return true;
+        case LIB_TOP_CONTROL_VIEW_MODE:
+            st->viewMode = (LibraryPanelViewMode)(((int)st->viewMode + 1) % 3);
+            rebuildLibraryFlatRows();
+            return true;
         case LIB_TOP_CONTROL_LOGS_TOGGLE:
             analysis_toggle_frontend_logs_enabled();
             printf("[Analysis] Frontend logs: %s\n",
@@ -447,6 +689,119 @@ bool handleLibraryHeaderClick(UIPane* pane, int clickX, int clickY) {
     }
 
     return false;
+}
+
+static LibraryGraphNodeInfo* graph_node_by_id(LibraryPanelState* st, uint32_t node_id) {
+    if (!st || node_id == 0) return NULL;
+    for (int i = 0; i < st->graphNodeCount; ++i) {
+        if (st->graphNodes[i].id == node_id) return &st->graphNodes[i];
+    }
+    return NULL;
+}
+
+bool handleLibraryGraphMouseDown(UIPane* pane, int clickX, int clickY) {
+    (void)pane;
+    LibraryPanelState* st = libraries_panel_state();
+    if (st->viewMode != LIB_PANEL_VIEW_GRAPH) return false;
+    if (clickX < st->graphBounds.x || clickY < st->graphBounds.y ||
+        clickX >= st->graphBounds.x + st->graphBounds.w ||
+        clickY >= st->graphBounds.y + st->graphBounds.h) {
+        return false;
+    }
+
+    KitGraphStructHit hit = {0};
+    if (st->graphLayouts && st->graphNodeCount > 0) {
+        CoreResult r = kit_graph_struct_hit_test(st->graphLayouts,
+                                                 (uint32_t)st->graphNodeCount,
+                                                 (float)clickX,
+                                                 (float)clickY,
+                                                 &hit);
+        if (r.code == CORE_OK && hit.active) {
+            bool sameNode = (st->selectedGraphNodeId == hit.node_id);
+            st->selectedGraphNodeId = hit.node_id;
+            LibraryGraphNodeInfo* node = graph_node_by_id(st, hit.node_id);
+            if (sameNode && node && node->path && node->path[0]) {
+                (void)ui_open_path_at_location_in_active_editor(node->path, 1, 1);
+            }
+            return true;
+        }
+    }
+
+    st->graphDragging = true;
+    st->graphLastMouseX = clickX;
+    st->graphLastMouseY = clickY;
+    return true;
+}
+
+void updateLibraryGraphMouseMotion(int x, int y) {
+    LibraryPanelState* st = libraries_panel_state();
+    if (st->viewMode != LIB_PANEL_VIEW_GRAPH) return;
+    st->hoveredGraphNodeId = 0;
+    if (st->graphLayouts && st->graphNodeCount > 0) {
+        KitGraphStructHit hit = {0};
+        CoreResult r = kit_graph_struct_hit_test(st->graphLayouts,
+                                                 (uint32_t)st->graphNodeCount,
+                                                 (float)x,
+                                                 (float)y,
+                                                 &hit);
+        if (r.code == CORE_OK && hit.active) {
+            st->hoveredGraphNodeId = hit.node_id;
+        }
+    }
+    if (!st->graphDragging) return;
+    int dx = x - st->graphLastMouseX;
+    int dy = y - st->graphLastMouseY;
+    st->graphLastMouseX = x;
+    st->graphLastMouseY = y;
+    (void)core_viewport2d_pan_by(&st->graphCamera, (float)dx, (float)dy);
+}
+
+void endLibraryGraphDrag(void) {
+    LibraryPanelState* st = libraries_panel_state();
+    st->graphDragging = false;
+}
+
+bool handleLibraryGraphWheel(UIPane* pane, SDL_Event* event) {
+    (void)pane;
+    if (!event || event->type != SDL_MOUSEWHEEL) return false;
+    LibraryPanelState* st = libraries_panel_state();
+    if (st->viewMode != LIB_PANEL_VIEW_GRAPH) return false;
+    if (event->wheel.y == 0 && event->wheel.x == 0) return true;
+
+    int mouseX = 0;
+    int mouseY = 0;
+    SDL_GetMouseState(&mouseX, &mouseY);
+    if (mouseX < st->graphBounds.x || mouseY < st->graphBounds.y ||
+        mouseX >= st->graphBounds.x + st->graphBounds.w ||
+        mouseY >= st->graphBounds.y + st->graphBounds.h) {
+        return false;
+    }
+
+    Uint16 mod = (Uint16)SDL_GetModState();
+    if (ui_input_has_shift(mod)) {
+        float dx = (float)event->wheel.x * 36.0f;
+        float dy = (float)event->wheel.y * 42.0f;
+        (void)core_viewport2d_pan_by(&st->graphCamera, dx, dy);
+        return true;
+    }
+
+    int steps = event->wheel.y;
+    if (steps == 0 && event->wheel.x != 0) {
+        (void)core_viewport2d_pan_by(&st->graphCamera, (float)event->wheel.x * 36.0f, 0.0f);
+        return true;
+    }
+    if (steps < 0) steps = -steps;
+    float factor = event->wheel.y > 0 ? 1.12f : 0.89f;
+    if (ui_input_has_primary_accel(mod)) {
+        factor = event->wheel.y > 0 ? 1.20f : 0.83f;
+    }
+    for (int i = 0; i < steps; ++i) {
+        (void)core_viewport2d_zoom_at_screen_anchor(&st->graphCamera,
+                                                    (float)(mouseX - st->graphBounds.x),
+                                                    (float)(mouseY - st->graphBounds.y),
+                                                    factor);
+    }
+    return true;
 }
 
 void handleLibraryEntryClick(UIPane* pane, int clickX, int clickY, Uint16 modifiers) {

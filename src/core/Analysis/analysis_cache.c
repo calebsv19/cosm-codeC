@@ -11,6 +11,7 @@
 #include "core/Analysis/analysis_store.h"
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
+#include "core/Analysis/analysis_units_store.h"
 #include "core/Analysis/library_index.h"
 
 static void ensure_cache_dir(const char* workspace_root) {
@@ -264,6 +265,7 @@ bool analysis_cache_load_errors(const char* workspace_root, const char* build_ar
 bool analysis_cache_save_symbols(const char* workspace_root) {
     if (!workspace_root || !*workspace_root) return false;
     analysis_symbols_store_save(workspace_root);
+    analysis_units_store_save(workspace_root);
     return true;
 }
 
@@ -275,6 +277,7 @@ bool analysis_cache_load_symbols(const char* workspace_root, const char* build_a
         return false;
     }
     analysis_symbols_store_load(workspace_root);
+    analysis_units_store_load(workspace_root);
     return true;
 }
 

@@ -334,6 +334,13 @@ void renderErrorsPanel(UIPane* pane) {
             const Diagnostic* diag = refs[i].diag;
             const char* sev = (diag->severity == DIAG_SEVERITY_ERROR)
                 ? "[E]" : (diag->severity == DIAG_SEVERITY_WARNING) ? "[W]" : "[I]";
+            const char* category = diagnostic_category_name(diag->category);
+            const char* codeName = (diag->codeName && diag->codeName[0])
+                ? diag->codeName
+                : diagnostic_code_name(diag->codeId);
+            const char* stage = (diag->stage && diag->stage[0])
+                ? diag->stage
+                : diagnostic_stage_name(diag->codeId);
             char line[1024];
             int labelX = x + 12;
             int msgX   = x + 28;
@@ -354,6 +361,37 @@ void renderErrorsPanel(UIPane* pane) {
                                              line,
                                              font ? font : getActiveFont(),
                                              textColor,
+                                             false,
+                                             &clip);
+            y += lineHeight;
+
+            if (diag->hint && diag->hint[0]) {
+                snprintf(line,
+                         sizeof(line),
+                         "%s%s%s%s%s%s%s",
+                         category ? category : "unknown",
+                         (codeName && codeName[0]) ? " / " : "",
+                         (codeName && codeName[0]) ? codeName : "",
+                         (stage && stage[0]) ? " / " : "",
+                         (stage && stage[0]) ? stage : "",
+                         " / hint: ",
+                         diag->hint);
+            } else {
+                snprintf(line,
+                         sizeof(line),
+                         "%s%s%s%s%s",
+                         category ? category : "unknown",
+                         (codeName && codeName[0]) ? " / " : "",
+                         (codeName && codeName[0]) ? codeName : "",
+                         (stage && stage[0]) ? " / " : "",
+                         (stage && stage[0]) ? stage : "");
+            }
+            SDL_Color metaColor = {170, 190, 205, 255};
+            drawTextUTF8WithFontColorClipped(msgX,
+                                             y,
+                                             line,
+                                             font ? font : getActiveFont(),
+                                             metaColor,
                                              false,
                                              &clip);
             y += lineHeight;

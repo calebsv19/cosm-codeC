@@ -12,6 +12,7 @@
 #include "core/Analysis/analysis_store.h"
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
+#include "core/Analysis/analysis_units_store.h"
 #include "core/Analysis/include_graph.h"
 #include "core/Analysis/include_path_resolver.h"
 #include "core/Analysis/library_index.h"
@@ -379,6 +380,7 @@ static bool run_incremental_scan(const BuildFlagSet* flags, IncrementalRunStats*
     analysis_store_save(g_project_root);
     analysis_symbols_store_save(g_project_root);
     analysis_token_store_save(g_project_root);
+    analysis_units_store_save(g_project_root);
     include_graph_save(g_project_root);
     analysis_snapshot_save(g_project_root, &current);
     path_list_clear(&targets);

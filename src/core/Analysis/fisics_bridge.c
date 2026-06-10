@@ -8,6 +8,7 @@
 #include "core/Analysis/analysis_store.h"
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
+#include "core/Analysis/analysis_units_store.h"
 #include "core/Analysis/include_graph.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/fisics_frontend_guard.h"
@@ -237,14 +238,19 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
 
     const bool symbols_enabled = fisics_contract_symbols_enabled(&result, degraded_contract);
     const bool tokens_enabled = fisics_contract_tokens_enabled(&result, degraded_contract);
+    const bool units_enabled = fisics_contract_units_attachments_enabled(&result, degraded_contract);
+    const bool units_concrete_enabled = fisics_contract_units_concrete_enabled(&result, degraded_contract);
     const FisicsSymbol* symbols = symbols_enabled ? result.symbols : NULL;
     size_t symbol_count = symbols_enabled ? result.symbol_count : 0u;
     const FisicsTokenSpan* tokens = tokens_enabled ? result.tokens : NULL;
     size_t token_count = tokens_enabled ? result.token_count : 0u;
+    const FisicsUnitsAttachment* units = units_enabled ? result.units_attachments : NULL;
+    size_t units_count = units_enabled ? result.units_attachment_count : 0u;
 
     analysis_store_upsert(filePath, result.diagnostics, result.diag_count);
     analysis_symbols_store_upsert(filePath, symbols, symbol_count);
     analysis_token_store_upsert(filePath, tokens, token_count);
+    analysis_units_store_upsert(filePath, units, units_count, units_concrete_enabled);
     include_graph_replace_from_result(filePath, result.includes, result.include_count, projectPath);
     library_index_remove_source(filePath);
     for (size_t i = 0; i < result.include_count; ++i) {

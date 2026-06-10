@@ -92,6 +92,18 @@ static inline bool fisics_contract_tokens_enabled(const FisicsAnalysisResult* re
     return fisics_contract_has_capability(result, FISICS_CONTRACT_CAP_TOKENS);
 }
 
+static inline bool fisics_contract_units_attachments_enabled(const FisicsAnalysisResult* result,
+                                                             bool degraded_contract) {
+    if (degraded_contract) return false;
+    return fisics_contract_has_capability(result, FISICS_CONTRACT_CAP_EXTENSION_UNITS_ATTACHMENTS);
+}
+
+static inline bool fisics_contract_units_concrete_enabled(const FisicsAnalysisResult* result,
+                                                         bool degraded_contract) {
+    if (degraded_contract) return false;
+    return fisics_contract_has_capability(result, FISICS_CONTRACT_CAP_EXTENSION_UNITS_CONCRETE);
+}
+
 static inline bool fisics_contract_should_warn_missing_capability(const FisicsAnalysisResult* result,
                                                                   uint64_t capability,
                                                                   const char* capability_name,

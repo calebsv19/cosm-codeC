@@ -17,17 +17,22 @@ typedef enum {
     DIAG_CATEGORY_SEMANTIC = 4,
     DIAG_CATEGORY_PREPROCESSOR = 5,
     DIAG_CATEGORY_LEXER = 6,
-    DIAG_CATEGORY_CODEGEN = 7
+    DIAG_CATEGORY_CODEGEN = 7,
+    DIAG_CATEGORY_EXTENSION = 8
 } DiagnosticCategory;
 
 typedef struct {
     const char* filePath;
     int line;
     int column;
+    int length;
     const char* message;
+    const char* hint;
     DiagnosticSeverity severity;
     DiagnosticCategory category;
     int codeId;
+    const char* codeName;
+    const char* stage;
 } Diagnostic;
 
 void initDiagnosticsEngine();
@@ -40,9 +45,22 @@ void addDiagnosticWithMeta(const char* file,
                            DiagnosticSeverity severity,
                            DiagnosticCategory category,
                            int codeId);
+void addDiagnosticWithDetails(const char* file,
+                              int line,
+                              int col,
+                              int length,
+                              const char* msg,
+                              const char* hint,
+                              DiagnosticSeverity severity,
+                              DiagnosticCategory category,
+                              int codeId,
+                              const char* codeName,
+                              const char* stage);
 int getDiagnosticCount();
 const Diagnostic* getDiagnosticAt(int index);
 const char* diagnostic_category_name(DiagnosticCategory category);
+const char* diagnostic_code_name(int codeId);
+const char* diagnostic_stage_name(int codeId);
 
 // Persistence helpers (store under workspace/ide_files/analysis_diagnostics.json)
 void diagnostics_save(const char* workspaceRoot);

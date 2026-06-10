@@ -1,4 +1,6 @@
 #include "core/Ipc/ide_ipc_server.h"
+#include "core/Analysis/analysis_build_graph_store.h"
+#include "core/Analysis/analysis_memory_report_store.h"
 #include "core/Analysis/library_index.h"
 
 #include <json-c/json.h>
@@ -105,6 +107,66 @@ int main(void) {
         return 1;
     }
 
+    char graph_path[1024];
+    snprintf(graph_path, sizeof(graph_path), "%s/build_graph.json", workspace);
+    const char* graph_json =
+        "{"
+        "\"schema\":\"fisiCs.build_graph\","
+        "\"version\":0,"
+        "\"project_root\":\"/tmp/idebridge_phase3_workspace\","
+        "\"mode\":\"dry_run\","
+        "\"partial\":false,"
+        "\"fatal\":false,"
+        "\"diagnostic_summary\":{\"available\":false,\"total\":0,\"errors\":0,\"warnings\":0,\"notes\":0,\"partial\":false,\"fatal\":false},"
+        "\"translation_units\":[{"
+        "\"id\":\"tu0\","
+        "\"source\":\"/tmp/idebridge_phase3_workspace/src/a.c\","
+        "\"object\":\"/tmp/idebridge_phase3_workspace/build/a.o\","
+        "\"status\":\"ok\","
+        "\"diagnostic_summary\":{\"available\":false,\"total\":0,\"errors\":0,\"warnings\":0,\"notes\":0,\"partial\":false,\"fatal\":false}"
+        "}],"
+        "\"plan\":{\"schema\":\"fisiCs.build_plan\",\"version\":0,\"dry_run\":true,\"actions\":[{"
+        "\"id\":\"compile0\","
+        "\"kind\":\"compile\","
+        "\"status\":\"planned\","
+        "\"will_execute\":false,"
+        "\"source\":\"/tmp/idebridge_phase3_workspace/src/a.c\","
+        "\"object\":\"/tmp/idebridge_phase3_workspace/build/a.o\","
+        "\"diagnostic_summary\":{\"available\":false,\"total\":0,\"errors\":0,\"warnings\":0,\"notes\":0,\"partial\":false,\"fatal\":false}"
+        "}]}"
+        "}";
+    if (write_file(graph_path, graph_json) != 0) {
+        fprintf(stderr, "failed to write build graph fixture\n");
+        return 1;
+    }
+
+    char memory_report_path[1024];
+    snprintf(memory_report_path, sizeof(memory_report_path), "%s/memory_report.json", workspace);
+    const char* memory_report_json =
+        "{"
+        "\"profile\":\"memory_check_report_v1\","
+        "\"schema_version\":1,"
+        "\"runtime\":\"fisics_memory_check\","
+        "\"trigger\":\"manual\","
+        "\"summary\":{"
+        "\"active\":1,"
+        "\"leaked_bytes\":21,"
+        "\"allocs\":1,"
+        "\"frees\":0,"
+        "\"double_free\":0,"
+        "\"unknown_free\":0,"
+        "\"tracker_failures\":0"
+        "},"
+        "\"leaks\":[{"
+        "\"size\":21,"
+        "\"allocated_at\":{\"file\":\"memory_check_json_report.c\",\"line\":7}"
+        "}]"
+        "}";
+    if (write_file(memory_report_path, memory_report_json) != 0) {
+        fprintf(stderr, "failed to write memory report fixture\n");
+        return 1;
+    }
+
     library_index_begin(workspace);
     library_index_add_include(file_a, "stdio.h", "/usr/include/stdio.h", LIB_INCLUDE_KIND_SYSTEM, LIB_BUCKET_SYSTEM, 1, 1);
     library_index_add_include(file_a, "missing_local.h", NULL, LIB_INCLUDE_KIND_LOCAL, LIB_BUCKET_UNRESOLVED, 2, 1);
@@ -156,6 +218,114 @@ int main(void) {
     }
     if (!edges || json_object_array_length(edges) < 2) {
         fprintf(stderr, "includes graph mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object_put(root);
+
+    const char* graph_req = "{\"id\":\"g1\",\"proto\":1,\"cmd\":\"build_graph\",\"args\":{\"path\":\"build_graph.json\"}}";
+    if (send_and_recv(socket_path, graph_req, response, sizeof(response)) != 0) {
+        fprintf(stderr, "build_graph request failed\n");
+        ide_ipc_stop();
+        return 1;
+    }
+    if (get_ok_result(response, &root, &result) != 0) {
+        fprintf(stderr, "build_graph invalid: %s\n", response);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* ingested = NULL;
+    json_object* snapshots = NULL;
+    if (!json_object_object_get_ex(result, "ingested", &ingested) ||
+        !json_object_get_boolean(ingested) ||
+        !json_object_object_get_ex(result, "snapshots", &snapshots) ||
+        json_object_array_length(snapshots) != 1) {
+        fprintf(stderr, "build_graph ingestion mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* snapshot = json_object_array_get_idx(snapshots, 0);
+    json_object* mode = NULL;
+    json_object* tus = NULL;
+    json_object* actions = NULL;
+    if (!snapshot ||
+        !json_object_object_get_ex(snapshot, "mode", &mode) ||
+        strcmp(json_object_get_string(mode), "dry_run") != 0 ||
+        !json_object_object_get_ex(snapshot, "translation_units", &tus) ||
+        json_object_array_length(tus) != 1 ||
+        !json_object_object_get_ex(snapshot, "actions", &actions) ||
+        json_object_array_length(actions) != 1) {
+        fprintf(stderr, "build_graph snapshot mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* action0 = json_object_array_get_idx(actions, 0);
+    json_object* action_summary = NULL;
+    json_object* available = NULL;
+    if (!action0 ||
+        !json_object_object_get_ex(action0, "diagnostic_summary", &action_summary) ||
+        !json_object_object_get_ex(action_summary, "available", &available) ||
+        json_object_get_boolean(available)) {
+        fprintf(stderr, "build_graph action diagnostic summary mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object_put(root);
+
+    const char* memory_req = "{\"id\":\"m1\",\"proto\":1,\"cmd\":\"memory_reports\",\"args\":{\"path\":\"memory_report.json\"}}";
+    if (send_and_recv(socket_path, memory_req, response, sizeof(response)) != 0) {
+        fprintf(stderr, "memory_reports request failed\n");
+        ide_ipc_stop();
+        return 1;
+    }
+    if (get_ok_result(response, &root, &result) != 0) {
+        fprintf(stderr, "memory_reports invalid: %s\n", response);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* reports = NULL;
+    json_object* report_count = NULL;
+    if (!json_object_object_get_ex(result, "ingested", &ingested) ||
+        !json_object_get_boolean(ingested) ||
+        !json_object_object_get_ex(result, "report_count", &report_count) ||
+        json_object_get_int(report_count) != 1 ||
+        !json_object_object_get_ex(result, "reports", &reports) ||
+        json_object_array_length(reports) != 1) {
+        fprintf(stderr, "memory_reports ingestion mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* report = json_object_array_get_idx(reports, 0);
+    json_object* report_summary = NULL;
+    json_object* leaked_bytes = NULL;
+    json_object* leaks = NULL;
+    if (!report ||
+        !json_object_object_get_ex(report, "summary", &report_summary) ||
+        !json_object_object_get_ex(report_summary, "leaked_bytes", &leaked_bytes) ||
+        json_object_get_int64(leaked_bytes) != 21 ||
+        !json_object_object_get_ex(report, "leaks", &leaks) ||
+        json_object_array_length(leaks) != 1) {
+        fprintf(stderr, "memory_reports summary mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* leak0 = json_object_array_get_idx(leaks, 0);
+    json_object* allocated_at = NULL;
+    json_object* allocated_file = NULL;
+    json_object* allocated_line = NULL;
+    if (!leak0 ||
+        !json_object_object_get_ex(leak0, "allocated_at", &allocated_at) ||
+        !json_object_object_get_ex(allocated_at, "file", &allocated_file) ||
+        strcmp(json_object_get_string(allocated_file), "memory_check_json_report.c") != 0 ||
+        !json_object_object_get_ex(allocated_at, "line", &allocated_line) ||
+        json_object_get_int(allocated_line) != 7) {
+        fprintf(stderr, "memory_reports leak mismatch\n");
         json_object_put(root);
         ide_ipc_stop();
         return 1;
@@ -234,6 +404,8 @@ int main(void) {
     json_object_put(root);
 
     ide_ipc_stop();
+    analysis_build_graph_store_clear();
+    analysis_memory_report_store_clear();
     library_index_reset();
 
     printf("idebridge_phase3_check: ok\n");

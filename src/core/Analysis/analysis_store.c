@@ -29,6 +29,9 @@ static void free_entry(AnalysisFileDiagnostics* f) {
     for (int i = 0; i < f->count; ++i) {
         free((char*)f->diags[i].filePath);
         free((char*)f->diags[i].message);
+        free((char*)f->diags[i].hint);
+        free((char*)f->diags[i].codeName);
+        free((char*)f->diags[i].stage);
     }
     free(f->diags);
     f->path = NULL;
@@ -73,6 +76,7 @@ static DiagnosticCategory map_category(int category_id) {
         case FISICS_DIAG_CATEGORY_LEXER: return DIAG_CATEGORY_LEXER;
         case FISICS_DIAG_CATEGORY_CODEGEN: return DIAG_CATEGORY_CODEGEN;
         case FISICS_DIAG_CATEGORY_BUILD: return DIAG_CATEGORY_BUILD;
+        case FISICS_DIAG_CATEGORY_EXTENSION: return DIAG_CATEGORY_EXTENSION;
         case FISICS_DIAG_CATEGORY_UNKNOWN:
         default: return DIAG_CATEGORY_UNKNOWN;
     }
@@ -87,6 +91,7 @@ static int map_fisics_category(DiagnosticCategory category) {
         case DIAG_CATEGORY_LEXER: return FISICS_DIAG_CATEGORY_LEXER;
         case DIAG_CATEGORY_CODEGEN: return FISICS_DIAG_CATEGORY_CODEGEN;
         case DIAG_CATEGORY_BUILD: return FISICS_DIAG_CATEGORY_BUILD;
+        case DIAG_CATEGORY_EXTENSION: return FISICS_DIAG_CATEGORY_EXTENSION;
         case DIAG_CATEGORY_UNKNOWN:
         default: return FISICS_DIAG_CATEGORY_UNKNOWN;
     }
@@ -136,13 +141,19 @@ static void analysis_store_upsert_locked(const char* filePath,
             entry.diags[i].filePath = strdup(filePath);
             entry.diags[i].line = fisicsDiags[i].line;
             entry.diags[i].column = fisicsDiags[i].column;
+            entry.diags[i].length = fisicsDiags[i].length > 0 ? fisicsDiags[i].length : 1;
             const char* msg = (fisicsDiags[i].message && fisicsDiags[i].message[0])
                               ? fisicsDiags[i].message
                               : "(no message)";
             entry.diags[i].message = strdup(msg);
+            entry.diags[i].hint = fisicsDiags[i].hint && fisicsDiags[i].hint[0]
+                                    ? strdup(fisicsDiags[i].hint)
+                                    : NULL;
             entry.diags[i].severity = map_severity(fisicsDiags[i].kind);
             entry.diags[i].category = map_category(fisicsDiags[i].category_id);
             entry.diags[i].codeId = fisicsDiags[i].code_id;
+            entry.diags[i].codeName = strdup(diagnostic_code_name(fisicsDiags[i].code_id));
+            entry.diags[i].stage = strdup(diagnostic_stage_name(fisicsDiags[i].code_id));
         }
     }
 
@@ -222,13 +233,17 @@ static void analysis_store_flatten_to_engine_locked(void) {
     for (size_t i = 0; i < g_file_count; ++i) {
         AnalysisFileDiagnostics* f = &g_files[i];
         for (int d = 0; d < f->count; ++d) {
-            addDiagnosticWithMeta(f->diags[d].filePath ? f->diags[d].filePath : f->path,
-                                  f->diags[d].line,
-                                  f->diags[d].column,
-                                  f->diags[d].message ? f->diags[d].message : "(no message)",
-                                  f->diags[d].severity,
-                                  f->diags[d].category,
-                                  f->diags[d].codeId);
+            addDiagnosticWithDetails(f->diags[d].filePath ? f->diags[d].filePath : f->path,
+                                     f->diags[d].line,
+                                     f->diags[d].column,
+                                     f->diags[d].length,
+                                     f->diags[d].message ? f->diags[d].message : "(no message)",
+                                     f->diags[d].hint,
+                                     f->diags[d].severity,
+                                     f->diags[d].category,
+                                     f->diags[d].codeId,
+                                     f->diags[d].codeName,
+                                     f->diags[d].stage);
         }
     }
 }
@@ -272,10 +287,14 @@ void analysis_store_save(const char* workspaceRoot) {
             json_object* jd = json_object_new_object();
             json_object_object_add(jd, "line", json_object_new_int(f->diags[d].line));
             json_object_object_add(jd, "col", json_object_new_int(f->diags[d].column));
+            json_object_object_add(jd, "length", json_object_new_int(f->diags[d].length > 0 ? f->diags[d].length : 1));
             json_object_object_add(jd, "severity", json_object_new_int(f->diags[d].severity));
             json_object_object_add(jd, "category", json_object_new_int((int)f->diags[d].category));
             json_object_object_add(jd, "code_id", json_object_new_int(f->diags[d].codeId));
+            json_object_object_add(jd, "code_name", json_object_new_string(f->diags[d].codeName ? f->diags[d].codeName : ""));
+            json_object_object_add(jd, "stage", json_object_new_string(f->diags[d].stage ? f->diags[d].stage : ""));
             json_object_object_add(jd, "message", json_object_new_string(f->diags[d].message ? f->diags[d].message : ""));
+            json_object_object_add(jd, "hint", json_object_new_string(f->diags[d].hint ? f->diags[d].hint : ""));
             json_object_array_add(diags, jd);
         }
         json_object_object_add(obj, "diagnostics", diags);
@@ -353,16 +372,19 @@ void analysis_store_load(const char* workspaceRoot) {
         for (size_t d = 0; d < dcount; ++d) {
             json_object* jd = json_object_array_get_idx(jdiags, d);
             if (!jd) continue;
-            json_object* jline=NULL,* jcol=NULL,* jsev=NULL,* jmsg=NULL,* jcat=NULL,* jcode=NULL;
+            json_object* jline=NULL,* jcol=NULL,* jlen=NULL,* jsev=NULL,* jmsg=NULL,* jcat=NULL,* jcode=NULL,* jhint=NULL;
             json_object_object_get_ex(jd, "line", &jline);
             json_object_object_get_ex(jd, "col", &jcol);
+            json_object_object_get_ex(jd, "length", &jlen);
             json_object_object_get_ex(jd, "severity", &jsev);
             json_object_object_get_ex(jd, "category", &jcat);
             json_object_object_get_ex(jd, "code_id", &jcode);
+            json_object_object_get_ex(jd, "hint", &jhint);
             json_object_object_get_ex(jd, "message", &jmsg);
             tmp[d].file_path = (char*)pathStr;
             tmp[d].line = jline ? json_object_get_int(jline) : 0;
             tmp[d].column = jcol ? json_object_get_int(jcol) : 0;
+            tmp[d].length = jlen ? json_object_get_int(jlen) : 1;
             int sev = jsev ? json_object_get_int(jsev) : 0;
             tmp[d].kind = (sev == DIAG_SEVERITY_WARNING) ? DIAG_WARNING
                        : (sev == DIAG_SEVERITY_INFO) ? DIAG_NOTE
@@ -378,10 +400,15 @@ void analysis_store_load(const char* workspaceRoot) {
                 const char* m = json_object_get_string(jmsg);
                 tmp[d].message = m ? strdup(m) : NULL;
             }
+            if (jhint) {
+                const char* h = json_object_get_string(jhint);
+                tmp[d].hint = (h && h[0]) ? strdup(h) : NULL;
+            }
         }
         analysis_store_upsert_locked(pathStr, tmp, dcount);
         for (size_t d = 0; d < dcount; ++d) {
             free(tmp[d].message);
+            free(tmp[d].hint);
         }
         free(tmp);
         if (json_object_object_get_ex(obj, "stamp", &jstamp)) {

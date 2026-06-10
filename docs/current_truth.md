@@ -1,6 +1,6 @@
 # codeC Current Truth
 
-Last updated: 2026-05-21
+Last updated: 2026-06-09
 
 ## Program Identity
 - Repository/program directory: `ide`
@@ -24,6 +24,24 @@ Last updated: 2026-05-21
     preset, and text-size step, while cancel/toggle-off restores the entry
     baseline without saving
 - Public release version is now `0.2.0`.
+- The Libraries tool panel now has a first dependency-view mode over the
+  compiler include graph:
+  - `Headers` keeps the existing bucketed header/index view
+  - `Deps` shows source-to-project-header dependency edges from the IDE
+    include-graph store
+  - `Graph` converts the same include-graph snapshot into shared
+    `kit_graph_struct` node/edge arrays for layered dependency visualization
+    with click selection, repeat-click open, shared `core_viewport2d`
+    drag-pan, and cursor-anchored wheel zoom
+  - `Graph` suppresses quiet zero-edge sources; sidepane widths use compact
+    source/dependency node lanes in stable content coordinates, so resizing the
+    pane reveals more viewport content instead of stretching the graph. Compact
+    mode keeps the source/dependency lane gap constrained enough for skinny
+    panels, places all graph nodes, uses the pane height for initial vertical
+    distribution, routes edges orthogonally, supports zooming out to 18%, shows
+    labels on hover/selection, and uses a compact node HUD for graph totals,
+    zoom, role, and source/header connectivity
+  - the graph view is not a package-manager or build-execution surface
 
 ## Structure
 - Required lanes: `docs/`, `src/`, `include/`, `tests/`, `build/`
@@ -31,6 +49,25 @@ Last updated: 2026-05-21
   - `src/app`, `src/core`, `src/ide`, `src/engine`, `src/Parser`
 - Dependency lane:
   - vendored shared subtree under `third_party/codework_shared/`
+  - Libraries dependency graph layout/hit math uses vendored
+    `kit_graph_struct`; graph pan/zoom camera state uses vendored
+    `core_viewport2d`; panel drawing and source/header semantics stay IDE-owned
+- Compiler analysis lane:
+  - `fisiCs` live-file/background analysis feeds diagnostics, symbols, tokens,
+    header index data, and include dependency edges into IDE-local stores
+  - diagnostics preserve source span length, optional hint text, normalized
+    category/code names, and stage metadata through analysis persistence and
+    IPC `diag` responses
+  - diagnostic explanation/context sidecars preserve compiler explanation
+    catalog entries, `include_stack`, `macro_trace`, and units `details`
+    payloads for richer diagnostics consumers
+  - declaration-level units attachments persist by stable symbol id and can be
+    published through the `symbols` IPC response
+  - build graph summaries persist from `fisiCs.build_graph` artifacts and can
+    be published through the `build_graph` IPC response
+  - runtime memory-check sidecar summaries persist from
+    `memory_check_report_v1` artifacts and can be published through the
+    `memory_reports` IPC response
 
 ## Lifecycle and Runtime Contract
 - Entry delegates through `ide_app_main(...)`.
@@ -70,6 +107,8 @@ Last updated: 2026-05-21
 ## Packaging and Release Snapshot
 - Desktop packaging contract is at parity with standard app bundle flow.
 - Release-readiness lanes are complete through signed/notarized/stapled distribution verification.
+- Current release target chain requires notarized closeout before artifact/distribution success:
+  `release-verify-signed -> release-notarize -> release-staple -> release-verify-notarized -> release-artifact -> release-distribute`.
 - Icon contract is active with optional `PACKAGE_APP_ICON_SRC` / `PACKAGE_APP_ICONSET_SRC` inputs.
 - Target-aware packaging/release outputs are active:
   - `build/targets/<target-triple>/...`
@@ -87,6 +126,20 @@ Last updated: 2026-05-21
 - Treat structural-upgrade scaffolding as historical/archived; the live work is maintenance plus subsystem improvement, not another scaffold migration phase.
 - Workspace Authoring is at host-attach parity; real pane/module mutation should
   start a new plan rather than extending `IDEWA1`.
+- The compiler bridge ingestion/publication lane is complete for the current
+  Phase 3 boundary: diagnostics metadata, explanations, diagnostic context,
+  units attachments, build graph summaries, include graph data, and
+  memory-check reports are available as IDE-owned stores and IPC query
+  surfaces. The next bridge-related work should be planned as UI/presentation
+  slices that consume these stores, not as more compiler ABI work.
+- The dependency graph is a first visual bridge over include edges only. It
+  uses `kit_graph_struct` for wide-layout/hit math and app-local compact
+  sidepane layout for narrow widths; compact layout uses stable content-space
+  lanes and then is controlled by `core_viewport2d` cursor-anchor zoom and
+  drag-pan camera math.
+  Collapse groups, richer
+  selection state, edge labels, build-manifest nodes, and deeper package or
+  dependency execution semantics remain future work.
 
 ## History and Deep Lane References
 - Full phase/execution history is in:

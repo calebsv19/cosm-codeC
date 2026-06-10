@@ -1,8 +1,11 @@
 #include "core/Ipc/ide_ipc_server.h"
+#include "core/Diagnostics/diagnostic_context.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/BuildSystem/build_diagnostics.h"
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
+#include "core/Analysis/analysis_units_store.h"
+#include "Compiler/diagnostics.h"
 
 #include <json-c/json.h>
 #include <stdbool.h>
@@ -168,8 +171,42 @@ int main(void) {
     build_diagnostics_clear();
     analysis_symbols_store_clear();
     analysis_token_store_clear();
+    analysis_units_store_clear();
 
-    addDiagnostic("/tmp/proj/src/a.c", 12, 4, "unused variable", DIAG_SEVERITY_WARNING);
+    addDiagnosticWithDetails("/tmp/proj/src/a.c",
+                             12,
+                             4,
+                             6,
+                             "assignment dimension mismatch",
+                             "convert to compatible units",
+                             DIAG_SEVERITY_ERROR,
+                             DIAG_CATEGORY_EXTENSION,
+                             FISICS_DIAG_CODE_EXTENSION_UNITS_ASSIGN_DIM_MISMATCH,
+                             "extension.units.assign_dim_mismatch",
+                             "extension");
+    const char* context_json =
+        "{"
+        "\"diagnostics\":[{"
+        "\"file\":\"/tmp/proj/src/a.c\","
+        "\"line\":12,"
+        "\"column\":4,"
+        "\"length\":6,"
+        "\"code_id\":4103,"
+        "\"code_name\":\"extension.units.assign_dim_mismatch\","
+        "\"message\":\"assignment dimension mismatch\","
+        "\"details\":{"
+        "\"context\":\"assignment\","
+        "\"lhs_dim_text\":\"m\","
+        "\"lhs_dim\":[1,0,0,0,0,0,0,0],"
+        "\"rhs_dim_text\":\"s\","
+        "\"rhs_dim\":[0,0,1,0,0,0,0,0]"
+        "}"
+        "}]"
+        "}";
+    if (!diagnostic_context_load_json_text(context_json)) {
+        fprintf(stderr, "failed to load diagnostic context fixture\n");
+        return 1;
+    }
     addDiagnostic("/tmp/proj/src/a.c", 19, 2, "null dereference", DIAG_SEVERITY_ERROR);
 
     const char* build_chunk = "/tmp/proj/src/b.c:3:1: warning: build warn\n/tmp/proj/src/b.c:4:2: error: build err\n";
@@ -199,6 +236,21 @@ int main(void) {
     syms[1].stable_id = 0x2222222222222222ULL;
 
     analysis_symbols_store_upsert("/tmp/proj/src/a.c", syms, 2);
+    FisicsUnitsAttachment units[1];
+    memset(units, 0, sizeof(units));
+    units[0].symbol_stable_id = syms[0].stable_id;
+    units[0].symbol_name = "foo";
+    units[0].dim_text = "m/s";
+    units[0].dim[0] = 1;
+    units[0].dim[2] = -1;
+    units[0].resolved = true;
+    units[0].unit_source_text = "feet_per_second";
+    units[0].unit_name = "foot_per_second";
+    units[0].unit_symbol = "ft/s";
+    units[0].unit_family = "velocity";
+    units[0].unit_resolved = true;
+    analysis_units_store_upsert("/tmp/proj/src/a.c", units, 1, true);
+
     FisicsTokenSpan toks[2];
     memset(toks, 0, sizeof(toks));
     toks[0].line = 1;
@@ -301,6 +353,75 @@ int main(void) {
     }
     json_object_put(root);
 
+    const char* diag_explain_req = "{\"id\":\"d2\",\"proto\":1,\"cmd\":\"diag\",\"args\":{\"max\":4}}";
+    if (send_and_recv(socket_path, diag_explain_req, response, sizeof(response)) != 0) {
+        fprintf(stderr, "diag explanation request failed\n");
+        ide_ipc_stop();
+        return 1;
+    }
+    root = NULL;
+    if (expect_ok_with_result(response, &root) != 0) {
+        fprintf(stderr, "diag explanation response invalid: %s\n", response);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object_object_get_ex(root, "result", &result);
+    jdiags = NULL;
+    json_object_object_get_ex(result, "diagnostics", &jdiags);
+    if (!jdiags || !json_object_is_type(jdiags, json_type_array) || json_object_array_length(jdiags) != 4) {
+        fprintf(stderr, "diag explanation diagnostics array mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* janalysis = json_object_array_get_idx(jdiags, 2);
+    json_object* jexplanation = NULL;
+    json_object* jdetails = NULL;
+    json_object* jcodeName = NULL;
+    json_object* jstage = NULL;
+    json_object* jlength = NULL;
+    json_object_object_get_ex(janalysis, "explanation", &jexplanation);
+    json_object_object_get_ex(janalysis, "details", &jdetails);
+    json_object_object_get_ex(janalysis, "code_name", &jcodeName);
+    json_object_object_get_ex(janalysis, "stage", &jstage);
+    json_object_object_get_ex(janalysis, "length", &jlength);
+    if (!jexplanation || !json_object_is_type(jexplanation, json_type_object) ||
+        !jcodeName || strcmp(json_object_get_string(jcodeName), "extension.units.assign_dim_mismatch") != 0 ||
+        !jstage || strcmp(json_object_get_string(jstage), "extension") != 0 ||
+        !jlength || json_object_get_int(jlength) != 6) {
+        fprintf(stderr, "diag explanation metadata mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* jcontext = NULL;
+    json_object* jlhs = NULL;
+    if (!jdetails || !json_object_is_type(jdetails, json_type_object) ||
+        !json_object_object_get_ex(jdetails, "context", &jcontext) ||
+        strcmp(json_object_get_string(jcontext), "assignment") != 0 ||
+        !json_object_object_get_ex(jdetails, "lhs_dim", &jlhs) ||
+        !json_object_is_type(jlhs, json_type_array) ||
+        json_object_array_length(jlhs) != 8) {
+        fprintf(stderr, "diag structured context mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* jdesc = NULL;
+    json_object* jnext = NULL;
+    json_object_object_get_ex(jexplanation, "description", &jdesc);
+    json_object_object_get_ex(jexplanation, "next_action", &jnext);
+    const char* desc = jdesc ? json_object_get_string(jdesc) : NULL;
+    const char* next = jnext ? json_object_get_string(jnext) : NULL;
+    if (!desc || !strstr(desc, "units extension assignment") ||
+        !next || !strstr(next, "conversion")) {
+        fprintf(stderr, "diag explanation text mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object_put(root);
+
     const char* tokens_req = "{\"id\":\"t1\",\"proto\":1,\"cmd\":\"tokens\",\"args\":{\"file\":\"src/a.c\",\"max\":1}}";
     if (send_and_recv(socket_path, tokens_req, response, sizeof(response)) != 0) {
         fprintf(stderr, "tokens request failed\n");
@@ -396,6 +517,31 @@ int main(void) {
         ide_ipc_stop();
         return 1;
     }
+    json_object* junits = NULL;
+    json_object_object_get_ex(jfirst, "units", &junits);
+    if (!junits || !json_object_is_type(junits, json_type_object)) {
+        fprintf(stderr, "symbols units object missing\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
+    json_object* jdimText = NULL;
+    json_object* junitSymbol = NULL;
+    json_object* jdim = NULL;
+    json_object_object_get_ex(junits, "dim_text", &jdimText);
+    json_object_object_get_ex(junits, "unit_symbol", &junitSymbol);
+    json_object_object_get_ex(junits, "dim", &jdim);
+    if (!jdimText || strcmp(json_object_get_string(jdimText), "m/s") != 0 ||
+        !junitSymbol || strcmp(json_object_get_string(junitSymbol), "ft/s") != 0 ||
+        !jdim || !json_object_is_type(jdim, json_type_array) ||
+        json_object_array_length(jdim) != FISICS_UNITS_DIM_SLOTS ||
+        json_object_get_int(json_object_array_get_idx(jdim, 0)) != 1 ||
+        json_object_get_int(json_object_array_get_idx(jdim, 2)) != -1) {
+        fprintf(stderr, "symbols units payload mismatch\n");
+        json_object_put(root);
+        ide_ipc_stop();
+        return 1;
+    }
     json_object_put(root);
 
     // open success: requires pump on main thread
@@ -456,6 +602,7 @@ int main(void) {
     ide_ipc_stop();
     analysis_symbols_store_clear();
     analysis_token_store_clear();
+    analysis_units_store_clear();
 
     printf("idebridge_phase2_check: ok\n");
     return 0;
