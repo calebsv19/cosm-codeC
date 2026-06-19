@@ -15,6 +15,7 @@
 /timerhud/ide/timing.json
 /timerhud/ide/runtime/
 /vk_frame.ppm
+/visual_artifacts/
 
 # OS/editor noise
 .DS_Store

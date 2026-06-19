@@ -15,6 +15,7 @@
 #include "app/GlobalInfo/event_loop.h"
 #include "app/GlobalInfo/runtime_startup_defaults.h"
 #include "app/GlobalInfo/workspace_prefs.h"
+#include "app/GlobalInfo/visual_artifact_proof.h"
 #include "engine/Render/timer_hud_adapter.h"
 
 //  UI STATE
@@ -725,5 +726,5 @@ int ide_app_main_legacy(int argc, char *argv[]) {
     }
 
     shutdownSystem(panes, pane_count);
-    return 0;
+    return ide_visual_artifact_proof_exit_code();
 }

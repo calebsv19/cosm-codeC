@@ -1,6 +1,6 @@
 # codeC Current Truth
 
-Last updated: 2026-06-09
+Last updated: 2026-06-18
 
 ## Program Identity
 - Repository/program directory: `ide`
@@ -23,7 +23,7 @@ Last updated: 2026-06-09
   - accepted-only persistence is active; `Apply` saves theme preset, font
     preset, and text-size step, while cancel/toggle-off restores the entry
     baseline without saving
-- Public release version is now `0.2.0`.
+- Public release version is now `0.3.0`.
 - The Libraries tool panel now has a first dependency-view mode over the
   compiler include graph:
   - `Headers` keeps the existing bucketed header/index view
@@ -58,16 +58,32 @@ Last updated: 2026-06-09
   - diagnostics preserve source span length, optional hint text, normalized
     category/code names, and stage metadata through analysis persistence and
     IPC `diag` responses
+  - the Errors panel consumes the richer diagnostic metadata for a selected-row
+    detail inspector with severity, source span, category/code/stage, message,
+    hint, explanation text, expanded include-stack/macro-trace/details context
+    rows with per-row source navigation where available, units/dimension
+    details with optional symbol-units enrichment, panel-local search over
+    message/file/hint/category/code/stage, keyboard row navigation, and
+    Enter-to-jump behavior
   - diagnostic explanation/context sidecars preserve compiler explanation
     catalog entries, `include_stack`, `macro_trace`, and units `details`
     payloads for richer diagnostics consumers
   - declaration-level units attachments persist by stable symbol id and can be
     published through the `symbols` IPC response
+  - the Control panel has a separate `Units` target that searches declaration
+    unit attachments by symbol name, unit text/name, unit family, and dimension
+    text through the existing right-panel search and Active/Project scope
+    controls
   - build graph summaries persist from `fisiCs.build_graph` artifacts and can
     be published through the `build_graph` IPC response
   - runtime memory-check sidecar summaries persist from
     `memory_check_report_v1` artifacts and can be published through the
     `memory_reports` IPC response
+  - mutating IPC edit requests require the session auth token, peer UID checks
+    where supported, workspace-confined existing file paths, bounded unified
+    diff resources, and hash verification by default; explicit
+    `check_hash=false` edits are limited to single-file diffs and report
+    `hash_policy=unchecked_single_file`
 
 ## Lifecycle and Runtime Contract
 - Entry delegates through `ide_app_main(...)`.
@@ -86,14 +102,42 @@ Last updated: 2026-06-09
 - Build/run preferences remain app-local alongside that workspace choice in
   `~/.custom_c_ide/config.ini`, while packaged launcher/runtime roots are still
   resolved through the packaged runtime path contract
+- User-triggered Build and Run actions print a terminal-facing `[Trust]`
+  notice before command dispatch, including action, working directory, command
+  source, and command display string. Passive analysis remains separated from
+  these trusted-workspace execution actions.
+- The Git tool panel launches branch/status/log/watcher/stage/commit commands
+  through argv-based `fork`/`execvp` with child-side `chdir` into the selected
+  project path. It does not interpolate project paths or commit messages into
+  shell command strings.
 
 ## Verification Contract
+- Proof-of-life ladder:
+  - `make -C ide run-headless-smoke`
+    - builds the app and runs `test-stable`
+    - expected final line: `run-headless-smoke completed.`
+  - `make -C ide visual-harness`
+    - builds the app output and prints the manual UI validation command
+    - expected final line starts with: `visual-harness build gate ready:`
+    - this is not an automated screenshot or visual-artifact capture route
+  - `make -C ide visual-artifact`
+    - launches the IDE in `IDE_VISUAL_ARTIFACT_ONCE=1` mode, writes the first
+      rendered frame, and exits
+    - expected final line:
+      `visual-artifact ready: visual_artifacts/ide_first_frame.bmp`
+    - generated artifacts live under ignored `ide/visual_artifacts/`
+  - `make -C ide package-desktop-self-test`
+    - validates packaged resources and launcher self-test behavior
+    - expected final line: `package-desktop-self-test passed.`
 - Core gates:
   - `make -C ide clean && make -C ide`
   - `make -C ide run-headless-smoke`:
     aggregate non-interactive smoke coverage
   - `make -C ide visual-harness`:
     build-only readiness; does not execute the interactive editor shell
+  - `make -C ide visual-artifact`:
+    display-backed first-frame proof artifact at
+    `ide/visual_artifacts/ide_first_frame.bmp`
   - `make -C ide test-stable`
   - `make -C ide test-legacy`
 - Packaging gates:
@@ -116,9 +160,18 @@ Last updated: 2026-06-09
 - Launcher/runtime resource hardening is active:
   - packaged runtime roots are copied into the writable runtime lane before launch
   - `VK_RENDERER_SHADER_ROOT` now resolves through the runtime root instead of a bundle-relative direct shader path
+  - `IDE_RUNTIME_DIR` overrides are validated and canonicalized before runtime
+    copy/removal; invalid relative, broad, or symlink-resolved unsafe override
+    paths fall back to the default user runtime lane or temp runtime lane
+  - launcher `--print-config` and `--self-test` report
+    `IDE_RUNTIME_DIR_SOURCE` for runtime-root provenance
 
 ## Runtime/Temp Policy
 - Mutable/runtime lanes are explicitly ignored (`tmp`, `ide_files`, timer output lanes).
+- Release artifacts run a hygiene check before `release-artifact` completes:
+  the public manifest uses artifact basenames/digests instead of local
+  evidence paths, and ZIP contents are scanned for private/generated runtime
+  lanes.
 - Defaults vs runtime persistence split is maintained.
 
 ## Current Boundary

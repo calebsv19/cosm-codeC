@@ -10,6 +10,7 @@
 #include "event_loop_diag_helpers.h"
 #include "system_control.h"
 #include "core_state.h"
+#include "visual_artifact_proof.h"
 
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/Editor/editor_state.h"
@@ -685,10 +686,12 @@ static bool checkRenderFrame(FrameContext* ctx, Uint64 now) {
 
         // Render all UI
         if (timerHudActive) ts_session_start_timer(timer_hud_session(), "RenderPipeline");
+        ide_visual_artifact_proof_begin_frame(rctx);
         RenderPipeline_renderAll(ctx->panes,
                                  *ctx->paneCount,
                                  ctx->lastW, ctx->lastH,
                                  ctx->resizeZones, ctx->resizeZoneCount, getCoreState());
+        ide_visual_artifact_proof_end_frame(rctx, ctx->running);
         if (timerHudActive) ts_session_stop_timer(timer_hud_session(), "RenderPipeline");
 
         *ctx->lastRender = now;
@@ -744,6 +747,10 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
         invalidateAll(ctx->panes, *ctx->paneCount,
                       RENDER_INVALIDATION_LAYOUT | RENDER_INVALIDATION_CONTENT);
         requestFullRedraw(RENDER_INVALIDATION_LAYOUT | RENDER_INVALIDATION_CONTENT);
+    }
+
+    if (ide_visual_artifact_proof_pending()) {
+        requestFullRedraw(RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_LAYOUT);
     }
 
     if (timerHudActive) ts_session_start_timer(timer_hud_session(), "BackgroundTick");

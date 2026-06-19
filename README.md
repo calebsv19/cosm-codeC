@@ -45,10 +45,38 @@ developed as part of a broader ecosystem for simulation, compiler development, a
 
 ---
 
-## Screenshot
+## Proof Of Life
 
-*(Coming soon – will include layout with multiple editor panes and sidebars)*  
-You can still build and run to explore the UI!
+Use these proof lanes in order:
+
+```bash
+make -C ide run-headless-smoke
+```
+
+Expected final line: `run-headless-smoke completed.`
+
+```bash
+make -C ide visual-harness
+```
+
+Expected final line: `visual-harness build gate ready: ...`
+This is a visual build-readiness gate; it does not launch the editor shell or
+capture a screenshot.
+
+```bash
+make -C ide visual-artifact
+```
+
+Expected final line: `visual-artifact ready: visual_artifacts/ide_first_frame.bmp`
+This launches the editor in one-shot proof mode, writes the first rendered
+frame, and exits. The generated `ide/visual_artifacts/` directory is ignored by
+Git.
+
+```bash
+make -C ide package-desktop-self-test
+```
+
+Expected final line: `package-desktop-self-test passed.`
 
 ---
 
@@ -95,8 +123,8 @@ Private migration/planning docs are in the workspace private bucket:
 
 ```bash
 cd ide
-make debug
-./ide
+make
+make run
 ```
 
 Useful run presets:
@@ -121,7 +149,7 @@ valid default workspace root instead of reusing the broken path.
 
 Current release version:
 
-- `0.2.0`
+- `0.3.0`
 
 ### Shared Subtree Update Workflow
 

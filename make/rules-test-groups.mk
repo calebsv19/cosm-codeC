@@ -53,6 +53,19 @@ visual-harness: $(OUT)
 	@echo "visual-harness build gate ready: $(OUT)"
 	@echo "launch manual UI validation with: make -C ide run-ide-theme"
 
+.PHONY: visual-artifact visual-proof
+VISUAL_ARTIFACT_DIR ?= visual_artifacts
+VISUAL_ARTIFACT_PATH ?= $(VISUAL_ARTIFACT_DIR)/ide_first_frame.bmp
+
+visual-artifact: $(OUT)
+	@mkdir -p "$(VISUAL_ARTIFACT_DIR)"
+	@rm -f "$(VISUAL_ARTIFACT_PATH)"
+	@IDE_VISUAL_ARTIFACT_ONCE=1 IDE_VISUAL_ARTIFACT_PATH="$(VISUAL_ARTIFACT_PATH)" ./$(OUT)
+	@test -s "$(VISUAL_ARTIFACT_PATH)"
+	@echo "visual-artifact ready: $(VISUAL_ARTIFACT_PATH)"
+
+visual-proof: visual-artifact
+
 .PHONY: test check test-internal
 test:
 	@$(MAKE) BUILD_TOOLCHAIN="$(TEST_TOOLCHAIN)" test-internal
