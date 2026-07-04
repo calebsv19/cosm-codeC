@@ -2,6 +2,7 @@
 #include "engine/Render/render_text_helpers.h"
 #include "engine/Render/render_pipeline.h"  // for getRenderContext
 #include "engine/Render/render_font.h"      // for getActiveFont
+#include "ide/UI/ide_ui_button.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include "core/TextSelection/text_selection_manager.h"
 #include "ide/Panes/PaneInfo/pane.h"
@@ -636,38 +637,51 @@ void drawClippedTextError(int x, int y, const char* text, int maxWidth) {
 
 
 void renderButton(UIPane* pane, SDL_Rect rect, const char* label) {
+    (void)pane;
     RenderContext* ctx = getRenderContext();
     SDL_Renderer* renderer = ctx->renderer;
     int mouse_x = 0;
     int mouse_y = 0;
+    Uint32 mouse_buttons = 0;
     SDL_Point mouse_pt;
-    bool is_hovered;
+    IDEThemePalette palette = {0};
+    IDEUIButtonState button_state = {0};
+    IDEUIButtonResolvedStyle resolved = {0};
+    const char* button_label = label ? label : "";
 
-    SDL_Color fill = {100, 100, 100, 255};
-    SDL_Color fill_active = {140, 140, 140, 255};
-    SDL_Color border = {255, 255, 255, 255};
-    SDL_Color text = {255, 255, 255, 255};
-    ide_shared_theme_button_colors(&fill, &fill_active, &border, &text);
+    if (!renderer) return;
 
-    SDL_GetMouseState(&mouse_x, &mouse_y);
+    mouse_buttons = SDL_GetMouseState(&mouse_x, &mouse_y);
     mouse_pt.x = mouse_x;
     mouse_pt.y = mouse_y;
-    is_hovered = SDL_PointInRect(&mouse_pt, &rect);
-
-    if (is_hovered) {
-        fill = fill_active;
+    button_state.hovered = SDL_PointInRect(&mouse_pt, &rect);
+    button_state.pressed = button_state.hovered && ((mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0);
+    (void)ide_ui_button_resolve_palette(&palette);
+    if (!ide_ui_button_resolve_style(&palette,
+                                     button_label,
+                                     IDE_UI_BUTTON_VARIANT_DEFAULT,
+                                     button_state,
+                                     &resolved)) {
+        resolved.fill = palette.button_fill;
+        resolved.outline = palette.button_border;
+        resolved.text = palette.text_primary;
     }
-    SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
+
+    SDL_SetRenderDrawColor(renderer, resolved.fill.r, resolved.fill.g, resolved.fill.b, resolved.fill.a);
     SDL_RenderFillRect(renderer, &rect);
 
-    SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, border.a);
+    SDL_SetRenderDrawColor(renderer,
+                           resolved.outline.r,
+                           resolved.outline.g,
+                           resolved.outline.b,
+                           resolved.outline.a);
     SDL_RenderDrawRect(renderer, &rect);
 
     TTF_Font* buttonFont = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
     if (!buttonFont) {
         buttonFont = getActiveFont();
     }
-    int textW = getTextWidthWithFont(label, buttonFont);
+    int textW = getTextWidthWithFont(button_label, buttonFont);
     int textH = buttonFont ? TTF_FontHeight(buttonFont) : 12;
     if (textH < 1) textH = 12;
     int tx = rect.x + (rect.w - textW) / 2;
@@ -677,9 +691,9 @@ void renderButton(UIPane* pane, SDL_Rect rect, const char* label) {
     }
     drawTextUTF8WithFontColor(tx,
                               ty,
-                              label,
+                              button_label,
                               buttonFont,
-                              text,
+                              resolved.text,
                               false);
 }
 

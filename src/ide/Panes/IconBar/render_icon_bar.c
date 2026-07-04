@@ -3,8 +3,7 @@
 #include "engine/Render/render_pipeline.h"            
 #include "engine/Render/render_helpers.h"    // for drawText and renderUIPane
 #include "engine/Render/render_text_helpers.h"
-#include "engine/Render/render_font.h"
-#include "ide/UI/shared_theme_font_adapter.h"
+#include "ide/UI/panel_control_widgets.h"
 
 #include "app/GlobalInfo/system_control.h"
 
@@ -18,6 +17,14 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
     RenderContext* ctx = getRenderContext();
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
+    int mouse_x = 0;
+    int mouse_y = 0;
+    Uint32 mouse_buttons = SDL_GetMouseState(&mouse_x, &mouse_y);
+    bool mouse_pressed = (mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+    IconTool active = getActiveIcon();
+
+    (void)hovered;
+    (void)core;
 
     SelectableTextOptions titleOpts = {
         .pane = pane,
@@ -32,43 +39,9 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
     drawSelectableText(&titleOpts);
 
     int iconCount = ICON_COUNT;
-    int iconSize = pane->w - 20;
-    int spacing = 12;
-    int startY = pane->y + 28;
-
-    int centerX = pane->x + pane->w / 2;
-    int iconX = centerX - iconSize / 2;
-
-    IconTool active = getActiveIcon();
-    SDL_Color fill = {100, 100, 100, 255};
-    SDL_Color fill_active = {140, 140, 140, 255};
-    SDL_Color border = {255, 255, 255, 255};
-    SDL_Color text = {255, 255, 255, 255};
-    ide_shared_theme_button_colors(&fill, &fill_active, &border, &text);
-
     for (int i = 0; i < iconCount; i++) {
-        int iconY = startY + i * (iconSize + spacing);
-
-        SDL_Rect icon = {
-            .x = iconX,
-            .y = iconY,
-            .w = iconSize,
-            .h = iconSize
-        };
-
-        // Fill
-        if (i == active) {
-            SDL_SetRenderDrawColor(renderer, fill_active.r, fill_active.g, fill_active.b, fill_active.a);
-        } else {
-            SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
-        }
-        SDL_RenderFillRect(renderer, &icon);
-
-        // Border
-        SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, border.a);
-        SDL_RenderDrawRect(renderer, &icon);
-
-        // Letter label per icon
+        SDL_Rect icon = getIconRect(pane, i);
+        bool icon_hovered = ui_panel_rect_contains(&icon, mouse_x, mouse_y);
         const char* label = "?";
         switch (i) {
             case ICON_PROJECT_FILES: label = "P"; break;
@@ -80,17 +53,18 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
             case ICON_VERSION_CONTROL: label = "G"; break; // Git
             default:                 label = "";  break;
         }
-        if (label && label[0]) {
-            int textW = getTextWidth(label);
-            int textH = 16;
-            int tx = icon.x + (icon.w - textW) / 2;
-            int ty = icon.y + (icon.h - textH) / 2;
-            drawTextUTF8WithFontColor(tx,
-                                      ty,
-                                      label,
-                                      getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION),
-                                      text,
-                                      false);
-        }
+        ui_panel_compact_button_render(renderer,
+                                       &(UIPanelCompactButtonSpec){
+                                           .rect = icon,
+                                           .label = label,
+                                           .hovered = icon_hovered,
+                                           .active = i == active,
+                                           .pressed = icon_hovered && mouse_pressed,
+                                           .disabled = false,
+                                           .outlined = false,
+                                           .use_custom_fill = false,
+                                           .use_custom_outline = false,
+                                           .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                       });
     }
 }

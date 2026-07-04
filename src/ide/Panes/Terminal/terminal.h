@@ -86,6 +86,7 @@ bool terminal_set_active(int index);
 int terminal_create_interactive(const char* start_dir);
 void terminal_close_interactive(int index);
 bool terminal_session_info(int index, const char** name, bool* isBuild, bool* isRun);
+bool terminal_can_close_active_interactive(void);
 bool terminal_close_active_interactive(void);
 bool terminal_active_is_task(void);
 bool terminal_set_name(int index, const char* name);

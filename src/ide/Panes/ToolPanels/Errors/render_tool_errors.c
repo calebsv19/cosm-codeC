@@ -279,11 +279,25 @@ void renderErrorsPanel(UIPane* pane) {
     UIPanelTaggedRectList* controlHits = errors_get_control_hits();
     ui_panel_tagged_rect_list_reset(controlHits);
     errors_set_search_strip_layout(searchLayout);
+    int topMouseX = 0;
+    int topMouseY = 0;
+    Uint32 topMouseButtons = SDL_GetMouseState(&topMouseX, &topMouseY);
+    bool topMousePressed = (topMouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+    bool btnAllHovered = ui_panel_rect_contains(&btnAll, topMouseX, topMouseY);
+    bool btnErrorsHovered = ui_panel_rect_contains(&btnErrors, topMouseX, topMouseY);
+    bool btnWarningsHovered = ui_panel_rect_contains(&btnWarnings, topMouseX, topMouseY);
+    bool btnOpenAllHovered = ui_panel_rect_contains(&btnOpenAll, topMouseX, topMouseY);
+    bool btnCloseAllHovered = ui_panel_rect_contains(&btnCloseAll, topMouseX, topMouseY);
+    bool clearSearchHovered = ui_panel_rect_contains(&searchLayout.trailing_button_rect, topMouseX, topMouseY);
+    bool hasSearchQuery = errors_has_active_search_query();
     ui_panel_compact_button_render(getRenderContext()->renderer,
                                    &(UIPanelCompactButtonSpec){
                                        .rect = btnAll,
                                        .label = "All",
+                                       .hovered = btnAllHovered,
                                        .active = errors_filter_all_enabled(),
+                                       .pressed = btnAllHovered && topMousePressed,
+                                       .disabled = false,
                                        .outlined = false,
                                        .use_custom_fill = false,
                                        .use_custom_outline = false,
@@ -294,7 +308,10 @@ void renderErrorsPanel(UIPane* pane) {
                                    &(UIPanelCompactButtonSpec){
                                        .rect = btnErrors,
                                        .label = "Errors",
+                                       .hovered = btnErrorsHovered,
                                        .active = errors_filter_errors_enabled(),
+                                       .pressed = btnErrorsHovered && topMousePressed,
+                                       .disabled = false,
                                        .outlined = false,
                                        .use_custom_fill = false,
                                        .use_custom_outline = false,
@@ -305,7 +322,10 @@ void renderErrorsPanel(UIPane* pane) {
                                    &(UIPanelCompactButtonSpec){
                                        .rect = btnWarnings,
                                        .label = "Warnings",
+                                       .hovered = btnWarningsHovered,
                                        .active = errors_filter_warnings_enabled(),
+                                       .pressed = btnWarningsHovered && topMousePressed,
+                                       .disabled = false,
                                        .outlined = false,
                                        .use_custom_fill = false,
                                        .use_custom_outline = false,
@@ -316,7 +336,10 @@ void renderErrorsPanel(UIPane* pane) {
                                    &(UIPanelCompactButtonSpec){
                                        .rect = btnOpenAll,
                                        .label = "Open All",
+                                       .hovered = btnOpenAllHovered,
                                        .active = false,
+                                       .pressed = btnOpenAllHovered && topMousePressed,
+                                       .disabled = false,
                                        .outlined = false,
                                        .use_custom_fill = false,
                                        .use_custom_outline = false,
@@ -327,7 +350,10 @@ void renderErrorsPanel(UIPane* pane) {
                                    &(UIPanelCompactButtonSpec){
                                        .rect = btnCloseAll,
                                        .label = "Close All",
+                                       .hovered = btnCloseAllHovered,
                                        .active = false,
+                                       .pressed = btnCloseAllHovered && topMousePressed,
+                                       .disabled = false,
                                        .outlined = false,
                                        .use_custom_fill = false,
                                        .use_custom_outline = false,
@@ -347,7 +373,10 @@ void renderErrorsPanel(UIPane* pane) {
                                    &(UIPanelCompactButtonSpec){
                                        .rect = searchLayout.trailing_button_rect,
                                        .label = "x",
-                                       .active = errors_has_active_search_query(),
+                                       .hovered = clearSearchHovered,
+                                       .active = false,
+                                       .pressed = clearSearchHovered && topMousePressed,
+                                       .disabled = !hasSearchQuery,
                                        .outlined = false,
                                        .use_custom_fill = false,
                                        .use_custom_outline = false,

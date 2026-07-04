@@ -13,6 +13,7 @@
 #include "ide/Panes/Editor/editor_view_state.h"
 #include "ide/Panes/Editor/editor_core.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
+#include "ide/UI/panel_control_widgets.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/UI/ui_selection_style.h"
 
@@ -563,26 +564,25 @@ void renderLeafEditorView(EditorView* view) {
         }
     }
 
-    // Subtle close button visual (smaller than hitbox)
-    {
-        SDL_Color closeFill = darken_color(palette.accent_error, 96);
-        SDL_SetRenderDrawColor(renderer, closeFill.r, closeFill.g, closeFill.b, 255);
-    }
-    SDL_RenderFillRect(renderer, &xButtonVisualRect);
-
-    // Border
-    SDL_SetRenderDrawColor(renderer,
-                           palette.accent_error.r,
-                           palette.accent_error.g,
-                           palette.accent_error.b,
-                           255);
-    SDL_RenderDrawRect(renderer, &xButtonVisualRect);
-
-    // Draw "X" text
-    int xTextW = getTextWidthWithFont("X", tabFont);
-    int xTextX = xButtonVisualRect.x + (xButtonVisualRect.w - xTextW) / 2;
-    int xTextY = xButtonVisualRect.y - 1;
-    drawTextWithTierColor(xTextX, xTextY, "X", CORE_FONT_TEXT_SIZE_CAPTION, bodyText);
+    int tabMouseX = 0;
+    int tabMouseY = 0;
+    Uint32 tabMouseButtons = SDL_GetMouseState(&tabMouseX, &tabMouseY);
+    bool closeEnabled = view->activeTab >= 0 && view->activeTab < view->fileCount;
+    bool closeHovered = ui_panel_rect_contains(&xButtonRect, tabMouseX, tabMouseY);
+    ui_panel_compact_button_render(renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = xButtonVisualRect,
+                                       .label = "X",
+                                       .hovered = closeHovered,
+                                       .active = false,
+                                       .pressed = closeHovered &&
+                                                  (tabMouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0,
+                                       .disabled = !closeEnabled,
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
 
     // Render buffer contents
     if (view->activeTab >= 0 && view->activeTab < view->fileCount) {

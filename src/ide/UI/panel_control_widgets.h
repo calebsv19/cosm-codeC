@@ -4,6 +4,7 @@
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_font.h"
 #include "engine/Render/render_text_helpers.h"
+#include "ide/UI/ide_ui_button.h"
 #include "ide/UI/panel_metrics.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 
@@ -14,7 +15,10 @@
 typedef struct UIPanelCompactButtonSpec {
     SDL_Rect rect;
     const char* label;
+    bool hovered;
     bool active;
+    bool pressed;
+    bool disabled;
     bool outlined;
     bool use_custom_fill;
     SDL_Color custom_fill;
@@ -54,7 +58,10 @@ typedef struct UIPanelTaggedRectList {
 typedef struct UIPanelCompactButtonRowItem {
     int tag;
     const char* label;
+    bool hovered;
     bool active;
+    bool pressed;
+    bool disabled;
     bool outlined;
 } UIPanelCompactButtonRowItem;
 
@@ -170,15 +177,28 @@ static inline void ui_panel_compact_button_render(SDL_Renderer* renderer,
     if (!renderer || !spec) return;
 
     IDEThemePalette palette = {0};
-    SDL_Color fill = {80, 80, 80, 255};
-    SDL_Color fillActive = {120, 120, 120, 255};
-    SDL_Color border = {180, 180, 180, 255};
-    SDL_Color text = {230, 230, 230, 255};
-    ide_shared_theme_resolve_palette(&palette);
-    ide_shared_theme_button_colors(&fill, &fillActive, &border, &text);
+    (void)ide_ui_button_resolve_palette(&palette);
 
-    SDL_Color bg = spec->use_custom_fill ? spec->custom_fill : (spec->active ? fillActive : fill);
-    SDL_Color outline = spec->use_custom_outline ? spec->custom_outline : border;
+    IDEUIButtonState buttonState = {
+        .hovered = spec->hovered,
+        .selected = spec->active,
+        .pressed = spec->pressed,
+        .disabled = spec->disabled,
+        .focused = spec->outlined
+    };
+    IDEUIButtonResolvedStyle resolved = {0};
+    if (!ide_ui_button_resolve_style(&palette,
+                                     spec->label,
+                                     IDE_UI_BUTTON_VARIANT_DEFAULT,
+                                     buttonState,
+                                     &resolved)) {
+        resolved.fill = palette.button_fill;
+        resolved.outline = palette.button_border;
+        resolved.text = palette.text_primary;
+    }
+
+    SDL_Color bg = spec->use_custom_fill ? spec->custom_fill : resolved.fill;
+    SDL_Color outline = spec->use_custom_outline ? spec->custom_outline : resolved.outline;
 
     SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, bg.a);
     SDL_RenderFillRect(renderer, &spec->rect);
@@ -186,17 +206,8 @@ static inline void ui_panel_compact_button_render(SDL_Renderer* renderer,
     SDL_RenderDrawRect(renderer, &spec->rect);
 
     if (spec->outlined) {
-        SDL_Rect outer = {
-            spec->rect.x - 1,
-            spec->rect.y - 1,
-            spec->rect.w + 2,
-            spec->rect.h + 2
-        };
-        SDL_SetRenderDrawColor(renderer,
-                               palette.accent_warning.r,
-                               palette.accent_warning.g,
-                               palette.accent_warning.b,
-                               palette.accent_warning.a);
+        SDL_Rect outer = ide_ui_button_outer_focus_rect(spec->rect);
+        SDL_SetRenderDrawColor(renderer, outline.r, outline.g, outline.b, outline.a);
         SDL_RenderDrawRect(renderer, &outer);
     }
 
@@ -225,7 +236,7 @@ static inline void ui_panel_compact_button_render(SDL_Renderer* renderer,
                               ty,
                               labelBuf,
                               tierFont,
-                              palette.text_primary,
+                              resolved.text,
                               false);
 }
 
@@ -251,7 +262,10 @@ static inline void ui_panel_compact_button_row_render(SDL_Renderer* renderer,
                                        &(UIPanelCompactButtonSpec){
                                            .rect = rect,
                                            .label = items[i].label,
+                                           .hovered = items[i].hovered,
                                            .active = items[i].active,
+                                           .pressed = items[i].pressed,
+                                           .disabled = items[i].disabled,
                                            .outlined = items[i].outlined,
                                            .use_custom_fill = false,
                                            .use_custom_outline = false,

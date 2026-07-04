@@ -3,6 +3,7 @@
 #include "engine/Render/render_text_helpers.h"  // renderUIPane, drawText
 #include "engine/Render/render_font.h"
 #include "ide/UI/ui_selection_style.h"
+#include "ide/UI/panel_control_widgets.h"
 #include "app/GlobalInfo/system_control.h"
 #include "app/GlobalInfo/core_state.h"
 
@@ -23,6 +24,30 @@
 #define TERMINAL_ATTR_UNDERLINE (1 << 1)
 #define TERMINAL_ATTR_WIDE_CONTINUATION (1 << 7)
 #define TERMINAL_DEFAULT_BG     0x000000FFu
+
+static void render_terminal_header_button(SDL_Renderer* renderer,
+                                          SDL_Rect rect,
+                                          const char* label,
+                                          bool active,
+                                          bool disabled,
+                                          int mouseX,
+                                          int mouseY,
+                                          bool mousePressed) {
+    bool hovered = ui_panel_rect_contains(&rect, mouseX, mouseY);
+    ui_panel_compact_button_render(renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = rect,
+                                       .label = label,
+                                       .hovered = hovered,
+                                       .active = active,
+                                       .pressed = hovered && mousePressed && !disabled,
+                                       .disabled = disabled,
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+}
 
 static SDL_Color term_color_from_rgba(uint32_t packed) {
     SDL_Color color = {
@@ -449,30 +474,34 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     terminal_reset_tab_rects();
     int sessionCount = terminal_session_count();
     int activeIdx = terminal_active_index();
+    int headerMouseX = 0;
+    int headerMouseY = 0;
+    Uint32 headerMouseButtons = SDL_GetMouseState(&headerMouseX, &headerMouseY);
+    bool headerMousePressed = (headerMouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
     // Close button (for interactive tabs) placed on the far left
     int closeW = headerH - 8;
     SDL_Rect closeRect = { header.x + 4, tabY, closeW, headerH - 8 };
     terminal_set_close_rect(closeRect);
-    SDL_SetRenderDrawColor(renderer, 80, 50, 50, 255);
-    SDL_RenderFillRect(renderer, &closeRect);
-    SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
-    SDL_RenderDrawRect(renderer, &closeRect);
-    drawTextWithTier(closeRect.x + closeRect.w / 2 - 4,
-                     closeRect.y + (closeRect.h - 14) / 2,
-                     "x",
-                     CORE_FONT_TEXT_SIZE_CAPTION);
+    render_terminal_header_button(renderer,
+                                  closeRect,
+                                  "x",
+                                  false,
+                                  !terminal_can_close_active_interactive(),
+                                  headerMouseX,
+                                  headerMouseY,
+                                  headerMousePressed);
 
     // Plus button for interactive, next to close
     SDL_Rect plus = { closeRect.x + closeRect.w + 6, tabY, headerH - 8, headerH - 8 };
     terminal_set_plus_rect(plus);
-    SDL_SetRenderDrawColor(renderer, 60, 60, 70, 255);
-    SDL_RenderFillRect(renderer, &plus);
-    SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
-    SDL_RenderDrawRect(renderer, &plus);
-    drawTextWithTier(plus.x + 6,
-                     plus.y + (plus.h - 14) / 2,
-                     "+",
-                     CORE_FONT_TEXT_SIZE_CAPTION);
+    render_terminal_header_button(renderer,
+                                  plus,
+                                  "+",
+                                  false,
+                                  false,
+                                  headerMouseX,
+                                  headerMouseY,
+                                  headerMousePressed);
     tabX = plus.x + plus.w + 6;
 
     // Render interactive tabs immediately to the right of plus
@@ -500,15 +529,14 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         int tabW = textW + 16;
         SDL_Rect tabRect = { tabX, tabY, tabW, headerH - 8 };
         terminal_set_tab_rect(i, tabRect);
-        if (i == activeIdx) {
-            SDL_SetRenderDrawColor(renderer, 70, 90, 140, 255);
-        } else {
-            SDL_SetRenderDrawColor(renderer, 60, 60, 70, 255);
-        }
-        SDL_RenderFillRect(renderer, &tabRect);
-        SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
-        SDL_RenderDrawRect(renderer, &tabRect);
-        drawText(tabRect.x + 8, tabRect.y + (tabRect.h - 14) / 2, drawLabel);
+        render_terminal_header_button(renderer,
+                                      tabRect,
+                                      drawLabel,
+                                      i == activeIdx,
+                                      false,
+                                      headerMouseX,
+                                      headerMouseY,
+                                      headerMousePressed);
         tabX += tabW + 6;
     }
 
@@ -525,15 +553,14 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         rightStart -= (tabW + 6);
         SDL_Rect tabRect = { rightStart, tabY, tabW, headerH - 8 };
         terminal_set_tab_rect(i, tabRect);
-        if (i == activeIdx) {
-            SDL_SetRenderDrawColor(renderer, 90, 110, 160, 255);
-        } else {
-            SDL_SetRenderDrawColor(renderer, 70, 70, 80, 255);
-        }
-        SDL_RenderFillRect(renderer, &tabRect);
-        SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
-        SDL_RenderDrawRect(renderer, &tabRect);
-        drawText(tabRect.x + 8, tabRect.y + (tabRect.h - 14) / 2, label);
+        render_terminal_header_button(renderer,
+                                      tabRect,
+                                      label,
+                                      i == activeIdx,
+                                      false,
+                                      headerMouseX,
+                                      headerMouseY,
+                                      headerMousePressed);
     }
 
     TermGrid* grid = terminal_active_grid();

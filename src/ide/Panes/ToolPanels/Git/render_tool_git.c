@@ -62,12 +62,21 @@ void renderGitPanel(UIPane* pane) {
     SDL_Rect msgBox = topStrip.middle_rect;
     SDL_Rect commitBtn = topStrip.trailing_rect;
     git_panel_set_top_strip_layout(topStrip);
+    int mouseX = 0;
+    int mouseY = 0;
+    Uint32 mouseButtons = SDL_GetMouseState(&mouseX, &mouseY);
+    bool mousePressed = (mouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+    bool addAllHovered = ui_panel_rect_contains(&addAllBtn, mouseX, mouseY);
+    bool commitHovered = ui_panel_rect_contains(&commitBtn, mouseX, mouseY);
 
     ui_panel_compact_button_render(renderer,
                                    &(UIPanelCompactButtonSpec){
                                        .rect = addAllBtn,
                                        .label = "Add All",
+                                       .hovered = addAllHovered,
                                        .active = false,
+                                       .pressed = addAllHovered && mousePressed,
+                                       .disabled = false,
                                        .outlined = false,
                                        .use_custom_fill = false,
                                        .use_custom_outline = false,
@@ -77,7 +86,10 @@ void renderGitPanel(UIPane* pane) {
                                    &(UIPanelCompactButtonSpec){
                                        .rect = commitBtn,
                                        .label = "Commit",
+                                       .hovered = commitHovered,
                                        .active = false,
+                                       .pressed = commitHovered && mousePressed,
+                                       .disabled = false,
                                        .outlined = false,
                                        .use_custom_fill = false,
                                        .use_custom_outline = false,

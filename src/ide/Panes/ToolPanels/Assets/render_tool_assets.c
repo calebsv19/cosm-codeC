@@ -50,12 +50,39 @@ void renderAssetManagerPanel(UIPane* pane) {
 
     UIPanelTaggedRectList* controlHits = assets_get_control_hits();
     ui_panel_tagged_rect_list_reset(controlHits);
+    int topMouseX = 0;
+    int topMouseY = 0;
+    Uint32 topMouseButtons = SDL_GetMouseState(&topMouseX, &topMouseY);
+    bool topMousePressed = (topMouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+    SDL_Rect openAllRect = { pane->x + d.pad_left, controlsY, 84, d.button_h };
+    SDL_Rect closeAllRect = {
+        openAllRect.x + openAllRect.w + d.row_gap,
+        controlsY,
+        84,
+        d.button_h
+    };
     const UIPanelCompactButtonRowItem controlItems[] = {
-        { ASSET_TOP_CONTROL_OPEN_ALL, "Open All", false, false },
-        { ASSET_TOP_CONTROL_CLOSE_ALL, "Close All", false, false }
+        {
+            .tag = ASSET_TOP_CONTROL_OPEN_ALL,
+            .label = "Open All",
+            .hovered = ui_panel_rect_contains(&openAllRect, topMouseX, topMouseY),
+            .active = false,
+            .pressed = ui_panel_rect_contains(&openAllRect, topMouseX, topMouseY) && topMousePressed,
+            .disabled = false,
+            .outlined = false
+        },
+        {
+            .tag = ASSET_TOP_CONTROL_CLOSE_ALL,
+            .label = "Close All",
+            .hovered = ui_panel_rect_contains(&closeAllRect, topMouseX, topMouseY),
+            .active = false,
+            .pressed = ui_panel_rect_contains(&closeAllRect, topMouseX, topMouseY) && topMousePressed,
+            .disabled = false,
+            .outlined = false
+        }
     };
     ui_panel_compact_button_row_render(getRenderContext()->renderer,
-                                       pane->x + d.pad_left,
+                                       openAllRect.x,
                                        controlsY,
                                        84,
                                        d.button_h,

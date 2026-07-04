@@ -1,6 +1,6 @@
 # codeC Current Truth
 
-Last updated: 2026-06-18
+Last updated: 2026-07-04
 
 ## Program Identity
 - Repository/program directory: `ide`
@@ -49,6 +49,9 @@ Last updated: 2026-06-18
   - `src/app`, `src/core`, `src/ide`, `src/engine`, `src/Parser`
 - Dependency lane:
   - vendored shared subtree under `third_party/codework_shared/`
+  - IDE button chrome resolves hover, selected, pressed, disabled, and focused
+    state through vendored `kit_ui` via the app-local `ide_ui_button.*`
+    adapter; pane-specific meaning and action dispatch remain IDE-owned
   - Libraries dependency graph layout/hit math uses vendored
     `kit_graph_struct`; graph pan/zoom camera state uses vendored
     `core_viewport2d`; panel drawing and source/header semantics stay IDE-owned

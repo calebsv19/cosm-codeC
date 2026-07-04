@@ -22,6 +22,27 @@ test-shared-theme-font-adapter:
 	@$(TEST_BUILD_DIR)/shared_theme_font_adapter_test || (echo "shared theme/font adapter test failed."; exit 1)
 	@echo "IDE shared theme/font adapter test passed."
 
+.PHONY: test-ide-ui-button-adapter
+test-ide-ui-button-adapter: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling IDE UI button adapter test..."
+	@$(CC) -std=c99 -Wall -Wextra -MMD -MP $(INC_DIRS) \
+		tests/ide_ui_button_adapter_test.c \
+		src/ide/UI/ide_ui_button.c \
+		src/ide/UI/shared_theme_font_adapter.c \
+		src/app/GlobalInfo/runtime_paths.c \
+		$(KIT_UI_LIB) \
+		$(KIT_RENDER_LIB) \
+		$(VK_RENDERER_LIB) \
+		$(CORE_THEME_LIB) \
+		$(CORE_FONT_LIB) \
+		$(CORE_BASE_LIB) \
+		-o $(IDE_UI_BUTTON_ADAPTER_TEST_OUT) \
+		$(LIB_DIRS) -lSDL2 -lSDL2_ttf -lvulkan || (echo "IDE UI button adapter test compile failed."; exit 1)
+	@echo "Running IDE UI button adapter test..."
+	@$(IDE_UI_BUTTON_ADAPTER_TEST_OUT) || (echo "IDE UI button adapter test failed."; exit 1)
+	@echo "IDE UI button adapter test passed."
+
 .PHONY: test-runtime-paths-resolution
 test-runtime-paths-resolution:
 	@mkdir -p $(TEST_BUILD_DIR)

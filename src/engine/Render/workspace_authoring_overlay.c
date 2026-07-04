@@ -11,6 +11,7 @@
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_pipeline.h"
 #include "ide/Panes/PaneInfo/pane.h"
+#include "ide/UI/panel_control_widgets.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 
 static SDL_Rect authoring_sdl_kit_rect(KitRenderRect rect) {
@@ -33,11 +34,6 @@ static SDL_Rect authoring_sdl_rect(CorePaneRect rect) {
     if (out.w < 0) out.w = 0;
     if (out.h < 0) out.h = 0;
     return out;
-}
-
-static SDL_Color authoring_alpha(SDL_Color color, Uint8 alpha) {
-    color.a = alpha;
-    return color;
 }
 
 static const char *authoring_pane_role_label(UIPaneRole role) {
@@ -113,30 +109,29 @@ static void authoring_draw_font_theme_button(SDL_Renderer *renderer,
                                              KitRenderRect kit_rect,
                                              const char *label,
                                              bool enabled,
-                                             bool active) {
+                                             bool active,
+                                             int mouse_x,
+                                             int mouse_y,
+                                             bool mouse_pressed) {
     SDL_Rect rect;
-    SDL_Color fill;
-    SDL_Color border;
-    SDL_Color text;
+    bool hovered;
 
     if (!renderer || !palette) return;
     rect = authoring_sdl_kit_rect(kit_rect);
-    fill = active ? palette->button_fill_active : palette->button_fill;
-    border = active ? palette->input_focus_border : palette->button_border;
-    text = enabled ? palette->text_primary : authoring_alpha(palette->text_muted, 150u);
-    if (!enabled) {
-        fill = authoring_alpha(fill, 120u);
-        border = authoring_alpha(border, 120u);
-    }
-    if (active) {
-        fill = authoring_alpha(palette->accent_primary, 210u);
-        text = palette->app_background;
-    }
-    SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
-    SDL_RenderFillRect(renderer, &rect);
-    SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, border.a);
-    SDL_RenderDrawRect(renderer, &rect);
-    authoring_draw_text(renderer, rect.x + 8, rect.y + 4, text, label);
+    hovered = ui_panel_rect_contains(&rect, mouse_x, mouse_y);
+    ui_panel_compact_button_render(renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = rect,
+                                       .label = label,
+                                       .hovered = hovered,
+                                       .active = active,
+                                       .pressed = hovered && mouse_pressed && enabled,
+                                       .disabled = !enabled,
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
 }
 
 static int authoring_zoom_percent(void) {
@@ -148,34 +143,34 @@ static int authoring_zoom_percent(void) {
 
 static void authoring_draw_button(SDL_Renderer *renderer,
                                   const IDEThemePalette *palette,
-                                  const KitWorkspaceAuthoringOverlayButton *button) {
+                                  const KitWorkspaceAuthoringOverlayButton *button,
+                                  int mouse_x,
+                                  int mouse_y,
+                                  bool mouse_pressed) {
     SDL_Rect rect;
-    SDL_Color fill;
-    SDL_Color border;
-    SDL_Color text;
+    bool active;
+    bool enabled;
+    bool hovered;
 
     if (!renderer || !palette || !button || !button->visible) return;
 
     rect = authoring_sdl_rect(button->rect);
-    fill = authoring_alpha(palette->button_fill, button->enabled ? 238u : 130u);
-    border = authoring_alpha(palette->button_border, button->enabled ? 245u : 140u);
-    text = button->enabled ? palette->text_primary : authoring_alpha(palette->text_muted, 150u);
-
-    if (button->id == KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_MODE) {
-        fill = authoring_alpha(palette->accent_primary, 228u);
-        text = palette->app_background;
-    } else if (button->id == KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_APPLY) {
-        fill = authoring_alpha((SDL_Color){132, 190, 142, 255}, 226u);
-        text = palette->app_background;
-    } else if (button->id == KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_CANCEL) {
-        fill = authoring_alpha(palette->accent_warning, 224u);
-    }
-
-    SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
-    SDL_RenderFillRect(renderer, &rect);
-    SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, border.a);
-    SDL_RenderDrawRect(renderer, &rect);
-    authoring_draw_text(renderer, rect.x + 7, rect.y + 3, text, button->label);
+    enabled = button->enabled != 0u;
+    active = button->id == KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_MODE;
+    hovered = ui_panel_rect_contains(&rect, mouse_x, mouse_y);
+    ui_panel_compact_button_render(renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = rect,
+                                       .label = button->label,
+                                       .hovered = hovered,
+                                       .active = active,
+                                       .pressed = hovered && mouse_pressed && enabled,
+                                       .disabled = !enabled,
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
 }
 
 static void authoring_draw_controls(SDL_Renderer *renderer,
@@ -185,6 +180,10 @@ static void authoring_draw_controls(SDL_Renderer *renderer,
     KitWorkspaceAuthoringOverlayButton buttons[4];
     uint32_t count;
     uint32_t i;
+    int mouse_x = 0;
+    int mouse_y = 0;
+    Uint32 mouse_buttons = SDL_GetMouseState(&mouse_x, &mouse_y);
+    bool mouse_pressed = (mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
 
     count = kit_workspace_authoring_ui_build_overlay_buttons(
         viewport_width,
@@ -193,7 +192,7 @@ static void authoring_draw_controls(SDL_Renderer *renderer,
         buttons,
         (uint32_t)(sizeof(buttons) / sizeof(buttons[0])));
     for (i = 0u; i < count; ++i) {
-        authoring_draw_button(renderer, palette, &buttons[i]);
+        authoring_draw_button(renderer, palette, &buttons[i], mouse_x, mouse_y, mouse_pressed);
     }
 }
 
@@ -298,6 +297,10 @@ static void authoring_draw_font_theme_overlay(SDL_Renderer *renderer,
     char current_theme[64] = "studio_blue";
     char chip_label[48];
     uint32_t i;
+    int mouse_x = 0;
+    int mouse_y = 0;
+    Uint32 mouse_buttons = SDL_GetMouseState(&mouse_x, &mouse_y);
+    bool mouse_pressed = (mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
 
     if (!renderer || !host || !palette) return;
     SDL_SetRenderDrawColor(renderer,
@@ -369,7 +372,10 @@ static void authoring_draw_font_theme_overlay(SDL_Renderer *renderer,
             layout.font_preset_buttons[i],
             label,
             kit_workspace_authoring_ui_font_theme_button_enabled(button_id) != 0u,
-            strcmp(label, current_font) == 0);
+            strcmp(label, current_font) == 0,
+            mouse_x,
+            mouse_y,
+            mouse_pressed);
     }
 
     authoring_draw_font_theme_button(renderer,
@@ -378,27 +384,39 @@ static void authoring_draw_font_theme_overlay(SDL_Renderer *renderer,
                                      kit_workspace_authoring_ui_font_theme_button_label(
                                          KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_TEXT_SIZE_DEC),
                                      true,
-                                     false);
+                                     false,
+                                     mouse_x,
+                                     mouse_y,
+                                     mouse_pressed);
     authoring_draw_font_theme_button(renderer,
                                      palette,
                                      layout.text_size_inc_button,
                                      kit_workspace_authoring_ui_font_theme_button_label(
                                          KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_TEXT_SIZE_INC),
                                      true,
-                                     false);
+                                     false,
+                                     mouse_x,
+                                     mouse_y,
+                                     mouse_pressed);
     authoring_draw_font_theme_button(renderer,
                                      palette,
                                      layout.text_size_value_chip,
                                      chip_label,
                                      false,
-                                     true);
+                                     true,
+                                     mouse_x,
+                                     mouse_y,
+                                     mouse_pressed);
     authoring_draw_font_theme_button(renderer,
                                      palette,
                                      layout.text_size_reset_button,
                                      kit_workspace_authoring_ui_font_theme_button_label(
                                          KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_TEXT_SIZE_RESET),
                                      true,
-                                     ide_shared_font_zoom_step() == 0);
+                                     ide_shared_font_zoom_step() == 0,
+                                     mouse_x,
+                                     mouse_y,
+                                     mouse_pressed);
 
     for (i = 0u; i < layout.theme_preset_button_count &&
                 i < KIT_WORKSPACE_AUTHORING_FONT_THEME_THEME_PRESET_BUTTON_COUNT; ++i) {
@@ -412,7 +430,10 @@ static void authoring_draw_font_theme_overlay(SDL_Renderer *renderer,
             layout.theme_preset_buttons[i],
             label,
             kit_workspace_authoring_ui_font_theme_button_enabled(button_id) != 0u,
-            strcmp(label, current_theme) == 0);
+            strcmp(label, current_theme) == 0,
+            mouse_x,
+            mouse_y,
+            mouse_pressed);
     }
 
     for (i = 0u; i < layout.custom_theme_button_count &&
@@ -425,7 +446,10 @@ static void authoring_draw_font_theme_overlay(SDL_Renderer *renderer,
                                          layout.custom_theme_buttons[i],
                                          kit_workspace_authoring_ui_font_theme_button_label(button_id),
                                          true,
-                                         false);
+                                         false,
+                                         mouse_x,
+                                         mouse_y,
+                                         mouse_pressed);
     }
 
     if (host->status_text[0]) {

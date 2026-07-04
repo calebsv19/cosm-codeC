@@ -588,6 +588,11 @@ void renderLibrariesPanel(UIPane* pane) {
     SDL_Rect viewRect = tool_panel_row_take_left(&row, 82);
     UIPanelTaggedRectList* controlHits = libraries_control_hits();
     ui_panel_tagged_rect_list_reset(controlHits);
+    int topMouseX = 0;
+    int topMouseY = 0;
+    Uint32 topMouseButtons = SDL_GetMouseState(&topMouseX, &topMouseY);
+    bool topMousePressed = (topMouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+    bool viewHovered = ui_panel_rect_contains(&viewRect, topMouseX, topMouseY);
     ui_panel_compact_button_render(renderer,
                                    &(UIPanelCompactButtonSpec){
                                        .rect = viewRect,
@@ -596,7 +601,10 @@ void renderLibrariesPanel(UIPane* pane) {
                                                     : (st->viewMode == LIB_PANEL_VIEW_DEPENDENCIES
                                                            ? "Deps"
                                                            : "Graph"),
+                                       .hovered = viewHovered,
                                        .active = st->viewMode != LIB_PANEL_VIEW_HEADERS,
+                                       .pressed = viewHovered && topMousePressed,
+                                       .disabled = false,
                                        .outlined = false,
                                        .use_custom_fill = false,
                                        .use_custom_outline = false,
@@ -605,26 +613,35 @@ void renderLibrariesPanel(UIPane* pane) {
     (void)ui_panel_tagged_rect_list_add(controlHits, LIB_TOP_CONTROL_VIEW_MODE, viewRect);
 
     SDL_Rect toggleRect = tool_panel_row_take_left(&row, 112);
+    bool toggleEnabled = st->viewMode == LIB_PANEL_VIEW_HEADERS;
+    bool toggleHovered = ui_panel_rect_contains(&toggleRect, topMouseX, topMouseY);
     ui_panel_compact_button_render(renderer,
                                    &(UIPanelCompactButtonSpec){
                                        .rect = toggleRect,
                                        .label = st->includeSystemHeaders ? "System: On" : "System: Off",
+                                       .hovered = toggleHovered,
                                        .active = st->includeSystemHeaders,
+                                       .pressed = toggleHovered && topMousePressed,
+                                       .disabled = !toggleEnabled,
                                        .outlined = false,
                                        .use_custom_fill = false,
                                        .use_custom_outline = false,
                                        .tier = CORE_FONT_TEXT_SIZE_CAPTION
                                    });
-    if (st->viewMode == LIB_PANEL_VIEW_HEADERS) {
+    if (toggleEnabled) {
         (void)ui_panel_tagged_rect_list_add(controlHits, LIB_TOP_CONTROL_SYSTEM_TOGGLE, toggleRect);
     }
 
     SDL_Rect logsRect = tool_panel_row_take_left(&row, 98);
+    bool logsHovered = ui_panel_rect_contains(&logsRect, topMouseX, topMouseY);
     ui_panel_compact_button_render(renderer,
                                    &(UIPanelCompactButtonSpec){
                                        .rect = logsRect,
                                        .label = analysis_frontend_logs_enabled() ? "Logs: On" : "Logs: Off",
+                                       .hovered = logsHovered,
                                        .active = analysis_frontend_logs_enabled(),
+                                       .pressed = logsHovered && topMousePressed,
+                                       .disabled = false,
                                        .outlined = false,
                                        .use_custom_fill = false,
                                        .use_custom_outline = false,

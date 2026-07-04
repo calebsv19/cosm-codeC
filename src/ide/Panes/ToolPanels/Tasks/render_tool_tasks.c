@@ -154,14 +154,22 @@ void renderTasksPanel(UIPane* pane) {
         ui_panel_vertical_button_stack_layout(x, y, iconBtnSize, iconBtnSize, TASK_BUTTON_SPACING, topControlCount);
     UIPanelTaggedRectList* controlHits = task_panel_control_hits();
     ui_panel_tagged_rect_list_reset(controlHits);
+    int topMouseX = 0;
+    int topMouseY = 0;
+    Uint32 topMouseButtons = SDL_GetMouseState(&topMouseX, &topMouseY);
+    bool topMousePressed = (topMouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
 
     for (int i = 0; i < topControls.count; ++i) {
         SDL_Rect buttonRect = topControls.button_rects[i];
+        bool buttonHovered = ui_panel_rect_contains(&buttonRect, topMouseX, topMouseY);
         ui_panel_compact_button_render(renderer,
                                        &(UIPanelCompactButtonSpec){
                                            .rect = buttonRect,
                                            .label = s_taskTopControls[i].symbol,
+                                           .hovered = buttonHovered,
                                            .active = false,
+                                           .pressed = buttonHovered && topMousePressed,
+                                           .disabled = false,
                                            .outlined = false,
                                            .use_custom_fill = false,
                                            .use_custom_outline = false,

@@ -160,9 +160,14 @@ bool terminal_active_is_task(void) {
     return s->isBuild || s->isRun;
 }
 
-bool terminal_close_active_interactive(void) {
+bool terminal_can_close_active_interactive(void) {
     if (terminal_active_is_task()) return false;
     if (count_interactive() <= 1) return false;
+    return true;
+}
+
+bool terminal_close_active_interactive(void) {
+    if (!terminal_can_close_active_interactive()) return false;
     terminal_close_interactive(g_active_index);
     return true;
 }

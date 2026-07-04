@@ -8,12 +8,46 @@
 #include "engine/Render/render_text_helpers.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_font.h"
-#include "ide/UI/shared_theme_font_adapter.h"
+#include "ide/UI/ide_ui_button.h"
 #include "ide/Panes/MenuBar/render_menu_bar.h"
 
 
 #include "../MenuBar/menu_buttons.h" // for renderMenuBarContents
 
+
+static void renderMenuBarInfoBox(SDL_Renderer* renderer, SDL_Rect rect, const char* label) {
+    if (!renderer || rect.w <= 0 || rect.h <= 0) return;
+
+    IDEThemePalette palette = {0};
+    IDEUIButtonState state = {
+        .hovered = false,
+        .selected = true,
+        .pressed = false,
+        .disabled = false,
+        .focused = true
+    };
+    IDEUIButtonResolvedStyle style = {0};
+    (void)ide_ui_button_resolve_palette(&palette);
+    if (!ide_ui_button_resolve_style(&palette,
+                                     label ? label : "",
+                                     IDE_UI_BUTTON_VARIANT_DEFAULT,
+                                     state,
+                                     &style)) {
+        style.fill = palette.button_fill_active;
+        style.outline = palette.button_border;
+        style.text = palette.text_primary;
+    }
+
+    SDL_Color fill = style.fill;
+    SDL_Color outline = style.outline;
+    if (fill.a > 160) fill.a = 160;
+    if (outline.a > 160) outline.a = 160;
+
+    SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
+    SDL_RenderFillRect(renderer, &rect);
+    SDL_SetRenderDrawColor(renderer, outline.r, outline.g, outline.b, outline.a);
+    SDL_RenderDrawRect(renderer, &rect);
+}
 
 
 void renderMenuBarContents(UIPane* pane, struct IDECoreState* core) {
@@ -222,23 +256,8 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
     int workspaceMinX = workspaceBox.x + boxPadding;
     if (workspaceTextX < workspaceMinX) workspaceTextX = workspaceMinX;
 
-    // Draw workspace box + text
-    {
-        SDL_Color fill = {80, 80, 80, 100};
-        SDL_Color fill_active = {100, 100, 100, 120};
-        SDL_Color border = {255, 255, 255, 255};
-        SDL_Color text = {255, 255, 255, 255};
-        (void)text;
-        ide_shared_theme_button_colors(&fill, &fill_active, &border, &text);
-        SDL_SetRenderDrawColor(renderer, fill_active.r, fill_active.g, fill_active.b, 120);
-        SDL_RenderFillRect(renderer, &workspaceBox);
-        SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, 140);
-        SDL_RenderDrawRect(renderer, &workspaceBox);
-        SDL_SetRenderDrawColor(renderer, fill_active.r, fill_active.g, fill_active.b, 120);
-        SDL_RenderFillRect(renderer, &nameBox);
-        SDL_SetRenderDrawColor(renderer, border.r, border.g, border.b, 140);
-        SDL_RenderDrawRect(renderer, &nameBox);
-    }
+    renderMenuBarInfoBox(renderer, workspaceBox, workspaceName);
+    renderMenuBarInfoBox(renderer, nameBox, fileName);
     SelectableTextOptions workspaceOpts = {
         .pane = pane,
         .owner = pane,

@@ -12,28 +12,12 @@
 #include "ide/UI/panel_control_widgets.h"
 #include "ide/UI/Trees/tree_renderer.h"
 #include "ide/UI/panel_text_field.h"
-#include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "core/Analysis/analysis_status.h"
 
 #include <SDL2/SDL.h>
 #include <string.h>
-
-static Uint8 clamp_u8(int v) {
-    if (v < 0) return 0;
-    if (v > 255) return 255;
-    return (Uint8)v;
-}
-
-static SDL_Color darken_color(SDL_Color c, int amount) {
-    return (SDL_Color){
-        clamp_u8((int)c.r - amount),
-        clamp_u8((int)c.g - amount),
-        clamp_u8((int)c.b - amount),
-        c.a
-    };
-}
 
 typedef struct {
     ControlFilterButtonId id;
@@ -196,7 +180,10 @@ static int render_filter_group(SDL_Renderer* renderer,
                                const FilterButtonSpec* specs,
                                int specCount,
                                int buttonW,
-                               int gapX) {
+                               int gapX,
+                               int mouseX,
+                               int mouseY,
+                               bool mousePressed) {
     if (!renderer || !title || !specs || specCount <= 0) return y;
 
     const int buttonH = 16;
@@ -222,10 +209,15 @@ static int render_filter_group(SDL_Renderer* renderer,
         rowItemCount = (int)(sizeof(rowItems) / sizeof(rowItems[0]));
     }
     for (int i = 0; i < rowItemCount; ++i) {
+        SDL_Rect buttonRect = { startX + i * (bw + gapX), y, bw, buttonH };
+        bool buttonHovered = ui_panel_rect_contains(&buttonRect, mouseX, mouseY);
         rowItems[i] = (UIPanelCompactButtonRowItem){
             .tag = (int)specs[i].id,
             .label = specs[i].label ? specs[i].label : "",
+            .hovered = buttonHovered,
             .active = control_panel_is_filter_button_active(specs[i].id),
+            .pressed = buttonHovered && mousePressed,
+            .disabled = false,
             .outlined = control_panel_is_match_button_selected(specs[i].id)
         };
     }
@@ -245,10 +237,8 @@ static int render_filter_group(SDL_Renderer* renderer,
 
 void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState* core) {
     RenderContext* ctx = getRenderContext();
-    IDEThemePalette palette = {0};
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
-    ide_shared_theme_resolve_palette(&palette);
     (void)hovered;
     (void)core;
 
@@ -337,6 +327,12 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     SDL_Rect clearBtn = searchLayout.trailing_button_rect;
     control_panel_set_search_strip_layout(searchLayout);
     const char* query = control_panel_get_search_query();
+    int mouseX = 0;
+    int mouseY = 0;
+    Uint32 mouseButtons = SDL_GetMouseState(&mouseX, &mouseY);
+    bool mousePressed = (mouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+    bool pauseHovered = ui_panel_rect_contains(&pauseBtn, mouseX, mouseY);
+    bool clearHovered = ui_panel_rect_contains(&clearBtn, mouseX, mouseY);
     ui_panel_text_field_render(renderer,
                                &(UIPanelTextFieldSpec){
                                    .rect = searchBox,
@@ -348,32 +344,32 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
                                });
 
     bool searchEnabled = control_panel_is_search_enabled();
-    SDL_Color pauseFill = searchEnabled ? palette.input_fill : darken_color(palette.button_fill, 20);
+    bool hasSearchQuery = query && query[0] != '\0';
     ui_panel_compact_button_render(renderer,
                                    &(UIPanelCompactButtonSpec){
                                        .rect = pauseBtn,
                                        .label = "||",
-                                       .active = false,
+                                       .hovered = pauseHovered,
+                                       .active = !searchEnabled,
+                                       .pressed = pauseHovered && mousePressed,
+                                       .disabled = false,
                                        .outlined = false,
-                                       .use_custom_fill = true,
-                                       .custom_fill = pauseFill,
-                                       .use_custom_outline = true,
-                                       .custom_outline = palette.input_border,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
                                        .tier = CORE_FONT_TEXT_SIZE_CAPTION
                                    });
 
-    SDL_Color clearFill = palette.input_fill;
-    clearFill.a = 80;
     ui_panel_compact_button_render(renderer,
                                    &(UIPanelCompactButtonSpec){
                                        .rect = clearBtn,
                                        .label = "x",
+                                       .hovered = clearHovered,
                                        .active = false,
+                                       .pressed = clearHovered && mousePressed,
+                                       .disabled = !hasSearchQuery,
                                        .outlined = false,
-                                       .use_custom_fill = true,
-                                       .custom_fill = clearFill,
-                                       .use_custom_outline = true,
-                                       .custom_outline = palette.input_border,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
                                        .tier = CORE_FONT_TEXT_SIZE_CAPTION
                                    });
     y = infoStartY + (statusLineSlots * d.info_line_gap) + d.row_gap + 2;
@@ -567,7 +563,10 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
                                     groups[gi],
                                     groupCounts[gi],
                                     rowButtonW[gi],
-                                    gapX);
+                                    gapX,
+                                    mouseX,
+                                    mouseY,
+                                    mousePressed);
         }
     } else {
         y += 2;
