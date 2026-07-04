@@ -4,6 +4,7 @@
 #include "engine/Render/render_font.h"
 
 #include "ide/Panes/Editor/Render/render_editor.h"
+#include "ide/Panes/Editor/Render/editor_diagnostic_markers.h"
 #include "app/GlobalInfo/system_control.h"
 #include "app/GlobalInfo/core_state.h"
 
@@ -144,11 +145,12 @@ static int editor_render_source_line_number(const OpenFile* file, int rowIndex) 
 }
 
 static bool editor_has_match_markers(const OpenFile* file) {
-    const char* query = control_panel_get_search_query();
-    bool markerModeEnabled = control_panel_is_search_enabled() &&
-                             control_panel_target_editor_enabled() &&
-                             control_panel_get_editor_view_mode() == CONTROL_EDITOR_VIEW_MARKERS &&
-                             query && query[0] != '\0';
+    ControlPanelProjectionOptions controlOptions;
+    control_panel_capture_projection_options(&controlOptions);
+    bool markerModeEnabled = controlOptions.search_enabled &&
+                             controlOptions.target_editor_enabled &&
+                             controlOptions.marker_render_enabled &&
+                             controlOptions.query_active;
     return markerModeEnabled &&
            file &&
            !use_projection_render_source(file) &&
@@ -156,6 +158,33 @@ static bool editor_has_match_markers(const OpenFile* file) {
            file->projection.realMatchCount > 0 &&
            file->buffer &&
            file->buffer->lineCount > 0;
+}
+
+static SDL_Color projection_marker_color_for_kind(int kind, IDEThemePalette palette) {
+    switch ((EditorProjectionMatchKind)kind) {
+        case EDITOR_PROJECTION_MATCH_UNIT_TIME:
+            return (SDL_Color){96, 170, 255, 190};
+        case EDITOR_PROJECTION_MATCH_UNIT_DISTANCE:
+            return (SDL_Color){98, 200, 132, 190};
+        case EDITOR_PROJECTION_MATCH_UNIT_SPEED:
+            return (SDL_Color){70, 210, 220, 190};
+        case EDITOR_PROJECTION_MATCH_UNIT_ACCEL:
+            return (SDL_Color){245, 165, 80, 190};
+        case EDITOR_PROJECTION_MATCH_UNIT_MASS:
+            return (SDL_Color){180, 140, 255, 190};
+        case EDITOR_PROJECTION_MATCH_UNIT_FORCE:
+            return (SDL_Color){235, 95, 95, 190};
+        case EDITOR_PROJECTION_MATCH_UNIT_ENERGY:
+            return (SDL_Color){235, 210, 95, 190};
+        case EDITOR_PROJECTION_MATCH_DEFAULT:
+        default:
+            return (SDL_Color){
+                palette.accent_warning.r,
+                palette.accent_warning.g,
+                palette.accent_warning.b,
+                180
+            };
+    }
 }
 
 static void render_projection_inline_markers(EditorView* view, OpenFile* file) {
@@ -175,20 +204,27 @@ static void render_projection_inline_markers(EditorView* view, OpenFile* file) {
     int visibleLines = (contentHeight > 0) ? contentHeight / lineHeight : 0;
     int totalRealLines = file->buffer->lineCount;
     if (visibleLines <= 0 || totalRealLines <= 0) return;
-    if (totalRealLines > visibleLines) return;
 
     int markerX = boxX + boxW - 7;
-    int startY = boxY + HEADER_HEIGHT + file->state.verticalPadding;
+    int contentY = boxY + HEADER_HEIGHT;
+    int firstVisibleRow = editor_first_visible_row(&file->state);
+    if (firstVisibleRow >= totalRealLines) firstVisibleRow = totalRealLines - 1;
+    if (firstVisibleRow < 0) firstVisibleRow = 0;
+    int intraOffset = editor_first_visible_row_offset_px(&file->state, firstVisibleRow);
     ide_shared_theme_resolve_palette(&palette);
-    SDL_SetRenderDrawColor(renderer,
-                           palette.accent_warning.r,
-                           palette.accent_warning.g,
-                           palette.accent_warning.b,
-                           180);
     for (int i = 0; i < file->projection.realMatchCount; ++i) {
         int line = file->projection.realMatchLines[i];
         if (line < 0 || line >= totalRealLines) continue;
-        int y = startY + line * lineHeight + (lineHeight / 2) - 1;
+        if (line < firstVisibleRow) continue;
+        int visibleRow = line - firstVisibleRow;
+        if (visibleRow > visibleLines + 1) continue;
+        int y = contentY - intraOffset + visibleRow * lineHeight + (lineHeight / 2) - 1;
+        if (y < contentY || y >= contentY + contentHeight) continue;
+        int kind = file->projection.realMatchKinds
+            ? file->projection.realMatchKinds[i]
+            : EDITOR_PROJECTION_MATCH_DEFAULT;
+        SDL_Color marker = projection_marker_color_for_kind(kind, palette);
+        SDL_SetRenderDrawColor(renderer, marker.r, marker.g, marker.b, marker.a);
         SDL_Rect mark = { markerX, y, 4, 2 };
         SDL_RenderFillRect(renderer, &mark);
     }
@@ -660,19 +696,23 @@ void renderEditorScrollbar(EditorView* view, OpenFile* file) {
 
     if (editor_has_match_markers(file) && file->buffer->lineCount > 0) {
         int totalRealLines = file->buffer->lineCount;
-        SDL_SetRenderDrawColor(renderer,
-                               palette.accent_warning.r,
-                               palette.accent_warning.g,
-                               palette.accent_warning.b,
-                               170);
         for (int i = 0; i < file->projection.realMatchCount; ++i) {
             int line = file->projection.realMatchLines[i];
             if (line < 0 || line >= totalRealLines) continue;
+            int kind = file->projection.realMatchKinds
+                ? file->projection.realMatchKinds[i]
+                : EDITOR_PROJECTION_MATCH_DEFAULT;
+            SDL_Color marker = projection_marker_color_for_kind(kind, palette);
+            if (marker.a > 170) marker.a = 170;
+            SDL_SetRenderDrawColor(renderer, marker.r, marker.g, marker.b, marker.a);
             float ratio = (float)line / (float)totalRealLines;
             int tickY = scrollbarTrack.y + (int)(ratio * (float)scrollbarTrack.h);
             SDL_Rect tick = { scrollbarTrack.x + 1, tickY, scrollbarTrack.w - 2, 2 };
             SDL_RenderFillRect(renderer, &tick);
         }
+    }
+    if (!use_projection_render_source(file)) {
+        render_editor_diagnostic_scrollbar_ticks(file, renderer, &palette, &scrollbarTrack);
     }
     
     // Render thumb
@@ -803,6 +843,17 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
         drawTextUTF8WithFontColorClipped(textX, yLine, line, textFont, textColor, false, &textViewportClip);
 
         if (!projectionMode) {
+            render_editor_diagnostic_line_marker(file,
+                                                 bufferLineIndex,
+                                                 line,
+                                                 textFont,
+                                                 &palette,
+                                                 textX,
+                                                 textMaxWidth,
+                                                 yLine,
+                                                 lineHeight,
+                                                 &textViewportClip);
+
             int lineLen = line ? (int)strlen(line) : 0;
             int lineWidth = getTextWidthWithFont(line, textFont);
             if (lineWidth <= 0) {

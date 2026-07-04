@@ -3,17 +3,18 @@
 #include "engine/Render/render_font.h"
 
 #include "ide/Panes/ToolPanels/Errors/tool_errors.h"
+#include "ide/Panes/ToolPanels/Errors/errors_diagnostic_detail.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "core/Diagnostics/diagnostics_engine.h"
-#include "core/Analysis/analysis_status.h"
-#include "core/Analysis/analysis_scheduler.h"
+#include "core/Analysis/analysis_refresh_view.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
 #include "engine/Render/render_pipeline.h"
 #include "ide/UI/row_surface.h"
 #include "ide/UI/scroll_manager.h"
 #include "engine/Render/render_text_helpers.h"
+#include "ide/UI/panel_text_field.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 
 #include <SDL2/SDL.h>
@@ -59,6 +60,92 @@ static int button_text_cap(const char* const* labels, int count) {
     return maxW;
 }
 
+static void render_detail_line(SDL_Rect* clip,
+                               int x,
+                               int* y,
+                               int lineHeight,
+                               const char* text,
+                               SDL_Color color,
+                               TTF_Font* font) {
+    if (!clip || !y || !text) return;
+    drawTextUTF8WithFontColorClipped(x,
+                                     *y,
+                                     text,
+                                     font ? font : getActiveFont(),
+                                     color,
+                                     false,
+                                     clip);
+    *y += lineHeight;
+}
+
+static bool detail_has_room(const SDL_Rect* clip, int y, int lineHeight) {
+    return clip && y + lineHeight <= clip->y + clip->h;
+}
+
+static void render_selected_diagnostic_detail(UIPane* pane,
+                                              const Diagnostic* diag,
+                                              TTF_Font* font,
+                                              int lineHeight) {
+    if (!pane || !diag) return;
+    SDL_Rect rect = {0};
+    if (!errors_get_detail_panel_rect(pane, &rect)) return;
+
+    SDL_Renderer* renderer = getRenderContext()->renderer;
+    SDL_SetRenderDrawColor(renderer, 20, 30, 38, 248);
+    SDL_RenderFillRect(renderer, &rect);
+    SDL_SetRenderDrawColor(renderer, 70, 96, 118, 255);
+    SDL_RenderDrawRect(renderer, &rect);
+
+    SDL_Rect clip = {
+        rect.x + 8,
+        rect.y + 6,
+        rect.w - 16,
+        rect.h - 12
+    };
+    if (clip.w < 1 || clip.h < 1) return;
+
+    char pathBuf[1024];
+    const char* displayPath = error_display_path(diag->filePath, pathBuf, sizeof(pathBuf));
+
+    SDL_Color titleColor = {235, 244, 250, 255};
+    SDL_Color metaColor = {174, 202, 220, 255};
+    SDL_Color textColor = {222, 230, 236, 255};
+    SDL_Color hintColor = {202, 220, 176, 255};
+    SDL_Color contextColor = {154, 180, 196, 255};
+    int x = clip.x;
+    int y = clip.y;
+
+    ErrorsDiagnosticDetailModel model;
+    if (!errors_diagnostic_detail_build(diag, displayPath, &model)) return;
+    for (int i = 0; i < model.lineCount; ++i) {
+        if (!detail_has_room(&clip, y, lineHeight)) break;
+        const ErrorsDiagnosticDetailLine* line = &model.lines[i];
+        SDL_Color color = textColor;
+        switch (line->kind) {
+            case ERRORS_DIAGNOSTIC_DETAIL_LINE_TITLE:
+                color = titleColor;
+                break;
+            case ERRORS_DIAGNOSTIC_DETAIL_LINE_META:
+            case ERRORS_DIAGNOSTIC_DETAIL_LINE_NAV_CONTEXT:
+                color = metaColor;
+                break;
+            case ERRORS_DIAGNOSTIC_DETAIL_LINE_HINT:
+            case ERRORS_DIAGNOSTIC_DETAIL_LINE_UNITS:
+                color = hintColor;
+                break;
+            case ERRORS_DIAGNOSTIC_DETAIL_LINE_EXPLANATION:
+            case ERRORS_DIAGNOSTIC_DETAIL_LINE_CONTEXT:
+                color = contextColor;
+                break;
+            case ERRORS_DIAGNOSTIC_DETAIL_LINE_MESSAGE:
+            default:
+                color = textColor;
+                break;
+        }
+        render_detail_line(&clip, x, &y, lineHeight, line->text, color, font);
+    }
+}
+
 static void layout_errors_controls(const UIPane* pane,
                                    int* outTitle1X,
                                    int* outTitle2X,
@@ -68,7 +155,8 @@ static void layout_errors_controls(const UIPane* pane,
                                    SDL_Rect* outErrors,
                                    SDL_Rect* outWarnings,
                                    SDL_Rect* outOpenAll,
-                                   SDL_Rect* outCloseAll) {
+                                   SDL_Rect* outCloseAll,
+                                   UIPanelTextFieldButtonStripLayout* outSearch) {
     ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
     const int padX = d.pad_left;
     const int rowX = pane->x + padX;
@@ -126,6 +214,7 @@ static void layout_errors_controls(const UIPane* pane,
 
     int y1 = topY;
     int y2 = y1 + buttonH + rowGap;
+    int y3 = y2 + buttonH + rowGap;
 
     *outTitle1X = rowX;
     *outTitle2X = rowX;
@@ -136,6 +225,17 @@ static void layout_errors_controls(const UIPane* pane,
     *outWarnings = (SDL_Rect){ start1 + (bw1 + gapX) * 2, y1, bw1, buttonH };
     *outOpenAll = (SDL_Rect){ start2, y2, bw2, buttonH };
     *outCloseAll = (SDL_Rect){ start2 + bw2 + gapX, y2, bw2, buttonH };
+    if (outSearch) {
+        ToolPanelControlRow searchRow =
+            tool_panel_control_row_with(pane, y3, padX, d.pad_right, buttonH, gapX);
+        *outSearch = ui_panel_text_field_button_strip_layout(searchRow.x_left + titleColW + titleGap,
+                                                             searchRow.y,
+                                                             buttonColW,
+                                                             0,
+                                                             20,
+                                                             gapX,
+                                                             searchRow.h);
+    }
 }
 
 void renderErrorsPanel(UIPane* pane) {
@@ -158,10 +258,10 @@ void renderErrorsPanel(UIPane* pane) {
     int viewportH = pane->h - (contentTop - pane->y);
     if (viewportH < 0) viewportH = 0;
     PaneScrollState* scroll = errors_get_scroll_state();
-    scroll_state_set_viewport(scroll, (float)viewportH);
 
     int title1X = 0, title2X = 0, title1Y = 0, title2Y = 0;
     SDL_Rect btnAll = {0}, btnErrors = {0}, btnWarnings = {0}, btnOpenAll = {0}, btnCloseAll = {0};
+    UIPanelTextFieldButtonStripLayout searchLayout = {0};
     layout_errors_controls(pane,
                            &title1X,
                            &title2X,
@@ -171,11 +271,14 @@ void renderErrorsPanel(UIPane* pane) {
                            &btnErrors,
                            &btnWarnings,
                            &btnOpenAll,
-                           &btnCloseAll);
+                           &btnCloseAll,
+                           &searchLayout);
     drawTextWithTier(title1X, title1Y, "Show", CORE_FONT_TEXT_SIZE_CAPTION);
     drawTextWithTier(title2X, title2Y, "Batch", CORE_FONT_TEXT_SIZE_CAPTION);
+    drawTextWithTier(title1X, searchLayout.text_field_rect.y + 2, "Find", CORE_FONT_TEXT_SIZE_CAPTION);
     UIPanelTaggedRectList* controlHits = errors_get_control_hits();
     ui_panel_tagged_rect_list_reset(controlHits);
+    errors_set_search_strip_layout(searchLayout);
     ui_panel_compact_button_render(getRenderContext()->renderer,
                                    &(UIPanelCompactButtonSpec){
                                        .rect = btnAll,
@@ -231,34 +334,35 @@ void renderErrorsPanel(UIPane* pane) {
                                        .tier = CORE_FONT_TEXT_SIZE_CAPTION
                                    });
     (void)ui_panel_tagged_rect_list_add(controlHits, ERROR_TOP_CONTROL_CLOSE_ALL, btnCloseAll);
+    ui_panel_text_field_render(getRenderContext()->renderer,
+                               &(UIPanelTextFieldSpec){
+                                   .rect = searchLayout.text_field_rect,
+                                   .text = errors_get_search_query(),
+                                   .placeholder = "message, file, code...",
+                                   .focused = errors_is_search_focused(),
+                                   .cursor = errors_get_search_cursor(),
+                                   .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                               });
+    ui_panel_compact_button_render(getRenderContext()->renderer,
+                                   &(UIPanelCompactButtonSpec){
+                                       .rect = searchLayout.trailing_button_rect,
+                                       .label = "x",
+                                       .active = errors_has_active_search_query(),
+                                       .outlined = false,
+                                       .use_custom_fill = false,
+                                       .use_custom_outline = false,
+                                       .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                   });
+    (void)ui_panel_tagged_rect_list_add(controlHits,
+                                        ERROR_TOP_CONTROL_CLEAR_SEARCH,
+                                        searchLayout.trailing_button_rect);
 
     tool_panel_render_split_background(getRenderContext()->renderer, pane, contentTop, 14);
 
-    AnalysisStatusSnapshot snap = {0};
-    AnalysisSchedulerSnapshot sched = {0};
-    int progressCompleted = 0;
-    int progressTotal = 0;
-    analysis_status_snapshot(&snap);
-    analysis_status_get_progress(&progressCompleted, &progressTotal);
-    analysis_scheduler_snapshot(&sched);
+    AnalysisRefreshViewSnapshot refreshView = {0};
+    analysis_refresh_view_capture(&refreshView);
     char statusBuf[128] = {0};
-    if (snap.updating) {
-        if (progressTotal > 0) {
-            snprintf(statusBuf, sizeof(statusBuf),
-                     sched.active_run_id ? "Updating %d/%d (#%llu)" : "Updating %d/%d",
-                     progressCompleted,
-                     progressTotal,
-                     (unsigned long long)sched.active_run_id);
-        } else {
-            snprintf(statusBuf, sizeof(statusBuf),
-                     sched.active_run_id ? "Updating (#%llu)..." : "Updating...",
-                     (unsigned long long)sched.active_run_id);
-        }
-    } else if (snap.last_error[0]) {
-        snprintf(statusBuf, sizeof(statusBuf), "Analysis error");
-    } else if (snap.has_cache) {
-        snprintf(statusBuf, sizeof(statusBuf), "(cached)");
-    }
+    analysis_refresh_view_format_status_text(&refreshView, statusBuf, sizeof(statusBuf));
     if (statusBuf[0]) {
         int tw = getTextWidth(statusBuf);
         int tx = pane->x + pane->w - tw - 16;
@@ -269,12 +373,23 @@ void renderErrorsPanel(UIPane* pane) {
     errors_refresh_snapshot();
     FlatDiagRef refs[512];
     int flatCount = flatten_diagnostics(refs, 512);
+    const Diagnostic* selectedDiag = errors_get_selected_diagnostic_ref();
+    SDL_Rect detailRect = {0};
+    int detailReserve = 0;
+    if (selectedDiag && errors_get_detail_panel_rect(pane, &detailRect)) {
+        detailReserve = detailRect.h + 12;
+        viewportH -= detailReserve;
+        if (viewportH < 0) viewportH = 0;
+    }
+    scroll_state_set_viewport(scroll, (float)viewportH);
     if (flatCount == 0) {
         SDL_Rect emptyClip = { pane->x, contentTop, pane->w - 8, viewportH };
         SDL_Color textColor = {230, 230, 230, 255};
         drawTextUTF8WithFontColorClipped(x,
                                          firstRowY,
-                                         "(No errors or warnings)",
+                                         errors_has_active_search_query()
+                                             ? "(No matching diagnostics)"
+                                             : "(No errors or warnings)",
                                          font ? font : getActiveFont(),
                                          textColor,
                                          false,
@@ -422,5 +537,9 @@ void renderErrorsPanel(UIPane* pane) {
         errors_set_scroll_rects(track, thumb);
     } else {
         errors_set_scroll_rects((SDL_Rect){0}, (SDL_Rect){0});
+    }
+
+    if (selectedDiag) {
+        render_selected_diagnostic_detail(pane, selectedDiag, font, lineHeight);
     }
 }

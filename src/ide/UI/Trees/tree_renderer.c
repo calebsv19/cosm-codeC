@@ -156,7 +156,7 @@ static void renderTreeRecursive(UITreeNode* node,
     }
 
     char line[512];
-    snprintf(line, sizeof(line), "%s%s", prefix, node->label);
+    snprintf(line, sizeof(line), "%s%s", prefix, node->label ? node->label : "");
 
     TTF_Font* rowFont = tree_row_font();
     int textWidth = getTextWidthWithFont(line, rowFont);
@@ -344,7 +344,7 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
                 prefix = n->isExpanded ? "[-] " : "[+] ";
             }
             char line[512];
-            snprintf(line, sizeof(line), "%s%s", prefix, n->label);
+            snprintf(line, sizeof(line), "%s%s", prefix, n->label ? n->label : "");
 
             int textWidth = getTextWidthWithFont(line, rowFont);
             int textY = drawY + ((lineHeight - textHeight) / 2);

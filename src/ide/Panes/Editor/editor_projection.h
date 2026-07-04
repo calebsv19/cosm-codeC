@@ -2,10 +2,14 @@
 #define EDITOR_PROJECTION_H
 
 #include "ide/Panes/Editor/editor_view.h"
+#include "ide/Panes/ControlPanel/control_panel.h"
 #include "ide/Panes/ControlPanel/symbol_tree_adapter.h"
 
 void editor_projection_rebuild(OpenFile* file,
                                const char* query,
                                const SymbolFilterOptions* options);
+void editor_projection_rebuild_with_control_options(
+    OpenFile* file,
+    const ControlPanelProjectionOptions* controlOptions);
 
 #endif // EDITOR_PROJECTION_H

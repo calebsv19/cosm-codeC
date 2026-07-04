@@ -13,6 +13,7 @@ can reuse the editing core without the SDL UI if needed.
 | `editor_view.h/c` | Tree representing splits/tabs plus helpers to locate active views, open files, etc. |
 | `editor_view_state.h/c` | Transient state (dragging tabs, hover targets) used by the view layout/render path. |
 | `editor_buffer.h/c` | Owns text storage for an open file (array of lines, capacity management). |
+| `editor_live_diagnostics.h/c` | Captures debounced active-buffer snapshots and enqueues background live diagnostics when Live Parse is enabled. |
 | `editor_state.h/c` | Cursor position, selection info, viewport offsets per open file. |
 | `editor_text_edit.h/c` | Implements editing primitives (insert char, newline, delete forward/backwards) with undo hooks. |
 | `editor_clipboard.h/c` | Cut/copy/paste helpers that operate on selections. |

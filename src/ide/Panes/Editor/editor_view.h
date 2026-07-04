@@ -71,12 +71,24 @@ typedef enum {
     EDITOR_RENDER_PROJECTION
 } EditorRenderSource;
 
+typedef enum {
+    EDITOR_PROJECTION_MATCH_DEFAULT = 0,
+    EDITOR_PROJECTION_MATCH_UNIT_TIME,
+    EDITOR_PROJECTION_MATCH_UNIT_DISTANCE,
+    EDITOR_PROJECTION_MATCH_UNIT_SPEED,
+    EDITOR_PROJECTION_MATCH_UNIT_ACCEL,
+    EDITOR_PROJECTION_MATCH_UNIT_MASS,
+    EDITOR_PROJECTION_MATCH_UNIT_FORCE,
+    EDITOR_PROJECTION_MATCH_UNIT_ENERGY
+} EditorProjectionMatchKind;
+
 typedef struct {
     char** lines;
     int lineCount;
     int* projectedToRealLine;
     int* projectedToRealCol;
     int* realMatchLines;
+    int* realMatchKinds;
     int realMatchCount;
     uint64_t buildStamp;
 } SearchProjection;

@@ -38,6 +38,7 @@ typedef struct {
 
 typedef struct {
     UITreeNode* base_symbol_tree;
+    UITreeNode* base_units_tree;
     UITreeNode* visible_symbol_tree;
     PaneScrollState symbol_scroll;
     bool symbol_scroll_init;
@@ -68,6 +69,7 @@ typedef struct {
     bool show_auto_param_names;
     bool show_macros;
     bool target_symbols_enabled;
+    bool target_units_enabled;
     bool target_editor_enabled;
     ControlSearchScope search_scope;
     bool match_all_enabled;
@@ -76,11 +78,13 @@ typedef struct {
     ControlFilterButtonId selected_match_button;
     ControlEditorViewMode editor_view_mode;
     unsigned int filter_fields;
+    unsigned int unit_dimension_mask;
 } ControlPanelFilterState;
 
 typedef struct {
     char* cached_file_path;
     uint64_t cached_stamp;
+    uint64_t cached_units_stamp;
     uint64_t pending_symbols_stamp;
     bool pending_symbols_update;
     bool cached_show_auto_params;
@@ -100,6 +104,7 @@ typedef struct {
 ControlPanelControllerState* control_panel_state(void);
 
 #define baseSymbolTree (control_panel_state()->tree.base_symbol_tree)
+#define baseUnitsTree (control_panel_state()->tree.base_units_tree)
 #define visibleSymbolTree (control_panel_state()->tree.visible_symbol_tree)
 #define symbolScroll (control_panel_state()->tree.symbol_scroll)
 #define symbolScrollInit (control_panel_state()->tree.symbol_scroll_init)
@@ -126,6 +131,7 @@ ControlPanelControllerState* control_panel_state(void);
 #define showAutoParamNames (control_panel_state()->filters.show_auto_param_names)
 #define showMacros (control_panel_state()->filters.show_macros)
 #define targetSymbolsEnabled (control_panel_state()->filters.target_symbols_enabled)
+#define targetUnitsEnabled (control_panel_state()->filters.target_units_enabled)
 #define targetEditorEnabled (control_panel_state()->filters.target_editor_enabled)
 #define searchScope (control_panel_state()->filters.search_scope)
 #define matchAllEnabled (control_panel_state()->filters.match_all_enabled)
@@ -134,9 +140,11 @@ ControlPanelControllerState* control_panel_state(void);
 #define selectedMatchButton (control_panel_state()->filters.selected_match_button)
 #define editorViewMode (control_panel_state()->filters.editor_view_mode)
 #define filterFields (control_panel_state()->filters.filter_fields)
+#define unitDimensionMask (control_panel_state()->filters.unit_dimension_mask)
 
 #define cachedFilePath (control_panel_state()->cache.cached_file_path)
 #define cachedStamp (control_panel_state()->cache.cached_stamp)
+#define cachedUnitsStamp (control_panel_state()->cache.cached_units_stamp)
 #define pendingSymbolsStamp (control_panel_state()->cache.pending_symbols_stamp)
 #define pendingSymbolsUpdate (control_panel_state()->cache.pending_symbols_update)
 #define cachedShowAutoParams (control_panel_state()->cache.cached_show_auto_params)

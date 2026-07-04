@@ -53,6 +53,12 @@ void free_build_flag_set(BuildFlagSet* set) {
     (void)set;
 }
 
+void build_flags_enable_overlays_for_source(BuildFlagSet* set, const char* source, size_t length) {
+    (void)set;
+    (void)source;
+    (void)length;
+}
+
 void fisics_frontend_guard_lock(void) {}
 void fisics_frontend_guard_unlock(void) {}
 

@@ -10,6 +10,7 @@
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/Editor/editor_view_projection_helpers.h"
 #include "ide/Panes/Editor/editor_projection.h"
+#include "ide/Panes/Editor/editor_live_diagnostics.h"
 #include "ide/Panes/Editor/undo_stack.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
 #include "ide/Panes/Editor/editor_state.h"
@@ -59,6 +60,7 @@ static void editor_edit_txn_apply_commit(EditorEditCommitReason reason, OpenFile
         analysis_scheduler_request_key(ANALYSIS_JOB_KEY_SYMBOLS,
                                        ANALYSIS_REASON_EDITOR_EDIT_TRANSACTION,
                                        false);
+        editor_live_diagnostics_request_for_commit(committed_file, reason);
     }
 }
 

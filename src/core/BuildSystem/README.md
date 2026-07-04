@@ -7,6 +7,7 @@ without embedding process-management logic.
 | --- | --- |
 | `build_system.h/c` | High-level orchestration: triggers builds, tracks `BuildStatus`, stores the output log, and records the last resolved executable path. |
 | `build_diagnostics.h/c` | Incrementally parses compiler output into structured file/line diagnostics and persists those diagnostics per workspace. |
+| `build_trust_notice.h/c` | Formats the terminal-facing trust notice printed before user-triggered build/run command execution. |
 | `run_build.h/c` | Launches the selected executable and streams stdout/stderr back into the IDE's terminal-facing surfaces. |
 
 The code deliberately avoids pane knowledge. Callers ask for a build or run,
@@ -22,6 +23,10 @@ then render the resulting status/logs wherever they need.
   - `build_command`, `build_args`, `build_workdir`, `build_output_dir`
   - `run_command`, `run_args`, `run_workdir`
   Blank values fall back to the default behaviour above.
+- Build and run actions are explicit user-triggered trusted-workspace actions.
+  Before command dispatch, the terminal receives a `[Trust]` notice with the
+  action, working directory, command source, and command display string. This
+  keeps execution visibly separate from passive analysis.
 - When a custom run command is provided you can reference the active run target
   using `{TARGET}` inside `run_args`. If the token is absent the path is appended
   automatically as the final argument so existing workflows continue to work.

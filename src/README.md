@@ -6,7 +6,7 @@ below show how the major branches fit together.
 
 | Segment | What lives here | Notes |
 | --- | --- | --- |
-| `app/` | Process entry points plus `GlobalInfo` singletons that expose core state objects to the rest of the codebase. | Bootstraps SDL, owns the frame loop, and drives background refreshes. |
+| `app/` | Process entry points, lifecycle wrapper code, and `GlobalInfo` singletons that expose core state objects to the rest of the codebase. | `main.c` is only the process delegator; `ide_app_main.c` owns the canonical wrapper stages before handing off to the legacy runtime loop. |
 | `core/` | Headless runtime systems such as analysis, IPC, build/run helpers, loop infrastructure, terminal back ends, and selection helpers. | Anything that should remain usable outside of the pane/UI layer ends up here. |
 | `ide/` | The actual IDE UI: pane definitions, widget rendering, layout logic, and the command implementations for each pane. | Organised by pane type; summaries live alongside the code. |
 | `engine/` | Rendering infrastructure shared by the IDE runtime. | This is currently centered on the renderer and related frame instrumentation. |

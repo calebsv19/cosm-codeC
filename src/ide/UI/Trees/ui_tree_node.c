@@ -11,7 +11,7 @@ userData) {
     node->type = type;
     node->color = color;
 
-    node->label = label ? strdup(label) : NULL;
+    node->label = strdup(label ? label : "");
     node->fullPath = fullPath ? strdup(fullPath) : NULL;
 
     node->isExpanded = true;

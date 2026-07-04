@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "app/GlobalInfo/project.h"
+#include "app/GlobalInfo/workspace_context.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
 #include "ide/Panes/Editor/editor_projection.h"
 
@@ -18,6 +18,7 @@ void editor_projection_reset(SearchProjection* projection) {
     projection->projectedToRealLine = NULL;
     projection->projectedToRealCol = NULL;
     projection->realMatchLines = NULL;
+    projection->realMatchKinds = NULL;
     projection->realMatchCount = 0;
     projection->buildStamp = 0;
 }
@@ -67,6 +68,13 @@ void editor_projection_free(SearchProjection* projection) {
     } else if (projection->realMatchLines) {
         fprintf(stderr, "[Projection] Ignoring suspicious realMatch pointer=%p during free\n",
                 (void*)projection->realMatchLines);
+    }
+    uintptr_t matchKindsPtr = (uintptr_t)projection->realMatchKinds;
+    if (projection->realMatchKinds && matchKindsPtr >= 4096u) {
+        free(projection->realMatchKinds);
+    } else if (projection->realMatchKinds) {
+        fprintf(stderr, "[Projection] Ignoring suspicious realMatchKinds pointer=%p during free\n",
+                (void*)projection->realMatchKinds);
     }
     editor_projection_reset(projection);
 }
@@ -168,9 +176,7 @@ bool editor_find_open_file_revision_by_path(const char* filePath, uint64_t* out_
 
 static void sync_projection_for_file(OpenFile* file,
                                      bool applySearchMode,
-                                     bool projectionRenderEnabled,
-                                     const char* query,
-                                     const SymbolFilterOptions* options) {
+                                     const ControlPanelProjectionOptions* controlOptions) {
     if (!file) return;
     if (!applySearchMode) {
         editor_set_file_render_source(file, EDITOR_RENDER_REAL);
@@ -178,61 +184,34 @@ static void sync_projection_for_file(OpenFile* file,
         return;
     }
     editor_set_file_render_source(file,
-                                  projectionRenderEnabled
+                                  controlOptions && controlOptions->projection_render_enabled
                                       ? EDITOR_RENDER_PROJECTION
                                       : EDITOR_RENDER_REAL);
-    editor_projection_rebuild(file, query, options);
-}
-
-static bool path_is_in_active_project(const char* filePath) {
-    if (!filePath || !filePath[0] || !projectPath[0]) return false;
-    size_t rootLen = strlen(projectPath);
-    if (rootLen == 0) return false;
-    if (strncmp(filePath, projectPath, rootLen) != 0) return false;
-    char boundary = filePath[rootLen];
-    return boundary == '\0' || boundary == '/';
+    editor_projection_rebuild_with_control_options(file, controlOptions);
 }
 
 static void sync_projection_for_view_tree(EditorView* view,
                                           OpenFile* activeFile,
-                                          bool enableEditorTarget,
-                                          bool queryActive,
-                                          bool scopeProjectFiles,
-                                          bool projectionRenderEnabled,
-                                          const char* query,
-                                          const SymbolFilterOptions* options) {
+                                          const IDEWorkspaceContext* workspaceContext,
+                                          const ControlPanelProjectionOptions* controlOptions) {
     if (!view) return;
     if (view->type == VIEW_SPLIT) {
-        sync_projection_for_view_tree(view->childA,
-                                      activeFile,
-                                      enableEditorTarget,
-                                      queryActive,
-                                      scopeProjectFiles,
-                                      projectionRenderEnabled,
-                                      query,
-                                      options);
-        sync_projection_for_view_tree(view->childB,
-                                      activeFile,
-                                      enableEditorTarget,
-                                      queryActive,
-                                      scopeProjectFiles,
-                                      projectionRenderEnabled,
-                                      query,
-                                      options);
+        sync_projection_for_view_tree(view->childA, activeFile, workspaceContext, controlOptions);
+        sync_projection_for_view_tree(view->childB, activeFile, workspaceContext, controlOptions);
         return;
     }
     if (view->type != VIEW_LEAF || !view->openFiles || view->fileCount <= 0) return;
 
     for (int i = 0; i < view->fileCount; ++i) {
         OpenFile* file = view->openFiles[i];
-        bool inScope = scopeProjectFiles ? path_is_in_active_project(file ? file->filePath : NULL)
-                                         : (file == activeFile);
-        bool applySearchMode = enableEditorTarget && queryActive && inScope;
-        sync_projection_for_file(file,
-                                 applySearchMode,
-                                 projectionRenderEnabled,
-                                 query,
-                                 options);
+        bool inScope = controlOptions && controlOptions->scope_project_files
+            ? ide_workspace_context_path_in_project(workspaceContext, file ? file->filePath : NULL)
+            : (file == activeFile);
+        bool applySearchMode = controlOptions &&
+                               controlOptions->target_editor_enabled &&
+                               controlOptions->query_active &&
+                               inScope;
+        sync_projection_for_file(file, applySearchMode, controlOptions);
     }
 }
 
@@ -242,15 +221,10 @@ void editor_sync_active_file_projection_mode(void) {
         return;
     }
 
-    const char* query = control_panel_get_search_query();
-    bool queryActive = control_panel_is_search_enabled() && (query && query[0] != '\0');
-    bool editorTargetEnabled = control_panel_target_editor_enabled();
-    bool projectionRenderEnabled =
-        control_panel_get_editor_view_mode() == CONTROL_EDITOR_VIEW_PROJECTION;
-    bool scopeProjectFiles =
-        control_panel_get_search_scope() == CONTROL_SEARCH_SCOPE_PROJECT_FILES;
-    SymbolFilterOptions options = {0};
-    control_panel_get_search_filter_options(&options);
+    ControlPanelProjectionOptions controlOptions;
+    control_panel_capture_projection_options(&controlOptions);
+    IDEWorkspaceContext workspaceContext;
+    ide_workspace_context_capture(&workspaceContext);
 
     OpenFile* activeFile = NULL;
     if (core->activeEditorView && core->activeEditorView->type == VIEW_LEAF) {
@@ -258,12 +232,5 @@ void editor_sync_active_file_projection_mode(void) {
     }
 
     EditorView* root = core->persistentEditorView ? core->persistentEditorView : core->activeEditorView;
-    sync_projection_for_view_tree(root,
-                                  activeFile,
-                                  editorTargetEnabled,
-                                  queryActive,
-                                  scopeProjectFiles,
-                                  projectionRenderEnabled,
-                                  query,
-                                  &options);
+    sync_projection_for_view_tree(root, activeFile, &workspaceContext, &controlOptions);
 }

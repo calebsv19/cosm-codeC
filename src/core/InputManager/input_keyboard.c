@@ -1,6 +1,8 @@
 #include "input_keyboard.h"
 #include "core/InputManager/UserInput/rename_flow.h"
 #include "core/InputManager/UserInput/rename_access.h"
+#include "core/Analysis/analysis_scheduler.h"
+#include "core/Analysis/analysis_status.h"
 #include "core/CommandBus/command_bus.h"
 #include "core/CommandBus/command_metadata.h"
 #include "app/GlobalInfo/core_state.h"
@@ -81,6 +83,7 @@ void handleKeyboardInput(SDL_Event* event,
     Uint16 mod = event->key.keysym.mod;
     bool ctrl_or_cmd = (mod & (KMOD_CTRL | KMOD_GUI)) != 0;
     bool shift = (mod & KMOD_SHIFT) != 0;
+    bool alt = (mod & KMOD_ALT) != 0;
 
     // Workspace-root chooser shortcuts are global by policy:
     // they should work regardless of focused pane.
@@ -113,6 +116,13 @@ void handleKeyboardInput(SDL_Event* event,
     }
 
     if (ctrl_or_cmd && shift && !global_shortcut_text_capture_active()) {
+        if (alt && key == SDLK_r) {
+            analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
+            analysis_scheduler_request(ANALYSIS_REASON_MANUAL_REFRESH, true);
+            requestFullRedraw(RENDER_INVALIDATION_CONTENT);
+            printf("[Keyboard] Queued forced full analysis refresh\n");
+            return;
+        }
         if (key == SDLK_t) {
             if (ide_shared_theme_cycle_next()) {
                 char preset_name[128] = {0};

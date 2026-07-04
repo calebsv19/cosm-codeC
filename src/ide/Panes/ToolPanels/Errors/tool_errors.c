@@ -1,5 +1,6 @@
 #include "tool_errors.h"
 #include "ide/Panes/ToolPanels/tool_panel_adapter.h"
+#include "core/Diagnostics/diagnostic_explanations.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/Analysis/analysis_store.h"
 #include "core/Clipboard/clipboard.h"
@@ -10,9 +11,13 @@
 #include "ide/UI/flat_list_selection.h"
 #include "ide/UI/input_modifiers.h"
 #include "ide/UI/interaction_timing.h"
+#include "ide/UI/panel_text_edit.h"
 #include "ide/UI/row_activation.h"
 #include "ide/UI/scroll_manager.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
+#include "ide/Panes/ToolPanels/Errors/errors_context_detail.h"
+#include "ide/Panes/ToolPanels/Errors/errors_filter.h"
+#include "ide/Panes/ToolPanels/Errors/errors_units_detail.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -39,9 +44,13 @@ typedef struct {
     bool filter_all;
     bool filter_errors;
     bool filter_warnings;
-    UIPanelTaggedRect control_hit_storage[5];
+    UIPanelTaggedRect control_hit_storage[6];
     UIPanelTaggedRectList control_hits;
     UIDoubleClickTracker double_click_tracker;
+    UIPanelTextFieldButtonStripLayout search_layout;
+    char search_query[128];
+    int search_cursor;
+    bool search_focused;
     ErrorFileSnapshot* snapshot_files;
     int snapshot_count;
     int snapshot_cap;
@@ -69,6 +78,8 @@ static void errors_panel_init_state(void* ptr) {
 static void free_snapshot_file(ErrorFileSnapshot* f);
 static void jump_to_diag(const Diagnostic* d);
 static void jump_to_first_diag_for_file(int fileIndex);
+static bool detail_has_room(const SDL_Rect* clip, int y, int lineHeight);
+static void clear_selected(void);
 
 static void errors_panel_destroy_state(void* ptr) {
     ErrorPanelState* state = (ErrorPanelState*)ptr;
@@ -102,6 +113,10 @@ static ErrorPanelState* errors_panel_state(void) {
 #define g_filterAll (errors_panel_state()->filter_all)
 #define g_filterErrors (errors_panel_state()->filter_errors)
 #define g_filterWarnings (errors_panel_state()->filter_warnings)
+#define g_searchLayout (errors_panel_state()->search_layout)
+#define g_searchQuery (errors_panel_state()->search_query)
+#define g_searchCursor (errors_panel_state()->search_cursor)
+#define g_searchFocused (errors_panel_state()->search_focused)
 #define g_errorDoubleClickTracker (errors_panel_state()->double_click_tracker)
 #define g_snapshotFiles (errors_panel_state()->snapshot_files)
 #define g_snapshotCount (errors_panel_state()->snapshot_count)
@@ -279,6 +294,50 @@ SDL_Rect errors_get_scroll_track_rect(void) { return errorScrollTrack; }
 SDL_Rect errors_get_scroll_thumb_rect(void) { return errorScrollThumb; }
 void errors_set_scroll_rects(SDL_Rect track, SDL_Rect thumb) { errorScrollTrack = track; errorScrollThumb = thumb; }
 
+static void errors_reset_after_filter_change(void) {
+    clear_selected();
+    errorScroll.offset_px = 0.0f;
+    errorScroll.target_offset_px = 0.0f;
+}
+
+static UIPanelTextEditBuffer errors_search_buffer(void) {
+    return (UIPanelTextEditBuffer){
+        .text = g_searchQuery,
+        .capacity = (int)sizeof(errors_panel_state()->search_query),
+        .cursor = &g_searchCursor
+    };
+}
+
+const char* errors_get_search_query(void) { return g_searchQuery; }
+int errors_get_search_cursor(void) { return g_searchCursor; }
+bool errors_is_search_focused(void) { return g_searchFocused; }
+bool errors_has_active_search_query(void) { return g_searchQuery[0] != '\0'; }
+void errors_set_search_focused(bool focused) { g_searchFocused = focused; }
+void errors_search_cursor_end(void) { g_searchCursor = (int)strlen(g_searchQuery); }
+void errors_set_search_strip_layout(UIPanelTextFieldButtonStripLayout layout) { g_searchLayout = layout; }
+UIPanelTextFieldButtonStripLayout errors_get_search_strip_layout(void) { return g_searchLayout; }
+
+bool errors_clear_search_query(void) {
+    UIPanelTextEditBuffer buffer = errors_search_buffer();
+    bool changed = ui_panel_text_edit_clear(&buffer);
+    if (changed) errors_reset_after_filter_change();
+    return changed;
+}
+
+bool errors_handle_search_text_input(const SDL_Event* event) {
+    UIPanelTextEditBuffer buffer = errors_search_buffer();
+    bool changed = ui_panel_text_edit_handle_text_input(&buffer, event);
+    if (changed) errors_reset_after_filter_change();
+    return changed;
+}
+
+bool errors_handle_search_edit_key(SDL_Keycode key) {
+    UIPanelTextEditBuffer buffer = errors_search_buffer();
+    bool changed = ui_panel_text_edit_handle_keydown(&buffer, key);
+    if (changed) errors_reset_after_filter_change();
+    return changed;
+}
+
 TTF_Font* get_error_font(void) {
     TTF_Font* font = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
     if (font) return font;
@@ -298,9 +357,163 @@ void errors_get_layout_metrics(const UIPane* pane,
     if (diagHeight) *diagHeight = lh * 3;
     if (contentTop && pane) {
         ToolPanelLayoutDefaults d = tool_panel_layout_defaults();
-        const int paddingY = d.controls_top + d.button_h + d.row_gap + d.button_h + d.row_gap;
+        const int paddingY = d.controls_top +
+                             d.button_h + d.row_gap +
+                             d.button_h + d.row_gap +
+                             d.button_h + d.row_gap;
         *contentTop = pane->y + paddingY;
     }
+}
+
+bool errors_get_detail_panel_rect(const UIPane* pane, SDL_Rect* outRect) {
+    if (!pane || !outRect || !errors_get_selected_diagnostic_ref()) return false;
+    TTF_Font* font = get_error_font();
+    int lineHeight = font ? TTF_FontHeight(font) : 14;
+    if (lineHeight < 14) lineHeight = 14;
+    if (pane->h < lineHeight * 6 || pane->w < 24) return false;
+    int extraContextRows = 0;
+    ErrorsContextDetail contextDetail;
+    if (errors_context_detail_for_diagnostic(errors_get_selected_diagnostic_ref(), &contextDetail) &&
+        contextDetail.rowCount > 1) {
+        extraContextRows = contextDetail.rowCount - 1;
+    }
+    int h = lineHeight * (7 + extraContextRows) + 18;
+    int maxH = pane->h / 2;
+    int minH = lineHeight * 4 + 18;
+    if (maxH < minH) maxH = pane->h - 16;
+    if (maxH < minH) return false;
+    if (h > maxH) h = maxH;
+    int w = pane->w - 16;
+    if (w < 1) w = 1;
+    *outRect = (SDL_Rect){
+        pane->x + 8,
+        pane->y + pane->h - h - 8,
+        w,
+        h
+    };
+    return true;
+}
+
+static const char* diagnostic_effective_code_name(const Diagnostic* diag) {
+    if (!diag) return NULL;
+    return (diag->codeName && diag->codeName[0])
+        ? diag->codeName
+        : diagnostic_code_name(diag->codeId);
+}
+
+static const DiagnosticExplanation* find_diagnostic_explanation(const Diagnostic* diag) {
+    if (!diag) return NULL;
+    const DiagnosticExplanation* explanation = diagnostic_explanations_find_by_code(diag->codeId);
+    const char* codeName = diagnostic_effective_code_name(diag);
+    if (!explanation && codeName && codeName[0]) {
+        explanation = diagnostic_explanations_find_by_name(codeName);
+    }
+    return explanation;
+}
+
+bool errors_get_context_summary_for_diagnostic(const Diagnostic* diag,
+                                               ErrorsDiagnosticContextSummary* outSummary) {
+    if (!outSummary) return false;
+    memset(outSummary, 0, sizeof(*outSummary));
+    ErrorsContextDetail detail;
+    if (!errors_context_detail_for_diagnostic(diag, &detail)) return false;
+    outSummary->includeCount = detail.includeCount;
+    outSummary->macroCount = detail.macroCount;
+    outSummary->hasDetails = detail.hasDetails;
+    outSummary->hasNavigationTarget = detail.hasNavigationTarget;
+    snprintf(outSummary->targetPath, sizeof(outSummary->targetPath), "%s", detail.targetPath);
+    snprintf(outSummary->targetKind, sizeof(outSummary->targetKind), "%s", detail.targetKind);
+    outSummary->targetLine = detail.targetLine;
+    outSummary->targetColumn = detail.targetColumn;
+    return true;
+}
+
+static bool detail_has_room(const SDL_Rect* clip, int y, int lineHeight) {
+    return clip && y + lineHeight <= clip->y + clip->h;
+}
+
+bool errors_get_detail_context_line_rect(const UIPane* pane, SDL_Rect* outRect) {
+    return errors_get_detail_context_row_rect(pane, 0, outRect);
+}
+
+bool errors_get_detail_context_row_rect(const UIPane* pane, int contextRow, SDL_Rect* outRect) {
+    if (!pane || !outRect) return false;
+    const Diagnostic* diag = errors_get_selected_diagnostic_ref();
+    if (!diag) return false;
+
+    ErrorsContextDetail contextDetail;
+    if (!errors_context_detail_for_diagnostic(diag, &contextDetail)) return false;
+    if (contextRow < 0 || contextRow >= contextDetail.rowCount) return false;
+
+    SDL_Rect detailRect = {0};
+    if (!errors_get_detail_panel_rect(pane, &detailRect)) return false;
+    TTF_Font* font = get_error_font();
+    int lineHeight = font ? TTF_FontHeight(font) : 14;
+    if (lineHeight < 14) lineHeight = 14;
+
+    SDL_Rect clip = {
+        detailRect.x + 8,
+        detailRect.y + 6,
+        detailRect.w - 16,
+        detailRect.h - 12
+    };
+    if (clip.w < 1 || clip.h < 1) return false;
+
+    int y = clip.y + lineHeight * 4;
+    if (diag->hint && diag->hint[0]) y += lineHeight;
+    const DiagnosticExplanation* explanation = find_diagnostic_explanation(diag);
+    if (explanation && explanation->description && explanation->description[0] &&
+        detail_has_room(&clip, y, lineHeight)) {
+        y += lineHeight;
+    }
+    ErrorsUnitsDiagnosticDetail unitsDetail;
+    if (errors_units_detail_for_diagnostic(diag, &unitsDetail) &&
+        detail_has_room(&clip, y, lineHeight)) {
+        y += lineHeight;
+    }
+    y += lineHeight * contextRow;
+    if (!detail_has_room(&clip, y, lineHeight)) return false;
+
+    *outRect = (SDL_Rect){clip.x, y, clip.w, lineHeight};
+    return true;
+}
+
+bool errors_get_detail_context_row_at_point(const UIPane* pane,
+                                            int x,
+                                            int y,
+                                            ErrorsContextDetailRow* outRow) {
+    const Diagnostic* diag = errors_get_selected_diagnostic_ref();
+    if (!pane || !diag) return false;
+    ErrorsContextDetail contextDetail;
+    if (!errors_context_detail_for_diagnostic(diag, &contextDetail)) return false;
+    for (int i = 0; i < contextDetail.rowCount; ++i) {
+        SDL_Rect rowRect = {0};
+        if (!errors_get_detail_context_row_rect(pane, i, &rowRect)) continue;
+        if (x >= rowRect.x && x < rowRect.x + rowRect.w &&
+            y >= rowRect.y && y < rowRect.y + rowRect.h) {
+            if (outRow) *outRow = contextDetail.rows[i];
+            return true;
+        }
+    }
+    return false;
+}
+
+bool errors_open_selected_context_target(void) {
+    const Diagnostic* diag = errors_get_selected_diagnostic_ref();
+    if (!diag) return false;
+    ErrorsDiagnosticContextSummary summary;
+    if (!errors_get_context_summary_for_diagnostic(diag, &summary)) return false;
+    if (!summary.hasNavigationTarget || !summary.targetPath[0]) return false;
+    return ui_open_path_at_location_in_active_editor(summary.targetPath,
+                                                     summary.targetLine,
+                                                     summary.targetColumn);
+}
+
+bool errors_open_context_detail_row(const ErrorsContextDetailRow* row) {
+    if (!row || !row->hasNavigationTarget || !row->targetPath[0]) return false;
+    return ui_open_path_at_location_in_active_editor(row->targetPath,
+                                                     row->targetLine,
+                                                     row->targetColumn);
 }
 
 int getSelectedErrorDiag(void) {
@@ -443,15 +656,15 @@ static bool errors_handle_top_control_click(int mx, int my) {
     switch ((ErrorTopControlId)ui_panel_tagged_rect_list_hit_test(errors_get_control_hits(), mx, my)) {
         case ERROR_TOP_CONTROL_FILTER_ALL:
             g_filterAll = !g_filterAll;
-            clear_selected();
+            errors_reset_after_filter_change();
             return true;
         case ERROR_TOP_CONTROL_FILTER_ERRORS:
             g_filterErrors = !g_filterErrors;
-            clear_selected();
+            errors_reset_after_filter_change();
             return true;
         case ERROR_TOP_CONTROL_FILTER_WARNINGS:
             g_filterWarnings = !g_filterWarnings;
-            clear_selected();
+            errors_reset_after_filter_change();
             return true;
         case ERROR_TOP_CONTROL_OPEN_ALL:
             for (int i = 0; i < g_snapshotCount && i < (int)(sizeof(fileCollapsed) / sizeof(fileCollapsed[0])); ++i) {
@@ -464,6 +677,10 @@ static bool errors_handle_top_control_click(int mx, int my) {
                 fileCollapseInitialized[i] = true;
             }
             return true;
+        case ERROR_TOP_CONTROL_CLEAR_SEARCH:
+            errors_set_search_focused(true);
+            (void)errors_clear_search_query();
+            return true;
         case ERROR_TOP_CONTROL_NONE:
         default:
             return false;
@@ -474,12 +691,27 @@ bool is_error_selected(int idx) {
     return is_selected(idx);
 }
 
+const Diagnostic* errors_get_selected_diagnostic_ref(void) {
+    FlatDiagRef refs[512];
+    int count = flatten_diagnostics(refs, 512);
+    for (int i = 0; i < count; ++i) {
+        if (!is_selected(i) || refs[i].isHeader || !refs[i].diag) continue;
+        return refs[i].diag;
+    }
+    return NULL;
+}
+
 static bool diag_visible(const Diagnostic* d) {
     if (!d) return false;
-    if (g_filterAll) return true;
-    if (d->severity == DIAG_SEVERITY_ERROR) return g_filterErrors;
-    if (d->severity == DIAG_SEVERITY_WARNING) return g_filterWarnings;
-    return false;
+    bool severityVisible = false;
+    if (g_filterAll) {
+        severityVisible = true;
+    } else if (d->severity == DIAG_SEVERITY_ERROR) {
+        severityVisible = g_filterErrors;
+    } else if (d->severity == DIAG_SEVERITY_WARNING) {
+        severityVisible = g_filterWarnings;
+    }
+    return severityVisible && errors_filter_diagnostic_matches_query(d, g_searchQuery);
 }
 
 int flatten_diagnostics(FlatDiagRef* out, int max) {
@@ -548,6 +780,31 @@ static void copy_diag(const Diagnostic* d) {
              (d->hint && d->hint[0]) ? " / hint: " : "",
              (d->hint && d->hint[0]) ? d->hint : "");
     clipboard_copy_text(buf);
+}
+
+static bool errors_select_relative_diagnostic(int delta) {
+    FlatDiagRef refs[512];
+    flatCount = flatten_diagnostics(refs, 512);
+    int current = getSelectedErrorDiag();
+    int start = current;
+    if (start < 0 || start >= flatCount) {
+        start = (delta >= 0) ? -1 : flatCount;
+    }
+
+    for (int i = start + delta; i >= 0 && i < flatCount; i += delta) {
+        if (refs[i].isHeader || !refs[i].diag) continue;
+        setSelectedErrorDiag(i);
+        return true;
+    }
+
+    return false;
+}
+
+static bool errors_jump_selected_diagnostic(void) {
+    const Diagnostic* diag = errors_get_selected_diagnostic_ref();
+    if (!diag) return false;
+    jump_to_diag(diag);
+    return true;
 }
 
 bool errors_copy_selection_to_clipboard(void) {
@@ -630,6 +887,11 @@ void errors_select_all_visible(void) {
 void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
     errors_refresh_snapshot_from_store();
+    if (event->type == SDL_TEXTINPUT && errors_is_search_focused()) {
+        (void)errors_handle_search_text_input(event);
+        return;
+    }
+
     int firstY = 0;
     int headerHeight = 0;
     int diagHeight = 0;
@@ -639,7 +901,25 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
         const int mx = event->button.x;
         const int my = event->button.y;
+        UIPanelTextFieldButtonStripLayout searchLayout = errors_get_search_strip_layout();
         if (errors_handle_top_control_click(mx, my)) {
+            return;
+        }
+        if (ui_panel_rect_contains(&searchLayout.text_field_rect, mx, my)) {
+            errors_set_search_focused(true);
+            errors_search_cursor_end();
+            return;
+        }
+        errors_set_search_focused(false);
+        SDL_Rect detailRect = {0};
+        if (errors_get_detail_panel_rect(pane, &detailRect) &&
+            mx >= detailRect.x && mx < detailRect.x + detailRect.w &&
+            my >= detailRect.y && my < detailRect.y + detailRect.h) {
+            ErrorsContextDetailRow contextRow;
+            if (errors_get_detail_context_row_at_point(pane, mx, my, &contextRow) &&
+                contextRow.hasNavigationTarget) {
+                (void)errors_open_context_detail_row(&contextRow);
+            }
             return;
         }
 
@@ -702,13 +982,40 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
     } else if (event->type == SDL_KEYDOWN) {
         SDL_Keycode key = event->key.keysym.sym;
         Uint16 mod = event->key.keysym.mod;
-        if (ui_input_has_primary_accel(mod) && key == SDLK_a) {
+        bool accel = ui_input_has_primary_accel(mod);
+        if (errors_is_search_focused()) {
+            bool plainEdit = !(mod & (KMOD_CTRL | KMOD_GUI | KMOD_ALT));
+            if (plainEdit) {
+                if (errors_handle_search_edit_key(key)) {
+                    return;
+                }
+                if (key == SDLK_ESCAPE) {
+                    errors_set_search_focused(false);
+                    return;
+                }
+            }
+        }
+        if (accel && key == SDLK_f) {
+            errors_set_search_focused(true);
+            errors_search_cursor_end();
+            return;
+        }
+        if (accel && key == SDLK_a) {
             errors_select_all_visible();
             return;
         }
-        if (ui_input_has_primary_accel(mod) && key == SDLK_c) {
+        if (accel && key == SDLK_c) {
             errors_copy_selection_to_clipboard();
             return;
+        }
+        if (key == SDLK_DOWN) {
+            if (errors_select_relative_diagnostic(1)) return;
+        }
+        if (key == SDLK_UP) {
+            if (errors_select_relative_diagnostic(-1)) return;
+        }
+        if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
+            if (errors_jump_selected_diagnostic()) return;
         }
     }
 }

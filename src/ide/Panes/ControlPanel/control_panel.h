@@ -15,6 +15,7 @@ struct UIPane;
 typedef enum {
     CONTROL_FILTER_BTN_NONE = 0,
     CONTROL_FILTER_BTN_TARGET_SYMBOLS,
+    CONTROL_FILTER_BTN_TARGET_UNITS,
     CONTROL_FILTER_BTN_TARGET_EDITOR,
     CONTROL_FILTER_BTN_SCOPE_ACTIVE,
     CONTROL_FILTER_BTN_SCOPE_PROJECT,
@@ -27,7 +28,14 @@ typedef enum {
     CONTROL_FILTER_BTN_EDITOR_VIEW_MARKERS,
     CONTROL_FILTER_BTN_LIVE_PARSE,
     CONTROL_FILTER_BTN_INLINE_ERRORS,
-    CONTROL_FILTER_BTN_MACROS
+    CONTROL_FILTER_BTN_MACROS,
+    CONTROL_FILTER_BTN_UNIT_TIME,
+    CONTROL_FILTER_BTN_UNIT_DISTANCE,
+    CONTROL_FILTER_BTN_UNIT_SPEED,
+    CONTROL_FILTER_BTN_UNIT_ACCEL,
+    CONTROL_FILTER_BTN_UNIT_MASS,
+    CONTROL_FILTER_BTN_UNIT_FORCE,
+    CONTROL_FILTER_BTN_UNIT_ENERGY
 } ControlFilterButtonId;
 
 typedef enum {
@@ -48,6 +56,16 @@ typedef enum {
     CONTROL_EDITOR_VIEW_MARKERS
 } ControlEditorViewMode;
 
+enum {
+    CONTROL_UNIT_DIM_TIME     = 1u << 0,
+    CONTROL_UNIT_DIM_DISTANCE = 1u << 1,
+    CONTROL_UNIT_DIM_SPEED    = 1u << 2,
+    CONTROL_UNIT_DIM_ACCEL    = 1u << 3,
+    CONTROL_UNIT_DIM_MASS     = 1u << 4,
+    CONTROL_UNIT_DIM_FORCE    = 1u << 5,
+    CONTROL_UNIT_DIM_ENERGY   = 1u << 6
+};
+
 enum { CONTROL_PANEL_PERSIST_QUERY_MAX = 256 };
 
 typedef struct {
@@ -56,6 +74,7 @@ typedef struct {
     bool filters_collapsed;
 
     bool target_symbols_enabled;
+    bool target_units_enabled;
     bool target_editor_enabled;
     ControlSearchScope search_scope;
 
@@ -72,11 +91,33 @@ typedef struct {
     bool field_type;
     bool field_params;
     bool field_kind;
+    unsigned int unit_dimension_mask;
 
     bool live_parse_enabled;
     bool inline_errors_enabled;
     bool macros_enabled;
 } ControlPanelPersistState;
+
+typedef struct {
+    const char* query;
+    bool search_enabled;
+    bool query_has_text;
+    bool query_active;
+    bool live_parse_enabled;
+    bool inline_errors_enabled;
+    bool macros_enabled;
+    bool target_symbols_enabled;
+    bool target_units_enabled;
+    bool target_editor_enabled;
+    ControlSearchScope search_scope;
+    bool scope_project_files;
+    ControlEditorViewMode editor_view_mode;
+    bool projection_render_enabled;
+    bool marker_render_enabled;
+    unsigned int unit_dimension_mask;
+    SymbolFilterOptions symbol_filter_options;
+    ControlFilterButtonId match_button_order[4];
+} ControlPanelProjectionOptions;
 
 bool isLiveParseEnabled();
 bool isShowInlineErrorsEnabled();
@@ -121,6 +162,8 @@ void control_panel_toggle_search_enabled(void);
 bool control_panel_apply_search_insert(const char* text);
 bool control_panel_apply_search_backspace(void);
 bool control_panel_apply_search_delete(void);
+bool control_panel_set_search_query_text(const char* text);
+bool control_panel_focus_unit_marker_query(const char* unitSymbolQuery);
 bool control_panel_search_cursor_left(void);
 bool control_panel_search_cursor_right(void);
 bool control_panel_search_cursor_home(void);
@@ -130,13 +173,18 @@ bool control_panel_handle_search_text_input(const SDL_Event* event);
 bool control_panel_handle_search_edit_key(SDL_Keycode key);
 bool control_panel_has_active_search_state(void);
 void control_panel_get_search_filter_options(SymbolFilterOptions* outOptions);
+void control_panel_capture_projection_options(ControlPanelProjectionOptions* outOptions);
 bool control_panel_target_symbols_enabled(void);
+bool control_panel_target_units_enabled(void);
 bool control_panel_target_editor_enabled(void);
+unsigned int control_panel_get_unit_dimension_mask(void);
 ControlSearchScope control_panel_get_search_scope(void);
 ControlMatchKind control_panel_get_match_kind(void);
 ControlEditorViewMode control_panel_get_editor_view_mode(void);
 void control_panel_set_target_symbols_enabled(bool enabled);
+void control_panel_set_target_units_enabled(bool enabled);
 void control_panel_set_target_editor_enabled(bool enabled);
+void control_panel_set_unit_dimension_mask(unsigned int mask);
 void control_panel_set_search_scope(ControlSearchScope scope);
 void control_panel_set_match_kind(ControlMatchKind kind);
 void control_panel_set_editor_view_mode(ControlEditorViewMode mode);

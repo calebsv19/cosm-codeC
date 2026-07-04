@@ -96,11 +96,11 @@ $(HOST_OBJ_DIR)/idebridge_support/%.o: src/%.c
 	@echo "CFLAGS: $(CFLAGS)"
 	@$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
-$(IDEBRIDGE_OUT): $(IDEBRIDGE_OBJ) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(IDEBRIDGE_SHARED_LIBS)
+$(IDEBRIDGE_OUT): $(IDEBRIDGE_OBJS) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(IDEBRIDGE_SHARED_LIBS)
 	@echo "Linking idebridge..."
-	@$(CC) $(ARCH_FLAGS) -o $@ $(IDEBRIDGE_OBJ) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(IDEBRIDGE_SHARED_LIBS) $(IDEBRIDGE_LDFLAGS) || (echo "idebridge linking failed!" && exit 1)
+	@$(CC) $(ARCH_FLAGS) -o $@ $(IDEBRIDGE_OBJS) $(DIAG_PACK_EXPORT_OBJ) $(DIAG_DATA_EXPORT_OBJ) $(IDEBRIDGE_SHARED_LIBS) $(IDEBRIDGE_LDFLAGS) || (echo "idebridge linking failed!" && exit 1)
 
-$(TOOLS_BUILD_DIR)/idebridge.o: $(IDEBRIDGE_SRC)
+$(TOOLS_BUILD_DIR)/idebridge_objs/%.o: tools/idebridge/%.c
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@$(CC) $(CFLAGS) $(ARCH_FLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)

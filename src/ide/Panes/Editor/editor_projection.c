@@ -7,7 +7,9 @@
 #include <string.h>
 
 #include "core/Analysis/analysis_symbols_store.h"
+#include "core/Analysis/analysis_units_store.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
+#include "ide/Panes/ControlPanel/control_panel_units_tree.h"
 
 typedef struct {
     char** lines;
@@ -185,6 +187,18 @@ static const AnalysisFileSymbols* find_symbols_for_path(const char* filePath) {
     return NULL;
 }
 
+static const AnalysisFileUnits* find_units_for_path(const char* filePath) {
+    if (!filePath) return NULL;
+    size_t count = analysis_units_store_file_count();
+    for (size_t i = 0; i < count; ++i) {
+        const AnalysisFileUnits* entry = analysis_units_store_file_at(i);
+        if (entry && entry->path && strcmp(entry->path, filePath) == 0) {
+            return entry;
+        }
+    }
+    return NULL;
+}
+
 static bool symbol_matches_query(const FisicsSymbol* sym,
                                  const char* query,
                                  const SymbolFilterOptions* options) {
@@ -276,14 +290,28 @@ static void builder_free(ProjectionBuilder* b) {
     b->cap = 0;
 }
 
-static void mark_line(bool* flags, int lineCount, int line) {
+static void mark_line_kind(bool* flags, int* kinds, int lineCount, int line, int kind) {
     if (!flags || line < 0 || line >= lineCount) return;
     flags[line] = true;
+    if (kinds) kinds[line] = kind;
+}
+
+static int projection_match_kind_for_units(const AnalysisUnitsAttachment* unit) {
+    if (!unit) return EDITOR_PROJECTION_MATCH_DEFAULT;
+    if (control_panel_units_dimension_matches(unit, CONTROL_UNIT_DIM_TIME)) return EDITOR_PROJECTION_MATCH_UNIT_TIME;
+    if (control_panel_units_dimension_matches(unit, CONTROL_UNIT_DIM_ACCEL)) return EDITOR_PROJECTION_MATCH_UNIT_ACCEL;
+    if (control_panel_units_dimension_matches(unit, CONTROL_UNIT_DIM_SPEED)) return EDITOR_PROJECTION_MATCH_UNIT_SPEED;
+    if (control_panel_units_dimension_matches(unit, CONTROL_UNIT_DIM_FORCE)) return EDITOR_PROJECTION_MATCH_UNIT_FORCE;
+    if (control_panel_units_dimension_matches(unit, CONTROL_UNIT_DIM_ENERGY)) return EDITOR_PROJECTION_MATCH_UNIT_ENERGY;
+    if (control_panel_units_dimension_matches(unit, CONTROL_UNIT_DIM_DISTANCE)) return EDITOR_PROJECTION_MATCH_UNIT_DISTANCE;
+    if (control_panel_units_dimension_matches(unit, CONTROL_UNIT_DIM_MASS)) return EDITOR_PROJECTION_MATCH_UNIT_MASS;
+    return EDITOR_PROJECTION_MATCH_DEFAULT;
 }
 
 static uint64_t compute_projection_stamp(const OpenFile* file,
                                          const char* query,
-                                         const SymbolFilterOptions* options) {
+                                         const SymbolFilterOptions* options,
+                                         const ControlPanelProjectionOptions* controlOptions) {
     uint64_t stamp = file ? file->bufferVersion : 0;
     stamp ^= 0x9e3779b97f4a7c15ULL;
 
@@ -296,6 +324,16 @@ static uint64_t compute_projection_stamp(const OpenFile* file,
         stamp ^= 0x51ed270b4d31a6d3ULL;
     }
     analysis_symbols_store_unlock();
+
+    analysis_units_store_lock();
+    const AnalysisFileUnits* units = file ? find_units_for_path(file->filePath) : NULL;
+    if (units) {
+        stamp ^= units->stamp;
+        stamp ^= (uint64_t)units->count << 28;
+    } else {
+        stamp ^= 0x826bc293fa2f0d71ULL;
+    }
+    analysis_units_store_unlock();
 
     const unsigned char* p = (const unsigned char*)(query ? query : "");
     while (*p) {
@@ -312,8 +350,26 @@ static uint64_t compute_projection_stamp(const OpenFile* file,
         stamp ^= options->field_params ? (1ULL << 2) : 0;
         stamp ^= options->field_kind ? (1ULL << 3) : 0;
     }
+    bool symbolsTargetEnabled = controlOptions
+        ? controlOptions->target_symbols_enabled
+        : control_panel_target_symbols_enabled();
+    bool unitsTargetEnabled = controlOptions
+        ? controlOptions->target_units_enabled
+        : control_panel_target_units_enabled();
+    unsigned int unitDimensionMask = controlOptions
+        ? controlOptions->unit_dimension_mask
+        : control_panel_get_unit_dimension_mask();
+    stamp ^= symbolsTargetEnabled ? (1ULL << 52) : 0;
+    stamp ^= unitsTargetEnabled ? (1ULL << 53) : 0;
+    stamp ^= ((uint64_t)unitDimensionMask << 16);
     ControlFilterButtonId order[4] = {0};
-    control_panel_get_match_button_order(order);
+    if (controlOptions) {
+        for (int i = 0; i < 4; ++i) {
+            order[i] = controlOptions->match_button_order[i];
+        }
+    } else {
+        control_panel_get_match_button_order(order);
+    }
     for (int i = 0; i < 4; ++i) {
         stamp ^= ((uint64_t)order[i] << (uint64_t)(i * 8));
     }
@@ -323,8 +379,10 @@ static uint64_t compute_projection_stamp(const OpenFile* file,
 static bool build_symbol_projection(OpenFile* file,
                                     const char* query,
                                     const SymbolFilterOptions* options,
+                                    const ControlPanelProjectionOptions* controlOptions,
                                     ProjectionBuilder* out,
-                                    bool* lineMatched) {
+                                    bool* lineMatched,
+                                    int* lineMatchKinds) {
     if (!file || !file->buffer || !out) return false;
 
     analysis_symbols_store_lock();
@@ -335,10 +393,20 @@ static bool build_symbol_projection(OpenFile* file,
     }
 
     int lineCount = file->buffer->lineCount;
+    if (lineCount <= 0) {
+        analysis_symbols_store_unlock();
+        return false;
+    }
     bool addedAny = false;
 
     ControlFilterButtonId order[4] = {0};
-    control_panel_get_match_button_order(order);
+    if (controlOptions) {
+        for (int i = 0; i < 4; ++i) {
+            order[i] = controlOptions->match_button_order[i];
+        }
+    } else {
+        control_panel_get_match_button_order(order);
+    }
     for (int orderIndex = 0; orderIndex < 4; ++orderIndex) {
         ControlFilterButtonId groupId = order[orderIndex];
         for (size_t i = 0; i < symbols->count; ++i) {
@@ -380,7 +448,7 @@ static bool build_symbol_projection(OpenFile* file,
                     analysis_symbols_store_unlock();
                     return false;
                 }
-                mark_line(lineMatched, lineCount, line);
+                mark_line_kind(lineMatched, lineMatchKinds, lineCount, line, EDITOR_PROJECTION_MATCH_DEFAULT);
             }
 
             if (sym->kind == FISICS_SYMBOL_FUNCTION && rangeEnd < endLine) {
@@ -408,10 +476,61 @@ static bool build_symbol_projection(OpenFile* file,
     return addedAny;
 }
 
+static bool build_units_projection(OpenFile* file,
+                                   const char* query,
+                                   unsigned int unitDimensionMask,
+                                   ProjectionBuilder* out,
+                                   bool* lineMatched,
+                                   int* lineMatchKinds) {
+    if (!file || !file->buffer || !out) return false;
+
+    analysis_units_store_lock();
+    const AnalysisFileUnits* units = find_units_for_path(file->filePath);
+    if (!units || !units->attachments || units->count == 0) {
+        analysis_units_store_unlock();
+        return false;
+    }
+
+    int lineCount = file->buffer->lineCount;
+    if (lineCount <= 0) {
+        analysis_units_store_unlock();
+        return false;
+    }
+    bool addedAny = false;
+    for (size_t i = 0; i < units->count; ++i) {
+        const AnalysisUnitsAttachment* unit = &units->attachments[i];
+        if (!control_panel_units_query_matches(unit, query)) continue;
+        if (!control_panel_units_dimension_matches(unit, unitDimensionMask)) continue;
+
+        int realLine = unit->start_line > 0 ? unit->start_line - 1 : 0;
+        if (realLine < 0) realLine = 0;
+        if (realLine >= lineCount) realLine = lineCount - 1;
+        if (lineMatched && lineMatched[realLine]) continue;
+
+        int realCol = unit->start_col > 0 ? unit->start_col - 1 : 0;
+        if (realCol < 0) realCol = 0;
+        const char* srcLine = file->buffer->lines[realLine] ? file->buffer->lines[realLine] : "";
+        if (!builder_push(out, srcLine, realLine, realCol)) {
+            analysis_units_store_unlock();
+            return false;
+        }
+        mark_line_kind(lineMatched,
+                       lineMatchKinds,
+                       lineCount,
+                       realLine,
+                       projection_match_kind_for_units(unit));
+        addedAny = true;
+    }
+
+    analysis_units_store_unlock();
+    return addedAny;
+}
+
 static bool build_text_projection(OpenFile* file,
                                   const char* query,
                                   ProjectionBuilder* out,
-                                  bool* lineMatched) {
+                                  bool* lineMatched,
+                                  int* lineMatchKinds) {
     if (!file || !file->buffer || !query || !query[0] || !out) return false;
 
     bool addedAny = false;
@@ -421,19 +540,20 @@ static bool build_text_projection(OpenFile* file,
         if (lineMatched && lineMatched[line]) continue;
 
         if (!builder_push(out, src, line, 0)) return false;
-        mark_line(lineMatched, file->buffer->lineCount, line);
+        mark_line_kind(lineMatched, lineMatchKinds, file->buffer->lineCount, line, EDITOR_PROJECTION_MATCH_DEFAULT);
         addedAny = true;
     }
 
     return addedAny;
 }
 
-void editor_projection_rebuild(OpenFile* file,
-                               const char* query,
-                               const SymbolFilterOptions* options) {
+static void editor_projection_rebuild_internal(OpenFile* file,
+                                               const char* query,
+                                               const SymbolFilterOptions* options,
+                                               const ControlPanelProjectionOptions* controlOptions) {
     if (!file || !file->buffer) return;
 
-    uint64_t stamp = compute_projection_stamp(file, query, options);
+    uint64_t stamp = compute_projection_stamp(file, query, options, controlOptions);
     if (file->projection.buildStamp == stamp) return;
 
     editor_projection_free(&file->projection);
@@ -441,21 +561,50 @@ void editor_projection_rebuild(OpenFile* file,
     ProjectionBuilder builder = {0};
     int lineCount = file->buffer->lineCount;
     bool* lineMatched = NULL;
+    int* lineMatchKinds = NULL;
     if (lineCount > 0) {
         lineMatched = (bool*)calloc((size_t)lineCount, sizeof(bool));
-        if (!lineMatched) return;
+        lineMatchKinds = (int*)calloc((size_t)lineCount, sizeof(int));
+        if (!lineMatched || !lineMatchKinds) {
+            free(lineMatched);
+            free(lineMatchKinds);
+            return;
+        }
     }
 
     bool hasRows = false;
-    hasRows |= build_symbol_projection(file, query, options, &builder, lineMatched);
+    bool queryHasText = query && query[0];
+    bool symbolsTargetEnabled = controlOptions
+        ? controlOptions->target_symbols_enabled
+        : control_panel_target_symbols_enabled();
+    bool unitsTargetEnabled = controlOptions
+        ? controlOptions->target_units_enabled
+        : control_panel_target_units_enabled();
+    unsigned int unitDimensionMask = controlOptions
+        ? controlOptions->unit_dimension_mask
+        : control_panel_get_unit_dimension_mask();
+    if (symbolsTargetEnabled && queryHasText) {
+        hasRows |= build_symbol_projection(file,
+                                           query,
+                                           options,
+                                           controlOptions,
+                                           &builder,
+                                           lineMatched,
+                                           lineMatchKinds);
+    }
+    if (unitsTargetEnabled) {
+        hasRows |= build_units_projection(file, query, unitDimensionMask, &builder, lineMatched, lineMatchKinds);
+    }
     bool allowTextProjection = true;
     if (options && options->kind_mask != 0u) {
         allowTextProjection = false;
     } else if (options && options->mode != SYMBOL_FILTER_MODE_SYMBOLS) {
         allowTextProjection = false;
+    } else if (!queryHasText) {
+        allowTextProjection = false;
     }
     if (allowTextProjection) {
-        hasRows |= build_text_projection(file, query, &builder, lineMatched);
+        hasRows |= build_text_projection(file, query, &builder, lineMatched, lineMatchKinds);
     }
 
     if (!hasRows) {
@@ -463,6 +612,7 @@ void editor_projection_rebuild(OpenFile* file,
         snprintf(empty, sizeof(empty), "No matches for \"%s\"", (query && query[0]) ? query : "");
         if (!builder_push(&builder, empty, -1, -1)) {
             free(lineMatched);
+            free(lineMatchKinds);
             builder_free(&builder);
             return;
         }
@@ -473,6 +623,7 @@ void editor_projection_rebuild(OpenFile* file,
         snprintf(summary, sizeof(summary), "... +%d more projected rows", builder.droppedRows);
         if (!builder_push(&builder, summary, -1, -1)) {
             free(lineMatched);
+            free(lineMatchKinds);
             builder_free(&builder);
             return;
         }
@@ -486,25 +637,55 @@ void editor_projection_rebuild(OpenFile* file,
     }
 
     int* realMatchLines = NULL;
+    int* realMatchKinds = NULL;
     if (matchCount > 0) {
         realMatchLines = (int*)malloc(sizeof(int) * (size_t)matchCount);
-        if (!realMatchLines) {
+        realMatchKinds = (int*)malloc(sizeof(int) * (size_t)matchCount);
+        if (!realMatchLines || !realMatchKinds) {
+            free(realMatchLines);
+            free(realMatchKinds);
             free(lineMatched);
+            free(lineMatchKinds);
             builder_free(&builder);
             return;
         }
         int at = 0;
         for (int i = 0; i < lineCount; ++i) {
-            if (lineMatched[i]) realMatchLines[at++] = i;
+            if (lineMatched[i]) {
+                realMatchLines[at] = i;
+                realMatchKinds[at] = lineMatchKinds ? lineMatchKinds[i] : EDITOR_PROJECTION_MATCH_DEFAULT;
+                at++;
+            }
         }
     }
     free(lineMatched);
+    free(lineMatchKinds);
 
     file->projection.lines = builder.lines;
     file->projection.lineCount = builder.count;
     file->projection.projectedToRealLine = builder.realLines;
     file->projection.projectedToRealCol = builder.realCols;
     file->projection.realMatchLines = realMatchLines;
+    file->projection.realMatchKinds = realMatchKinds;
     file->projection.realMatchCount = matchCount;
     file->projection.buildStamp = stamp;
+}
+
+void editor_projection_rebuild(OpenFile* file,
+                               const char* query,
+                               const SymbolFilterOptions* options) {
+    editor_projection_rebuild_internal(file, query, options, NULL);
+}
+
+void editor_projection_rebuild_with_control_options(
+    OpenFile* file,
+    const ControlPanelProjectionOptions* controlOptions) {
+    if (!controlOptions) {
+        editor_projection_rebuild(file, NULL, NULL);
+        return;
+    }
+    editor_projection_rebuild_internal(file,
+                                       controlOptions->query,
+                                       &controlOptions->symbol_filter_options,
+                                       controlOptions);
 }

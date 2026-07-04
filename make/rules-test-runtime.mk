@@ -40,6 +40,33 @@ test-runtime-startup-defaults:
 	@$(RUNTIME_STARTUP_DEFAULTS_TEST_OUT) || (echo "runtime startup defaults test failed."; exit 1)
 	@echo "Runtime startup defaults test passed."
 
+.PHONY: test-startup-diagnostics
+test-startup-diagnostics:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling startup diagnostics test..."
+	@$(CC) $(CFLAGS) tests/startup_diagnostics_test.c src/app/GlobalInfo/startup_diagnostics.c -o $(STARTUP_DIAGNOSTICS_TEST_OUT) $(LIB_DIRS) || (echo "startup diagnostics test compile failed."; exit 1)
+	@echo "Running startup diagnostics test..."
+	@$(STARTUP_DIAGNOSTICS_TEST_OUT) || (echo "startup diagnostics test failed."; exit 1)
+	@echo "Startup diagnostics test passed."
+
+.PHONY: test-build-trust-notice
+test-build-trust-notice:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling build trust notice test..."
+	@$(CC) $(CFLAGS) tests/build_trust_notice_test.c src/core/BuildSystem/build_trust_notice.c -o $(TEST_BUILD_DIR)/build_trust_notice_test $(LIB_DIRS) || (echo "build trust notice test compile failed."; exit 1)
+	@echo "Running build trust notice test..."
+	@$(TEST_BUILD_DIR)/build_trust_notice_test || (echo "build trust notice test failed."; exit 1)
+	@echo "Build trust notice test passed."
+
+.PHONY: test-git-command-runner
+test-git-command-runner:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling Git command runner test..."
+	@$(CC) $(CFLAGS) tests/git_command_runner_test.c src/ide/Panes/ToolPanels/Git/git_command_runner.c -o $(TEST_BUILD_DIR)/git_command_runner_test $(LIB_DIRS) || (echo "Git command runner test compile failed."; exit 1)
+	@echo "Running Git command runner test..."
+	@$(TEST_BUILD_DIR)/git_command_runner_test || (echo "Git command runner test failed."; exit 1)
+	@echo "Git command runner test passed."
+
 .PHONY: test-workspace-startup-policy
 test-workspace-startup-policy:
 	@mkdir -p $(TEST_BUILD_DIR)
@@ -48,6 +75,15 @@ test-workspace-startup-policy:
 	@echo "Running workspace startup policy test..."
 	@$(WORKSPACE_STARTUP_POLICY_TEST_OUT) || (echo "workspace startup policy test failed."; exit 1)
 	@echo "Workspace startup policy test passed."
+
+.PHONY: test-workspace-context
+test-workspace-context:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling workspace context test..."
+	@$(CC) $(CFLAGS) tests/workspace_context_test.c src/app/GlobalInfo/workspace_context.c -o $(TEST_BUILD_DIR)/workspace_context_test $(LIB_DIRS) || (echo "workspace context test compile failed."; exit 1)
+	@echo "Running workspace context test..."
+	@$(TEST_BUILD_DIR)/workspace_context_test || (echo "workspace context test failed."; exit 1)
+	@echo "Workspace context test passed."
 
 .PHONY: test-terminal-grid-phase1
 test-terminal-grid-phase1:

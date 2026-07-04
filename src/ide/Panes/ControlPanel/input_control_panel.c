@@ -3,6 +3,7 @@
 #include "core/CommandBus/command_bus.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
 #include "ide/Panes/ControlPanel/control_panel_adapter.h"
+#include "ide/Panes/ControlPanel/control_panel_units_tree.h"
 #include "ide/Panes/ControlPanel/symbol_tree_adapter.h"
 #include "ide/Panes/panel_view_adapter.h"
 #include "ide/UI/editor_navigation.h"
@@ -46,15 +47,24 @@ static void control_panel_tree_activate(void* user_data) {
     ControlPanelTreeActivationState* state = (ControlPanelTreeActivationState*)user_data;
     if (!state || !state->node) return;
 
+    char unitFocusQuery[CONTROL_PANEL_PERSIST_QUERY_MAX];
+    bool focusUnitMarkers = control_panel_units_tree_node_focus_query(state->node,
+                                                                      unitFocusQuery,
+                                                                      sizeof(unitFocusQuery));
     const FisicsSymbol* sym = (const FisicsSymbol*)state->node->userData;
+    bool opened = false;
     if (sym && sym->file_path) {
-        (void)ui_open_path_at_location_in_best_editor_view(
+        opened = ui_open_path_at_location_in_best_editor_view(
             sym->file_path,
             sym->start_line,
             sym->start_col
         );
     } else if (state->node->fullPath && state->node->type != TREE_NODE_FOLDER) {
-        (void)ui_open_path_at_location_in_best_editor_view(state->node->fullPath, 0, 0);
+        opened = ui_open_path_at_location_in_best_editor_view(state->node->fullPath, 0, 0);
+    }
+
+    if (opened && focusUnitMarkers) {
+        (void)control_panel_focus_unit_marker_query(unitFocusQuery);
     }
 }
 

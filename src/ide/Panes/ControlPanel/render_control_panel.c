@@ -136,6 +136,57 @@ static void control_panel_format_status_lines(const AnalysisStatusSnapshot* snap
     control_panel_format_secondary_summary(snap, line2, line2_cap, true);
 }
 
+static const char* control_panel_startup_intent_label(AnalysisStartupRefreshIntent intent) {
+    switch (intent) {
+        case ANALYSIS_STARTUP_REFRESH_FULL_REQUIRED: return "full";
+        case ANALYSIS_STARTUP_REFRESH_INCREMENTAL_TARGETS: return "incremental";
+        case ANALYSIS_STARTUP_REFRESH_INCREMENTAL_VERIFY_NOOP: return "verify";
+        case ANALYSIS_STARTUP_REFRESH_UNKNOWN:
+        default: return "unknown";
+    }
+}
+
+static const char* control_panel_startup_reason_label(const char* reason) {
+    if (!reason || !reason[0]) return "pending";
+    if (strcmp(reason, "source_hashes_match_startup_verify_scheduled") == 0) return "hashes match";
+    if (strcmp(reason, "source_hash_changes_detected") == 0) return "source changed";
+    if (strcmp(reason, "required_cache_artifact_missing") == 0) return "cache incomplete";
+    if (strcmp(reason, "header_change_without_include_graph") == 0) return "header graph missing";
+    if (strcmp(reason, "source_index_missing_or_invalid") == 0) return "index missing";
+    if (strcmp(reason, "cache_meta_missing") == 0) return "meta missing";
+    if (strncmp(reason, "cache_meta_", 11) == 0) return "meta changed";
+    return reason;
+}
+
+static void control_panel_format_startup_audit_lines(const AnalysisStatusSnapshot* snap,
+                                                     char* line1,
+                                                     size_t line1_cap,
+                                                     char* line2,
+                                                     size_t line2_cap) {
+    if (line1 && line1_cap > 0) line1[0] = '\0';
+    if (line2 && line2_cap > 0) line2[0] = '\0';
+    if (!snap || !snap->has_startup_audit || !line1 || line1_cap == 0 ||
+        !line2 || line2_cap == 0) {
+        return;
+    }
+
+    const AnalysisStartupAudit* audit = &snap->startup_audit;
+    const char* trust = audit->cache_meta_trusted ? "trusted" : "rejected";
+    snprintf(line1,
+             line1_cap,
+             "Load: %s %zu/%zu checked",
+             trust,
+             audit->hash_matched_count,
+             audit->current_file_count);
+    snprintf(line2,
+             line2_cap,
+             "Plan: %s d:%zu r:%zu - %s",
+             control_panel_startup_intent_label(audit->refresh_intent),
+             audit->dirty_count,
+             audit->removed_count,
+             control_panel_startup_reason_label(audit->refresh_reason));
+}
+
 static int render_filter_group(SDL_Renderer* renderer,
                                int rowX,
                                int y,
@@ -226,10 +277,12 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
         }
     }
 
-    const int statusLineSlots = 2;
+    const int statusLineSlots = snap.has_startup_audit ? 4 : 2;
     int infoStartY = y + searchRowHeight + d.row_gap;
     char statusLine1[192] = {0};
     char statusLine2[256] = {0};
+    char loadLine1[192] = {0};
+    char loadLine2[256] = {0};
     control_panel_format_status_lines(&snap,
                                       progressCompleted,
                                       progressTotal,
@@ -237,11 +290,26 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
                                       sizeof(statusLine1),
                                       statusLine2,
                                       sizeof(statusLine2));
+    control_panel_format_startup_audit_lines(&snap,
+                                             loadLine1,
+                                             sizeof(loadLine1),
+                                             loadLine2,
+                                             sizeof(loadLine2));
     drawTextWithTierMuted(x, infoStartY, statusLine1, CORE_FONT_TEXT_SIZE_CAPTION);
     if (snap.last_error[0]) {
         drawTextWithTierError(x, infoStartY + d.info_line_gap, statusLine2, CORE_FONT_TEXT_SIZE_CAPTION);
     } else {
         drawTextWithTierMuted(x, infoStartY + d.info_line_gap, statusLine2, CORE_FONT_TEXT_SIZE_CAPTION);
+    }
+    if (snap.has_startup_audit) {
+        drawTextWithTierMuted(x,
+                              infoStartY + (2 * d.info_line_gap),
+                              loadLine1,
+                              CORE_FONT_TEXT_SIZE_CAPTION);
+        drawTextWithTierMuted(x,
+                              infoStartY + (3 * d.info_line_gap),
+                              loadLine2,
+                              CORE_FONT_TEXT_SIZE_CAPTION);
     }
 
     const int pauseW = 20;
@@ -327,6 +395,7 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     const int filterW = pane->w - (d.pad_left + d.pad_right);
     const FilterButtonSpec targetButtons[] = {
         { CONTROL_FILTER_BTN_TARGET_SYMBOLS, "Symbols" },
+        { CONTROL_FILTER_BTN_TARGET_UNITS, "Units" },
         { CONTROL_FILTER_BTN_TARGET_EDITOR, "Editor" }
     };
     const FilterButtonSpec scopeButtons[] = {
@@ -360,6 +429,15 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
         { CONTROL_FILTER_BTN_INLINE_ERRORS, "Inline Err" },
         { CONTROL_FILTER_BTN_MACROS, "Macros" }
     };
+    const FilterButtonSpec unitButtons[] = {
+        { CONTROL_FILTER_BTN_UNIT_TIME, "Time" },
+        { CONTROL_FILTER_BTN_UNIT_DISTANCE, "Dist" },
+        { CONTROL_FILTER_BTN_UNIT_SPEED, "Speed" },
+        { CONTROL_FILTER_BTN_UNIT_ACCEL, "Accel" },
+        { CONTROL_FILTER_BTN_UNIT_MASS, "Mass" },
+        { CONTROL_FILTER_BTN_UNIT_FORCE, "Force" },
+        { CONTROL_FILTER_BTN_UNIT_ENERGY, "Energy" }
+    };
 
     int gapX = 5;
     int targetCount = (int)(sizeof(targetButtons) / sizeof(targetButtons[0]));
@@ -367,12 +445,14 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     int matchCount = (int)(sizeof(matchButtons) / sizeof(matchButtons[0]));
     int editorViewCount = (int)(sizeof(editorViewButtons) / sizeof(editorViewButtons[0]));
     int parseCount = (int)(sizeof(parseButtons) / sizeof(parseButtons[0]));
+    int unitCount = (int)(sizeof(unitButtons) / sizeof(unitButtons[0]));
     const bool editorTargetEnabled = control_panel_target_editor_enabled();
     const bool showEditorViewRow = editorTargetEnabled;
+    const bool showUnitsRow = control_panel_target_units_enabled();
 
-    const FilterButtonSpec* groups[5];
-    const char* groupTitles[5];
-    int groupCounts[5];
+    const FilterButtonSpec* groups[6];
+    const char* groupTitles[6];
+    int groupCounts[6];
     int groupTotal = 0;
     int matchGroupIndex = -1;
 
@@ -403,6 +483,13 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     groupTitles[groupTotal] = "Parse";
     groupCounts[groupTotal] = parseCount;
     groupTotal++;
+
+    if (showUnitsRow) {
+        groups[groupTotal] = unitButtons;
+        groupTitles[groupTotal] = "Units";
+        groupCounts[groupTotal] = unitCount;
+        groupTotal++;
+    }
 
     if (!collapsed) {
         int titleColW = 0;
@@ -439,7 +526,7 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
         if (effectiveButtonsW > freezeButtonsW) effectiveButtonsW = freezeButtonsW;
         bool freezeActive = (buttonColumnAvailable > freezeButtonsW);
 
-        int rowButtonW[5] = {0};
+        int rowButtonW[6] = {0};
         for (int gi = 0; gi < groupTotal; ++gi) {
             int count = groupCounts[gi];
             if (count < 1) count = 1;

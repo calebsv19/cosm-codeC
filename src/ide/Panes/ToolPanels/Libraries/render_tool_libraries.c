@@ -5,8 +5,7 @@
 #include "engine/Render/render_text_helpers.h"
 #include "engine/Render/render_font.h"
 
-#include "core/Analysis/analysis_status.h"
-#include "core/Analysis/analysis_scheduler.h"
+#include "core/Analysis/analysis_refresh_view.h"
 #include "core/Analysis/include_graph.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
@@ -634,31 +633,10 @@ void renderLibrariesPanel(UIPane* pane) {
     (void)ui_panel_tagged_rect_list_add(controlHits, LIB_TOP_CONTROL_LOGS_TOGGLE, logsRect);
 
     // Status indicator in header area (not clipped)
-    AnalysisStatusSnapshot snap = {0};
-    AnalysisSchedulerSnapshot sched = {0};
-    int progressCompleted = 0;
-    int progressTotal = 0;
-    analysis_status_snapshot(&snap);
-    analysis_status_get_progress(&progressCompleted, &progressTotal);
-    analysis_scheduler_snapshot(&sched);
+    AnalysisRefreshViewSnapshot refreshView = {0};
+    analysis_refresh_view_capture(&refreshView);
     char statusBuf[128] = {0};
-    if (snap.updating) {
-        if (progressTotal > 0) {
-            snprintf(statusBuf, sizeof(statusBuf),
-                     sched.active_run_id ? "Updating %d/%d (#%llu)" : "Updating %d/%d",
-                     progressCompleted,
-                     progressTotal,
-                     (unsigned long long)sched.active_run_id);
-        } else {
-            snprintf(statusBuf, sizeof(statusBuf),
-                     sched.active_run_id ? "Updating (#%llu)..." : "Updating...",
-                     (unsigned long long)sched.active_run_id);
-        }
-    } else if (snap.last_error[0]) {
-        snprintf(statusBuf, sizeof(statusBuf), "Analysis error");
-    } else if (snap.has_cache) {
-        snprintf(statusBuf, sizeof(statusBuf), "(cached)");
-    }
+    analysis_refresh_view_format_status_text(&refreshView, statusBuf, sizeof(statusBuf));
     if (statusBuf[0]) {
         int tw = getTextWidth(statusBuf);
         int tx = pane->x + pane->w - tw - 16;

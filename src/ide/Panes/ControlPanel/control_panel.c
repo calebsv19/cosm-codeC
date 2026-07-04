@@ -5,7 +5,9 @@
 #include <string.h>
 
 #include "core/Analysis/analysis_symbols_store.h"
+#include "core/Analysis/analysis_units_store.h"
 #include "ide/Panes/ControlPanel/symbol_tree_adapter.h"
+#include "ide/Panes/ControlPanel/control_panel_units_tree.h"
 #include "ide/UI/Trees/tree_renderer.h"
 #include "ide/UI/Trees/tree_snapshot.h"
 #include "ide/UI/Trees/ui_tree_node.h"
@@ -30,6 +32,7 @@ static void control_panel_init_controller_state(ControlPanelControllerState* sta
     state->tree.visible_tree_dirty = true;
     state->ui.search_enabled = true;
     state->filters.target_symbols_enabled = true;
+    state->filters.target_units_enabled = false;
     state->filters.target_editor_enabled = true;
     state->filters.search_scope = CONTROL_SEARCH_SCOPE_ACTIVE_FILE;
     state->filters.match_all_enabled = true;
@@ -55,15 +58,20 @@ static void control_panel_destroy_controller_state(void* ptr) {
     if (!state) return;
 
     if (tree_select_all_visual_active_for(state->tree.visible_symbol_tree) ||
-        tree_select_all_visual_active_for(state->tree.base_symbol_tree)) {
+        tree_select_all_visual_active_for(state->tree.base_symbol_tree) ||
+        tree_select_all_visual_active_for(state->tree.base_units_tree)) {
         clearTreeSelectAllVisual();
     }
     if (state->tree.visible_symbol_tree &&
-        state->tree.visible_symbol_tree != state->tree.base_symbol_tree) {
+        state->tree.visible_symbol_tree != state->tree.base_symbol_tree &&
+        state->tree.visible_symbol_tree != state->tree.base_units_tree) {
         freeTreeNodeRecursive(state->tree.visible_symbol_tree);
     }
     if (state->tree.base_symbol_tree) {
         freeTreeNodeRecursive(state->tree.base_symbol_tree);
+    }
+    if (state->tree.base_units_tree) {
+        freeTreeNodeRecursive(state->tree.base_units_tree);
     }
     free(state->cache.cached_file_path);
     free(state);
@@ -137,6 +145,10 @@ static UITreeNode* control_panel_resolve_selected_live_node(void) {
     }
     if (baseSymbolTree != visibleSymbolTree &&
         control_panel_tree_contains_node_pointer(baseSymbolTree, selected)) {
+        return selected;
+    }
+    if (baseUnitsTree != visibleSymbolTree &&
+        control_panel_tree_contains_node_pointer(baseUnitsTree, selected)) {
         return selected;
     }
 
@@ -256,7 +268,9 @@ static bool is_allowed_root_dir(const char* name) {
 
 static void clear_visible_tree_only(void) {
     clearTreeSelectionState();
-    if (visibleSymbolTree && visibleSymbolTree != baseSymbolTree) {
+    if (visibleSymbolTree &&
+        visibleSymbolTree != baseSymbolTree &&
+        visibleSymbolTree != baseUnitsTree) {
         freeTreeNodeRecursive(visibleSymbolTree);
     }
     visibleSymbolTree = NULL;
@@ -272,6 +286,33 @@ static UITreeNode* build_empty_search_tree(const char* message) {
         return NULL;
     }
     addChildNode(root, line);
+    return root;
+}
+
+static UITreeNode* build_composite_control_tree(UITreeNode* symbolsTree,
+                                                bool symbolsTreeIsOwned,
+                                                UITreeNode* unitsTree,
+                                                bool unitsTreeIsOwned,
+                                                const char* emptyMessage) {
+    int childCount = (symbolsTree ? 1 : 0) + (unitsTree ? 1 : 0);
+    if (childCount == 0) {
+        return build_empty_search_tree(emptyMessage ? emptyMessage : "No matches");
+    }
+    if (childCount == 1) {
+        (void)symbolsTreeIsOwned;
+        (void)unitsTreeIsOwned;
+        return symbolsTree ? symbolsTree : unitsTree;
+    }
+
+    UITreeNode* root = createTreeNode("Control", TREE_NODE_SECTION, NODE_COLOR_SECTION, NULL, NULL);
+    if (!root) {
+        if (symbolsTreeIsOwned && symbolsTree) freeTreeNodeRecursive(symbolsTree);
+        if (unitsTreeIsOwned && unitsTree) freeTreeNodeRecursive(unitsTree);
+        return build_empty_search_tree(emptyMessage ? emptyMessage : "No matches");
+    }
+    root->isExpanded = true;
+    addChildNode(root, symbolsTree);
+    addChildNode(root, unitsTree);
     return root;
 }
 
@@ -314,6 +355,10 @@ static void free_cached_path(void) {
 
 static uint64_t compute_store_stamp(void) {
     return analysis_symbols_store_combined_stamp();
+}
+
+static uint64_t compute_units_store_stamp(void) {
+    return analysis_units_store_combined_stamp();
 }
 
 void control_panel_note_symbol_store_updated(const char* project_root,
@@ -362,8 +407,8 @@ static void control_panel_rebuild_visible_tree_if_needed(void) {
 
     UITreeNode* candidateTree = NULL;
     bool candidateIsBase = false;
-    if (!targetSymbolsEnabled) {
-        candidateTree = build_empty_search_tree("Symbols target disabled");
+    if (!targetSymbolsEnabled && !targetUnitsEnabled) {
+        candidateTree = build_empty_search_tree("No control targets enabled");
     } else {
         SymbolFilterMode symbolMode = SYMBOL_FILTER_MODE_SYMBOLS;
         SymbolFilterScope symbolScope = (searchScope == CONTROL_SEARCH_SCOPE_PROJECT_FILES)
@@ -380,20 +425,42 @@ static void control_panel_rebuild_visible_tree_if_needed(void) {
             .field_kind = (filterFields & CONTROL_FIELD_KIND) != 0
         };
 
-        if (!baseSymbolTree) {
-            candidateTree = build_empty_search_tree("No symbols");
-        } else {
-            const char* effectiveQuery = searchEnabled ? searchQuery : "";
-            bool defaultFilters = control_panel_filters_are_default();
-            if (!effectiveQuery[0] && defaultFilters) {
-                candidateTree = baseSymbolTree;
-                candidateIsBase = true;
+        const char* effectiveQuery = searchEnabled ? searchQuery : "";
+        bool defaultFilters = control_panel_filters_are_default();
+        UITreeNode* symbolCandidate = NULL;
+        bool symbolCandidateIsBase = false;
+        UITreeNode* unitsCandidate = NULL;
+        bool unitsCandidateIsBase = false;
+
+        if (targetSymbolsEnabled && baseSymbolTree) {
+            if (!targetUnitsEnabled && !effectiveQuery[0] && defaultFilters) {
+                symbolCandidate = baseSymbolTree;
+                symbolCandidateIsBase = true;
             } else {
-                candidateTree = symbol_tree_clone_filtered(baseSymbolTree, effectiveQuery, &options);
-                if (!candidateTree) {
-                    candidateTree = build_empty_search_tree("No matches");
-                }
+                symbolCandidate = symbol_tree_clone_filtered(baseSymbolTree, effectiveQuery, &options);
             }
+        }
+
+        if (targetUnitsEnabled && baseUnitsTree) {
+            if (!targetSymbolsEnabled && !effectiveQuery[0] && defaultFilters) {
+                unitsCandidate = baseUnitsTree;
+                unitsCandidateIsBase = true;
+            } else {
+                unitsCandidate = control_panel_clone_units_tree_filtered(baseUnitsTree,
+                                                                         effectiveQuery,
+                                                                         symbolScope,
+                                                                         unitDimensionMask);
+            }
+        }
+
+        candidateTree = build_composite_control_tree(symbolCandidate,
+                                                     !symbolCandidateIsBase,
+                                                     unitsCandidate,
+                                                     !unitsCandidateIsBase,
+                                                     "No matches");
+        candidateIsBase = (candidateTree == baseSymbolTree || candidateTree == baseUnitsTree);
+        if (!candidateTree) {
+            candidateTree = build_empty_search_tree("No matches");
         }
     }
 
@@ -401,6 +468,7 @@ static void control_panel_rebuild_visible_tree_if_needed(void) {
     if (!candidateIsBase &&
         currentVisible &&
         currentVisible != baseSymbolTree &&
+        currentVisible != baseUnitsTree &&
         candidateTree &&
         candidateTree != currentVisible &&
         control_panel_tree_nodes_equivalent(currentVisible, candidateTree)) {
@@ -412,6 +480,7 @@ static void control_panel_rebuild_visible_tree_if_needed(void) {
     if (!keptCurrentVisible) {
         if (currentVisible &&
             currentVisible != baseSymbolTree &&
+            currentVisible != baseUnitsTree &&
             currentVisible != candidateTree) {
             freeTreeNodeRecursive(currentVisible);
         }
@@ -459,6 +528,10 @@ void control_panel_reset_symbol_tree(void) {
         freeTreeNodeRecursive(baseSymbolTree);
         baseSymbolTree = NULL;
     }
+    if (baseUnitsTree) {
+        freeTreeNodeRecursive(baseUnitsTree);
+        baseUnitsTree = NULL;
+    }
     searchQuery[0] = '\0';
     searchCursor = 0;
     searchFocused = false;
@@ -471,6 +544,8 @@ void control_panel_reset_symbol_tree(void) {
     control_reset_match_button_order();
     selectedMatchButton = CONTROL_FILTER_BTN_NONE;
     cachedStamp = 0;
+    cachedUnitsStamp = 0;
+    unitDimensionMask = 0u;
     pendingSymbolsStamp = 0;
     pendingSymbolsUpdate = false;
     cachedShowAutoParams = showAutoParamNames;
@@ -541,6 +616,7 @@ void control_panel_refresh_symbol_tree(const DirEntry* projectRoot,
         stamp = compute_store_stamp();
         hasSymbolsUpdate = true;
     }
+    uint64_t unitsStamp = compute_units_store_stamp();
     bool projectRootChanged = (projectRoot != cachedProjectRoot);
     size_t projectFileCount = cachedProjectFileCount;
     if (hasSymbolsUpdate || projectRootChanged || !cachedProjectFileCountValid) {
@@ -550,6 +626,7 @@ void control_panel_refresh_symbol_tree(const DirEntry* projectRoot,
                        (filePath && (!cachedFilePath || strcmp(filePath, cachedFilePath) != 0));
     bool analysisChanged = hasSymbolsUpdate ||
                            (stamp != cachedStamp) ||
+                           (unitsStamp != cachedUnitsStamp) ||
                            (cachedShowAutoParams != showAutoParamNames) ||
                            (cachedShowMacros != showMacros) ||
                            (projectFileCount != cachedProjectFileCount) ||
@@ -568,22 +645,35 @@ void control_panel_refresh_symbol_tree(const DirEntry* projectRoot,
     clearTreeSelectAllVisual();
     UITreeNode* oldBaseTree = baseSymbolTree;
     UITreeNode* rebuiltBaseTree = buildSymbolTreeForWorkspace(projectRoot, filePath, showAutoParamNames, showMacros);
+    UITreeNode* oldUnitsTree = baseUnitsTree;
+    UITreeNode* rebuiltUnitsTree = control_panel_build_units_tree(projectRoot, filePath);
     if (control_panel_tree_nodes_equivalent(oldBaseTree, rebuiltBaseTree)) {
         if (rebuiltBaseTree && rebuiltBaseTree != oldBaseTree) {
             freeTreeNodeRecursive(rebuiltBaseTree);
         }
         rebuiltBaseTree = oldBaseTree;
     }
+    if (control_panel_tree_nodes_equivalent(oldUnitsTree, rebuiltUnitsTree)) {
+        if (rebuiltUnitsTree && rebuiltUnitsTree != oldUnitsTree) {
+            freeTreeNodeRecursive(rebuiltUnitsTree);
+        }
+        rebuiltUnitsTree = oldUnitsTree;
+    }
 
-    if (rebuiltBaseTree != oldBaseTree) {
+    if (rebuiltBaseTree != oldBaseTree || rebuiltUnitsTree != oldUnitsTree) {
         clear_visible_tree_only();
         baseSymbolTree = rebuiltBaseTree;
-        if (oldBaseTree) {
+        baseUnitsTree = rebuiltUnitsTree;
+        if (oldBaseTree && oldBaseTree != rebuiltBaseTree) {
             freeTreeNodeRecursive(oldBaseTree);
+        }
+        if (oldUnitsTree && oldUnitsTree != rebuiltUnitsTree) {
+            freeTreeNodeRecursive(oldUnitsTree);
         }
         control_panel_mark_visible_tree_dirty();
     }
     cachedStamp = stamp;
+    cachedUnitsStamp = unitsStamp;
     pendingSymbolsUpdate = false;
     cachedShowAutoParams = showAutoParamNames;
     cachedShowMacros = showMacros;
@@ -597,7 +687,7 @@ void control_panel_refresh_symbol_tree(const DirEntry* projectRoot,
     if (fileChanged && symbolScrollInit) {
         reset_symbol_scroll_to_top();
     }
-    if (rebuiltBaseTree == oldBaseTree) {
+    if (rebuiltBaseTree == oldBaseTree && rebuiltUnitsTree == oldUnitsTree) {
         pendingSelectionSnapshot.valid = false;
         pendingSelectAllRestore = false;
     }
@@ -672,6 +762,7 @@ ControlFilterButtonId control_panel_hit_filter_button(int x, int y) {
 bool control_panel_is_filter_button_active(ControlFilterButtonId id) {
     switch (id) {
         case CONTROL_FILTER_BTN_TARGET_SYMBOLS: return targetSymbolsEnabled;
+        case CONTROL_FILTER_BTN_TARGET_UNITS: return targetUnitsEnabled;
         case CONTROL_FILTER_BTN_TARGET_EDITOR: return targetEditorEnabled;
 
         case CONTROL_FILTER_BTN_SCOPE_ACTIVE: return searchScope == CONTROL_SEARCH_SCOPE_ACTIVE_FILE;
@@ -692,7 +783,27 @@ bool control_panel_is_filter_button_active(ControlFilterButtonId id) {
         case CONTROL_FILTER_BTN_LIVE_PARSE: return isLiveParseEnabled();
         case CONTROL_FILTER_BTN_INLINE_ERRORS: return isShowInlineErrorsEnabled();
         case CONTROL_FILTER_BTN_MACROS: return isShowMacrosEnabled();
+        case CONTROL_FILTER_BTN_UNIT_TIME: return (unitDimensionMask & CONTROL_UNIT_DIM_TIME) != 0u;
+        case CONTROL_FILTER_BTN_UNIT_DISTANCE: return (unitDimensionMask & CONTROL_UNIT_DIM_DISTANCE) != 0u;
+        case CONTROL_FILTER_BTN_UNIT_SPEED: return (unitDimensionMask & CONTROL_UNIT_DIM_SPEED) != 0u;
+        case CONTROL_FILTER_BTN_UNIT_ACCEL: return (unitDimensionMask & CONTROL_UNIT_DIM_ACCEL) != 0u;
+        case CONTROL_FILTER_BTN_UNIT_MASS: return (unitDimensionMask & CONTROL_UNIT_DIM_MASS) != 0u;
+        case CONTROL_FILTER_BTN_UNIT_FORCE: return (unitDimensionMask & CONTROL_UNIT_DIM_FORCE) != 0u;
+        case CONTROL_FILTER_BTN_UNIT_ENERGY: return (unitDimensionMask & CONTROL_UNIT_DIM_ENERGY) != 0u;
         default: return false;
+    }
+}
+
+static unsigned int unit_dimension_bit_for_button(ControlFilterButtonId id) {
+    switch (id) {
+        case CONTROL_FILTER_BTN_UNIT_TIME: return CONTROL_UNIT_DIM_TIME;
+        case CONTROL_FILTER_BTN_UNIT_DISTANCE: return CONTROL_UNIT_DIM_DISTANCE;
+        case CONTROL_FILTER_BTN_UNIT_SPEED: return CONTROL_UNIT_DIM_SPEED;
+        case CONTROL_FILTER_BTN_UNIT_ACCEL: return CONTROL_UNIT_DIM_ACCEL;
+        case CONTROL_FILTER_BTN_UNIT_MASS: return CONTROL_UNIT_DIM_MASS;
+        case CONTROL_FILTER_BTN_UNIT_FORCE: return CONTROL_UNIT_DIM_FORCE;
+        case CONTROL_FILTER_BTN_UNIT_ENERGY: return CONTROL_UNIT_DIM_ENERGY;
+        default: return 0u;
     }
 }
 
@@ -701,6 +812,10 @@ void control_panel_activate_filter_button(ControlFilterButtonId id) {
     switch (id) {
         case CONTROL_FILTER_BTN_TARGET_SYMBOLS:
             targetSymbolsEnabled = !targetSymbolsEnabled;
+            changed = true;
+            break;
+        case CONTROL_FILTER_BTN_TARGET_UNITS:
+            targetUnitsEnabled = !targetUnitsEnabled;
             changed = true;
             break;
         case CONTROL_FILTER_BTN_TARGET_EDITOR:
@@ -752,6 +867,20 @@ void control_panel_activate_filter_button(ControlFilterButtonId id) {
         case CONTROL_FILTER_BTN_LIVE_PARSE: toggleLiveParse(); changed = true; break;
         case CONTROL_FILTER_BTN_INLINE_ERRORS: toggleShowInlineErrors(); changed = true; break;
         case CONTROL_FILTER_BTN_MACROS: toggleShowMacros(); changed = true; break;
+        case CONTROL_FILTER_BTN_UNIT_TIME:
+        case CONTROL_FILTER_BTN_UNIT_DISTANCE:
+        case CONTROL_FILTER_BTN_UNIT_SPEED:
+        case CONTROL_FILTER_BTN_UNIT_ACCEL:
+        case CONTROL_FILTER_BTN_UNIT_MASS:
+        case CONTROL_FILTER_BTN_UNIT_FORCE:
+        case CONTROL_FILTER_BTN_UNIT_ENERGY: {
+            unsigned int bit = unit_dimension_bit_for_button(id);
+            if (bit != 0u) {
+                unitDimensionMask ^= bit;
+                changed = true;
+            }
+            break;
+        }
         default: break;
     }
     if (changed) {

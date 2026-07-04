@@ -31,9 +31,11 @@ void reset_symbol_scroll_to_top(void) {
 
 bool control_panel_filters_are_default(void) {
     return targetSymbolsEnabled &&
+           !targetUnitsEnabled &&
            targetEditorEnabled &&
            (searchScope == CONTROL_SEARCH_SCOPE_ACTIVE_FILE) &&
            matchAllEnabled &&
+           unitDimensionMask == 0u &&
            (editorViewMode == CONTROL_EDITOR_VIEW_PROJECTION) &&
            (filterFields == (CONTROL_FIELD_NAME | CONTROL_FIELD_TYPE |
                              CONTROL_FIELD_PARAMS | CONTROL_FIELD_KIND));
@@ -106,6 +108,33 @@ void control_panel_set_search_enabled(bool enabled) {
     editor_sync_active_file_projection_mode();
 }
 
+bool control_panel_set_search_query_text(const char* text) {
+    snprintf(searchQuery, sizeof(searchQuery), "%s", text ? text : "");
+    searchCursor = (int)strlen(searchQuery);
+    if (searchCursor < 0) searchCursor = 0;
+    if (searchCursor >= CONTROL_PANEL_SEARCH_MAX) {
+        searchCursor = CONTROL_PANEL_SEARCH_MAX - 1;
+    }
+    control_panel_after_search_text_edit();
+    return true;
+}
+
+bool control_panel_focus_unit_marker_query(const char* unitSymbolQuery) {
+    if (!unitSymbolQuery || !unitSymbolQuery[0]) return false;
+
+    ControlSearchScope previousScope = searchScope;
+    searchEnabled = true;
+    targetUnitsEnabled = true;
+    targetSymbolsEnabled = false;
+    targetEditorEnabled = true;
+    searchScope = previousScope;
+    editorViewMode = CONTROL_EDITOR_VIEW_MARKERS;
+    unitDimensionMask = 0u;
+    searchFocused = false;
+
+    return control_panel_set_search_query_text(unitSymbolQuery);
+}
+
 void control_panel_toggle_search_enabled(void) {
     control_panel_set_search_enabled(!searchEnabled);
 }
@@ -135,6 +164,7 @@ void control_panel_capture_persist_state(ControlPanelPersistState* outState) {
     outState->filters_collapsed = filtersCollapsed;
 
     outState->target_symbols_enabled = targetSymbolsEnabled;
+    outState->target_units_enabled = targetUnitsEnabled;
     outState->target_editor_enabled = targetEditorEnabled;
     outState->search_scope = searchScope;
 
@@ -153,6 +183,7 @@ void control_panel_capture_persist_state(ControlPanelPersistState* outState) {
     outState->field_type = (filterFields & CONTROL_FIELD_TYPE) != 0;
     outState->field_params = (filterFields & CONTROL_FIELD_PARAMS) != 0;
     outState->field_kind = (filterFields & CONTROL_FIELD_KIND) != 0;
+    outState->unit_dimension_mask = unitDimensionMask;
 
     outState->live_parse_enabled = liveParseEnabled;
     outState->inline_errors_enabled = showInlineErrors;
@@ -173,6 +204,7 @@ void control_panel_apply_persist_state(const ControlPanelPersistState* state) {
 
     filtersCollapsed = state->filters_collapsed;
     targetSymbolsEnabled = state->target_symbols_enabled;
+    targetUnitsEnabled = state->target_units_enabled;
     targetEditorEnabled = state->target_editor_enabled;
     searchScope = state->search_scope;
     if (searchScope != CONTROL_SEARCH_SCOPE_ACTIVE_FILE &&
@@ -237,6 +269,7 @@ void control_panel_apply_persist_state(const ControlPanelPersistState* state) {
     if (filterFields == 0u) {
         filterFields = CONTROL_FIELD_NAME;
     }
+    unitDimensionMask = state->unit_dimension_mask;
 
     liveParseEnabled = state->live_parse_enabled;
     showInlineErrors = state->inline_errors_enabled;
@@ -330,12 +363,44 @@ void control_panel_get_search_filter_options(SymbolFilterOptions* outOptions) {
     outOptions->field_kind = (filterFields & CONTROL_FIELD_KIND) != 0;
 }
 
+void control_panel_capture_projection_options(ControlPanelProjectionOptions* outOptions) {
+    if (!outOptions) return;
+    memset(outOptions, 0, sizeof(*outOptions));
+    outOptions->query = searchQuery;
+    outOptions->search_enabled = searchEnabled;
+    outOptions->query_has_text = searchQuery[0] != '\0';
+    outOptions->live_parse_enabled = liveParseEnabled;
+    outOptions->inline_errors_enabled = showInlineErrors;
+    outOptions->macros_enabled = showMacros;
+    outOptions->target_symbols_enabled = targetSymbolsEnabled;
+    outOptions->target_units_enabled = targetUnitsEnabled;
+    outOptions->target_editor_enabled = targetEditorEnabled;
+    outOptions->search_scope = searchScope;
+    outOptions->scope_project_files = searchScope == CONTROL_SEARCH_SCOPE_PROJECT_FILES;
+    outOptions->editor_view_mode = editorViewMode;
+    outOptions->projection_render_enabled = editorViewMode == CONTROL_EDITOR_VIEW_PROJECTION;
+    outOptions->marker_render_enabled = editorViewMode == CONTROL_EDITOR_VIEW_MARKERS;
+    outOptions->unit_dimension_mask = unitDimensionMask;
+    outOptions->query_active = searchEnabled &&
+                               (outOptions->query_has_text || targetUnitsEnabled);
+    control_panel_get_search_filter_options(&outOptions->symbol_filter_options);
+    control_panel_get_match_button_order(outOptions->match_button_order);
+}
+
 bool control_panel_target_symbols_enabled(void) {
     return targetSymbolsEnabled;
 }
 
+bool control_panel_target_units_enabled(void) {
+    return targetUnitsEnabled;
+}
+
 bool control_panel_target_editor_enabled(void) {
     return targetEditorEnabled;
+}
+
+unsigned int control_panel_get_unit_dimension_mask(void) {
+    return unitDimensionMask;
 }
 
 ControlSearchScope control_panel_get_search_scope(void) {
@@ -362,8 +427,23 @@ void control_panel_set_target_symbols_enabled(bool enabled) {
     editor_sync_active_file_projection_mode();
 }
 
+void control_panel_set_target_units_enabled(bool enabled) {
+    targetUnitsEnabled = enabled;
+    control_panel_refresh_visible_symbol_tree();
+    reset_symbol_scroll_to_top();
+    editor_sync_active_file_projection_mode();
+}
+
 void control_panel_set_target_editor_enabled(bool enabled) {
     targetEditorEnabled = enabled;
+    editor_sync_active_file_projection_mode();
+}
+
+void control_panel_set_unit_dimension_mask(unsigned int mask) {
+    if (unitDimensionMask == mask) return;
+    unitDimensionMask = mask;
+    control_panel_refresh_visible_symbol_tree();
+    reset_symbol_scroll_to_top();
     editor_sync_active_file_projection_mode();
 }
 
