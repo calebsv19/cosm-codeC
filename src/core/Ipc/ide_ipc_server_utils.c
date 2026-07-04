@@ -15,6 +15,10 @@
 
 #define IDE_IPC_APP_DIR "caleb_ide"
 #define IDE_IPC_MAX_PATCH_FILES 128
+#define IDE_IPC_MAX_EDIT_DIFF_BYTES (128 * 1024)
+#define IDE_IPC_MAX_EDIT_HUNKS 512
+#define IDE_IPC_MAX_EDIT_HUNK_LINES 8192
+#define IDE_IPC_MAX_EDIT_LINE_BYTES 8192
 
 static long long now_ms(void) {
     struct timeval tv;
@@ -241,6 +245,173 @@ bool ide_ipc_verify_edit_hashes(const char* project_root,
             str_copy(error_out, error_cap, msg);
             return false;
         }
+    }
+
+    return true;
+}
+
+static void set_policy_error(char* error_out,
+                             size_t error_cap,
+                             char* details_out,
+                             size_t details_cap,
+                             const char* message,
+                             const char* details) {
+    str_copy(error_out, error_cap, message ? message : "Edit policy violation");
+    str_copy(details_out, details_cap, details ? details : "");
+}
+
+bool ide_ipc_validate_edit_policy(const char* diff_text,
+                                  bool check_hash,
+                                  char* error_out,
+                                  size_t error_cap,
+                                  char* details_out,
+                                  size_t details_cap) {
+    if (!diff_text || !*diff_text) {
+        set_policy_error(error_out,
+                         error_cap,
+                         details_out,
+                         details_cap,
+                         "Edit diff is empty",
+                         "reason=empty_diff");
+        return false;
+    }
+
+    size_t diff_bytes = strlen(diff_text);
+    if (diff_bytes > IDE_IPC_MAX_EDIT_DIFF_BYTES) {
+        char details[128];
+        snprintf(details,
+                 sizeof(details),
+                 "reason=diff_too_large max_bytes=%d actual_bytes=%zu",
+                 IDE_IPC_MAX_EDIT_DIFF_BYTES,
+                 diff_bytes);
+        set_policy_error(error_out,
+                         error_cap,
+                         details_out,
+                         details_cap,
+                         "Edit diff exceeds IPC policy byte limit",
+                         details);
+        return false;
+    }
+
+    size_t file_count = 0;
+    size_t hunk_count = 0;
+    size_t hunk_line_count = 0;
+    bool in_hunk = false;
+    const char* line = diff_text;
+    while (line && *line) {
+        const char* nl = strchr(line, '\n');
+        size_t line_len = nl ? (size_t)(nl - line) : strlen(line);
+        if (line_len > IDE_IPC_MAX_EDIT_LINE_BYTES) {
+            char details[128];
+            snprintf(details,
+                     sizeof(details),
+                     "reason=line_too_long max_bytes=%d actual_bytes=%zu",
+                     IDE_IPC_MAX_EDIT_LINE_BYTES,
+                     line_len);
+            set_policy_error(error_out,
+                             error_cap,
+                             details_out,
+                             details_cap,
+                             "Edit diff line exceeds IPC policy byte limit",
+                             details);
+            return false;
+        }
+
+        if (line_len >= 4 && strncmp(line, "+++ ", 4) == 0) {
+            const char* p = line + 4;
+            while (*p == ' ' || *p == '\t') p++;
+            if (strncmp(p, "/dev/null", 9) != 0) {
+                file_count++;
+                if (file_count > IDE_IPC_MAX_PATCH_FILES) {
+                    char details[128];
+                    snprintf(details,
+                             sizeof(details),
+                             "reason=too_many_files max_files=%d actual_files=%zu",
+                             IDE_IPC_MAX_PATCH_FILES,
+                             file_count);
+                    set_policy_error(error_out,
+                                     error_cap,
+                                     details_out,
+                                     details_cap,
+                                     "Edit diff touches too many files",
+                                     details);
+                    return false;
+                }
+            }
+            in_hunk = false;
+        } else if (line_len >= 3 && strncmp(line, "@@ ", 3) == 0) {
+            hunk_count++;
+            in_hunk = true;
+            if (hunk_count > IDE_IPC_MAX_EDIT_HUNKS) {
+                char details[128];
+                snprintf(details,
+                         sizeof(details),
+                         "reason=too_many_hunks max_hunks=%d actual_hunks=%zu",
+                         IDE_IPC_MAX_EDIT_HUNKS,
+                         hunk_count);
+                set_policy_error(error_out,
+                                 error_cap,
+                                 details_out,
+                                 details_cap,
+                                 "Edit diff contains too many hunks",
+                                 details);
+                return false;
+            }
+        } else if (in_hunk && line_len > 0 &&
+                   (line[0] == ' ' || line[0] == '+' || line[0] == '-')) {
+            hunk_line_count++;
+            if (hunk_line_count > IDE_IPC_MAX_EDIT_HUNK_LINES) {
+                char details[128];
+                snprintf(details,
+                         sizeof(details),
+                         "reason=too_many_hunk_lines max_hunk_lines=%d actual_hunk_lines=%zu",
+                         IDE_IPC_MAX_EDIT_HUNK_LINES,
+                         hunk_line_count);
+                set_policy_error(error_out,
+                                 error_cap,
+                                 details_out,
+                                 details_cap,
+                                 "Edit diff contains too many hunk lines",
+                                 details);
+                return false;
+            }
+        } else if (line_len > 0 && strncmp(line, "\\ No newline at end of file", line_len) != 0) {
+            in_hunk = false;
+        }
+
+        if (!nl) break;
+        line = nl + 1;
+    }
+
+    if (file_count == 0 || hunk_count == 0) {
+        char details[128];
+        snprintf(details,
+                 sizeof(details),
+                 "reason=malformed_unified_diff files=%zu hunks=%zu",
+                 file_count,
+                 hunk_count);
+        set_policy_error(error_out,
+                         error_cap,
+                         details_out,
+                         details_cap,
+                         "Edit diff must be a unified diff with at least one file and hunk",
+                         details);
+        return false;
+    }
+
+    if (!check_hash && file_count != 1) {
+        char details[128];
+        snprintf(details,
+                 sizeof(details),
+                 "reason=unchecked_multi_file max_unchecked_files=1 actual_files=%zu",
+                 file_count);
+        set_policy_error(error_out,
+                         error_cap,
+                         details_out,
+                         details_cap,
+                         "Unchecked edit requests are limited to one file",
+                         details);
+        return false;
     }
 
     return true;

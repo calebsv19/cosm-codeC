@@ -14,6 +14,11 @@ Current security posture:
 - mutating commands require the per-session auth token
 - supported platforms verify same-UID peer credentials on the Unix socket
 - patch application is confined to existing files under the active workspace
+- edit requests are policy-checked before dispatch: unified diffs have bounded
+  byte, file, hunk, hunk-line, and line-length budgets; malformed non-unified
+  diffs fail with `edit_policy_violation`; `check_hash=false` is accepted only
+  for explicit single-file edit requests and successful responses report
+  `hash_policy=unchecked_single_file`
 - build execution now uses non-shell command handling rather than raw shell strings
 
 Contract lane note:

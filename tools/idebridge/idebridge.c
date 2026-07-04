@@ -13,6 +13,8 @@
 
 #include "core/Diagnostics/diagnostics_pack_export.h"
 #include "core/Diagnostics/diagnostics_core_data_export.h"
+#include "idebridge_error_format.h"
+#include "idebridge_file_utils.h"
 
 #define IDEBRIDGE_PROTO 1
 
@@ -213,7 +215,11 @@ static int send_request(const char* cmd,
                         json_object** response_obj_out) {
     const char* socket_path = resolve_socket_path(opts);
     if (!socket_path || !*socket_path) {
-        fprintf(stderr, "idebridge: no IDE session detected (use --socket or set MYIDE_SOCKET)\n");
+        idebridge_print_cli_error(stderr,
+                                  "connect",
+                                  "no_session",
+                                  "No IDE session detected",
+                                  "use --socket or set MYIDE_SOCKET");
         return IDEBRIDGE_EXIT_CONNECT;
     }
 
@@ -222,10 +228,18 @@ static int send_request(const char* cmd,
     int fd = connect_socket(socket_path, timeout_ms, &connect_timed_out);
     if (fd < 0) {
         if (connect_timed_out) {
-            fprintf(stderr, "idebridge: timed out connecting to IDE socket: %s\n", socket_path);
+            idebridge_print_cli_error(stderr,
+                                      "connect",
+                                      "timeout",
+                                      "Timed out connecting to IDE socket",
+                                      socket_path);
             return IDEBRIDGE_EXIT_TIMEOUT;
         }
-        fprintf(stderr, "idebridge: failed to connect to IDE socket: %s\n", socket_path);
+        idebridge_print_cli_error(stderr,
+                                  "connect",
+                                  "connect_failed",
+                                  "Failed to connect to IDE socket",
+                                  socket_path);
         return IDEBRIDGE_EXIT_CONNECT;
     }
 
@@ -255,7 +269,11 @@ static int send_request(const char* cmd,
 
     if (!send_ok) {
         close(fd);
-        fprintf(stderr, "idebridge: failed to write request (socket closed or timeout)\n");
+        idebridge_print_cli_error(stderr,
+                                  "request",
+                                  "write_failed",
+                                  "Failed to write request",
+                                  "socket closed or timeout");
         return IDEBRIDGE_EXIT_TIMEOUT;
     }
 
@@ -265,17 +283,29 @@ static int send_request(const char* cmd,
     if (!resp_text || !*resp_text) {
         free(resp_text);
         if (read_timed_out) {
-            fprintf(stderr, "idebridge: timed out waiting for IDE response\n");
+            idebridge_print_cli_error(stderr,
+                                      "response",
+                                      "timeout",
+                                      "Timed out waiting for IDE response",
+                                      NULL);
             return IDEBRIDGE_EXIT_TIMEOUT;
         }
-        fprintf(stderr, "idebridge: empty response from IDE\n");
+        idebridge_print_cli_error(stderr,
+                                  "response",
+                                  "empty_response",
+                                  "Empty response from IDE",
+                                  NULL);
         return IDEBRIDGE_EXIT_PROTOCOL;
     }
 
     if (opts && opts->spill_file && opts->spill_file[0]) {
         if (!write_text_file(opts->spill_file, resp_text)) {
             free(resp_text);
-            fprintf(stderr, "idebridge: failed to write spill file: %s\n", opts->spill_file);
+            idebridge_print_cli_error(stderr,
+                                      "response",
+                                      "spill_write_failed",
+                                      "Failed to write spill file",
+                                      opts->spill_file);
             return IDEBRIDGE_EXIT_PROTOCOL;
         }
     }
@@ -284,7 +314,11 @@ static int send_request(const char* cmd,
     if (!root || !json_object_is_type(root, json_type_object)) {
         if (root) json_object_put(root);
         free(resp_text);
-        fprintf(stderr, "idebridge: invalid response JSON\n");
+        idebridge_print_cli_error(stderr,
+                                  "response",
+                                  "invalid_json",
+                                  "Invalid response JSON",
+                                  NULL);
         return IDEBRIDGE_EXIT_PROTOCOL;
     }
 
@@ -293,20 +327,13 @@ static int send_request(const char* cmd,
     return IDEBRIDGE_EXIT_OK;
 }
 
-static int print_server_error(json_object* root, bool json_output, const char* response_text) {
+static int handle_server_error(json_object* root, bool json_output, const char* response_text) {
     if (json_output) {
         printf("%s\n", response_text);
         return IDEBRIDGE_EXIT_SERVER;
     }
 
-    const char* msg = "Unknown server error";
-    json_object* jerr = NULL;
-    json_object* jmsg = NULL;
-    if (json_object_object_get_ex(root, "error", &jerr) && jerr &&
-        json_object_object_get_ex(jerr, "message", &jmsg) && jmsg) {
-        msg = json_object_get_string(jmsg);
-    }
-    fprintf(stderr, "idebridge: %s\n", msg ? msg : "Server error");
+    idebridge_print_server_error(stderr, root);
     return IDEBRIDGE_EXIT_SERVER;
 }
 
@@ -318,12 +345,16 @@ static int print_or_validate_response(bool json_output,
     if (!json_object_object_get_ex(root, "ok", &j_ok)) {
         json_object_put(root);
         free(response_text);
-        fprintf(stderr, "idebridge: malformed response\n");
+        idebridge_print_cli_error(stderr,
+                                  "response",
+                                  "malformed_response",
+                                  "Malformed response",
+                                  "missing ok field");
         return IDEBRIDGE_EXIT_PROTOCOL;
     }
 
     if (!json_object_get_boolean(j_ok)) {
-        int rc = print_server_error(root, json_output, response_text);
+        int rc = handle_server_error(root, json_output, response_text);
         json_object_put(root);
         free(response_text);
         return rc;
@@ -643,94 +674,6 @@ static int run_includes(bool json_output, bool graph, const CliGlobalOptions* op
     return IDEBRIDGE_EXIT_OK;
 }
 
-static void parse_files_csv(const char* csv, json_object* files_arr) {
-    if (!csv || !*csv || !files_arr) return;
-    char buf[2048];
-    snprintf(buf, sizeof(buf), "%s", csv);
-    char* save = NULL;
-    for (char* tok = strtok_r(buf, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
-        if (*tok) json_object_array_add(files_arr, json_object_new_string(tok));
-    }
-}
-
-static bool read_file_text(const char* path, char** out_text) {
-    if (!path || !*path || !out_text) return false;
-    *out_text = NULL;
-    FILE* f = fopen(path, "rb");
-    if (!f) return false;
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len < 0 || len > (64 * 1024 * 1024)) {
-        fclose(f);
-        return false;
-    }
-    char* buf = (char*)malloc((size_t)len + 1);
-    if (!buf) {
-        fclose(f);
-        return false;
-    }
-    size_t n = fread(buf, 1, (size_t)len, f);
-    fclose(f);
-    buf[n] = '\0';
-    *out_text = buf;
-    return true;
-}
-
-static unsigned long long fnv1a64_file(const char* path, bool* ok_out) {
-    unsigned long long hash = 1469598103934665603ULL;
-    if (ok_out) *ok_out = false;
-    FILE* f = fopen(path, "rb");
-    if (!f) return hash;
-    unsigned char buf[4096];
-    for (;;) {
-        size_t n = fread(buf, 1, sizeof(buf), f);
-        if (n > 0) {
-            for (size_t i = 0; i < n; ++i) {
-                hash ^= (unsigned long long)buf[i];
-                hash *= 1099511628211ULL;
-            }
-        }
-        if (n < sizeof(buf)) break;
-    }
-    fclose(f);
-    if (ok_out) *ok_out = true;
-    return hash;
-}
-
-static int collect_diff_paths(const char* diff_text, char paths[][1024], int max_paths) {
-    if (!diff_text || !*diff_text || !paths || max_paths <= 0) return 0;
-    int count = 0;
-    char* tmp = strdup(diff_text);
-    if (!tmp) return 0;
-    char* save = NULL;
-    for (char* line = strtok_r(tmp, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
-        if (strncmp(line, "+++ ", 4) != 0) continue;
-        const char* p = line + 4;
-        while (*p == ' ' || *p == '\t') p++;
-        if (strncmp(p, "a/", 2) == 0 || strncmp(p, "b/", 2) == 0) p += 2;
-        if (strncmp(p, "/dev/null", 9) == 0) continue;
-        char path[1024];
-        size_t i = 0;
-        while (p[i] && p[i] != '\t' && p[i] != ' ' && i < sizeof(path) - 1) {
-            path[i] = p[i];
-            i++;
-        }
-        path[i] = '\0';
-        if (!path[0]) continue;
-        bool exists = false;
-        for (int k = 0; k < count; ++k) {
-            if (strcmp(paths[k], path) == 0) { exists = true; break; }
-        }
-        if (!exists && count < max_paths) {
-            snprintf(paths[count], 1024, "%s", path);
-            count++;
-        }
-    }
-    free(tmp);
-    return count;
-}
-
 static int run_edit_apply(bool json_output, const char* diff_file, bool no_hash_check, const CliGlobalOptions* opts) {
     if (!diff_file || !*diff_file) {
         fprintf(stderr, "idebridge: edit --apply requires a diff file path\n");
@@ -738,7 +681,7 @@ static int run_edit_apply(bool json_output, const char* diff_file, bool no_hash_
     }
 
     char* diff_text = NULL;
-    if (!read_file_text(diff_file, &diff_text)) {
+    if (!idebridge_read_file_text(diff_file, &diff_text)) {
         fprintf(stderr, "idebridge: failed to read diff file: %s\n", diff_file);
         return IDEBRIDGE_EXIT_USAGE;
     }
@@ -752,7 +695,7 @@ static int run_edit_apply(bool json_output, const char* diff_file, bool no_hash_
     if (!no_hash_check) {
         const char* root = getenv("MYIDE_PROJECT_ROOT");
         char paths[128][1024];
-        int n = collect_diff_paths(diff_text, paths, 128);
+        int n = idebridge_collect_diff_paths(diff_text, paths, 128);
         for (int i = 0; i < n; ++i) {
             char abs[1024];
             if (paths[i][0] == '/') snprintf(abs, sizeof(abs), "%s", paths[i]);
@@ -760,7 +703,7 @@ static int run_edit_apply(bool json_output, const char* diff_file, bool no_hash_
             else snprintf(abs, sizeof(abs), "%s", paths[i]);
 
             bool ok_hash = false;
-            unsigned long long h = fnv1a64_file(abs, &ok_hash);
+            unsigned long long h = idebridge_fnv1a64_file(abs, &ok_hash);
             if (!ok_hash) {
                 free(diff_text);
                 json_object_put(args);
@@ -814,7 +757,7 @@ static int run_search(bool json_output,
     if (max_items >= 0) json_object_object_add(args, "max", json_object_new_int(max_items));
     if (files_csv && *files_csv) {
         json_object* files = json_object_new_array();
-        parse_files_csv(files_csv, files);
+        idebridge_parse_files_csv(files_csv, files);
         json_object_object_add(args, "files", files);
     }
 

@@ -446,6 +446,22 @@ static char* handle_request_payload(const char* payload) {
         str_copy(project_root, sizeof(project_root), g_server.project_root);
         pthread_mutex_unlock(&g_server.lock);
 
+        char policy_err[256] = {0};
+        char policy_details[256] = {0};
+        if (!ide_ipc_validate_edit_policy(diff_text,
+                                          check_hash,
+                                          policy_err,
+                                          sizeof(policy_err),
+                                          policy_details,
+                                          sizeof(policy_details))) {
+            json_object* err = ide_ipc_build_error_obj("edit_policy_violation",
+                                                       policy_err[0] ? policy_err : "Edit request violates IPC edit policy",
+                                                       policy_details);
+            out = ide_ipc_build_response_json(req_id, false, NULL, err);
+            json_object_put(root);
+            return out;
+        }
+
         char hash_err[256] = {0};
         if (!ide_ipc_verify_edit_hashes(project_root, diff_text, check_hash, jhashes, hash_err, sizeof(hash_err))) {
             json_object* err = ide_ipc_build_error_obj("hash_mismatch", hash_err[0] ? hash_err : "Hash verification failed", NULL);
@@ -513,6 +529,9 @@ static char* handle_request_payload(const char* payload) {
             }
             json_object_object_add(result, "applied", json_object_new_boolean(true));
             json_object_object_add(result, "hash_check", json_object_new_boolean(check_hash));
+            json_object_object_add(result,
+                                   "hash_policy",
+                                   json_object_new_string(check_hash ? "verified" : "unchecked_single_file"));
             out = ide_ipc_build_response_json(req_id, true, result, NULL);
         } else {
             json_object* err = ide_ipc_build_error_obj("edit_failed",

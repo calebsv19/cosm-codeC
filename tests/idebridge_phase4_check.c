@@ -135,6 +135,28 @@ static int expect_apply_result_shape(const char* response) {
     return rc;
 }
 
+static int expect_result_string(const char* response, const char* field, const char* value) {
+    json_object* root = json_tokener_parse(response);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root) json_object_put(root);
+        return -1;
+    }
+
+    int rc = -1;
+    json_object *ok=NULL,*result=NULL,*field_obj=NULL;
+    if (json_object_object_get_ex(root, "ok", &ok) &&
+        json_object_get_boolean(ok) &&
+        json_object_object_get_ex(root, "result", &result) && result &&
+        json_object_object_get_ex(result, field, &field_obj) && field_obj &&
+        json_object_is_type(field_obj, json_type_string)) {
+        const char* got = json_object_get_string(field_obj);
+        if (got && strcmp(got, value) == 0) rc = 0;
+    }
+
+    json_object_put(root);
+    return rc;
+}
+
 static int expect_error_code(const char* response, const char* code) {
     json_object* root = json_tokener_parse(response);
     if (!root || !json_object_is_type(root, json_type_object)) {
@@ -240,6 +262,11 @@ int main(void) {
         ide_ipc_stop();
         return 1;
     }
+    if (expect_result_string(response, "hash_policy", "unchecked_single_file") != 0) {
+        fprintf(stderr, "edit no_hash_check policy missing: %s\n", response);
+        ide_ipc_stop();
+        return 1;
+    }
 
     char req_bad_diff[4096];
     snprintf(req_bad_diff, sizeof(req_bad_diff),
@@ -249,8 +276,22 @@ int main(void) {
         ide_ipc_stop();
         return 1;
     }
-    if (expect_error_code(response, "edit_failed") != 0) {
-        fprintf(stderr, "edit malformed diff not rejected: %s\n", response);
+    if (expect_error_code(response, "edit_policy_violation") != 0) {
+        fprintf(stderr, "edit malformed diff not rejected by policy: %s\n", response);
+        ide_ipc_stop();
+        return 1;
+    }
+
+    char req_unchecked_multi[8192];
+    snprintf(req_unchecked_multi, sizeof(req_unchecked_multi),
+             "{\"id\":\"e5\",\"proto\":1,\"cmd\":\"edit\",\"auth_token\":\"%s\",\"args\":{\"op\":\"apply\",\"diff\":\"--- a/src/a.c\\n+++ b/src/a.c\\n@@ -1,1 +1,1 @@\\n-int x = 1;\\n+int x = 4;\\n--- a/src/b.c\\n+++ b/src/b.c\\n@@ -1,1 +1,1 @@\\n-int y = 1;\\n+int y = 2;\\n\",\"check_hash\":false,\"hashes\":{}}}",
+             auth_token);
+    if (send_then_pump_recv(socket_path, req_unchecked_multi, response, sizeof(response)) != 0) {
+        ide_ipc_stop();
+        return 1;
+    }
+    if (expect_error_code(response, "edit_policy_violation") != 0) {
+        fprintf(stderr, "edit unchecked multi-file not rejected by policy: %s\n", response);
         ide_ipc_stop();
         return 1;
     }

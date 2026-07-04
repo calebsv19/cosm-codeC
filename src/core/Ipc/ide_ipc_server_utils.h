@@ -13,6 +13,12 @@ bool ide_ipc_verify_edit_hashes(const char* project_root,
                                 json_object* hashes_obj,
                                 char* error_out,
                                 size_t error_cap);
+bool ide_ipc_validate_edit_policy(const char* diff_text,
+                                  bool check_hash,
+                                  char* error_out,
+                                  size_t error_cap,
+                                  char* details_out,
+                                  size_t details_cap);
 json_object* ide_ipc_build_error_obj(const char* code, const char* message, const char* details);
 char* ide_ipc_build_response_json(const char* id, bool ok, json_object* result, json_object* error);
 
