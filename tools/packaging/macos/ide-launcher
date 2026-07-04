@@ -4,10 +4,54 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 APP_CONTENTS_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 RES_DIR="$APP_CONTENTS_DIR/Resources"
-LOG_DIR="${HOME}/Library/Logs/IDE"
+HOME_DIR="${HOME:-/tmp}"
+LOG_DIR="${HOME_DIR}/Library/Logs/IDE"
 LOG_FILE="$LOG_DIR/launcher.log"
-RUNTIME_DIR_DEFAULT="${HOME}/Library/Application Support/IDE/runtime"
-RUNTIME_DIR="${IDE_RUNTIME_DIR:-$RUNTIME_DIR_DEFAULT}"
+RUNTIME_DIR_DEFAULT="${HOME_DIR}/Library/Application Support/IDE/runtime"
+RUNTIME_DIR_FALLBACK="${TMPDIR:-/tmp}/IDE/runtime"
+RUNTIME_DIR_SOURCE="default"
+
+runtime_dir_is_safe_path() {
+    candidate="$1"
+    [ -n "$candidate" ] || return 1
+    case "$candidate" in
+        /*) ;;
+        *) return 1 ;;
+    esac
+    case "$candidate" in
+        *"/../"*|*"/.."|*"../"*) return 1 ;;
+    esac
+    case "$candidate" in
+        "/"|"/tmp"|"/private/tmp"|"$HOME_DIR"|"$HOME_DIR/"|"$HOME_DIR/Library"|"$HOME_DIR/Library/Application Support"|"$APP_CONTENTS_DIR"|"$RES_DIR")
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+runtime_dir_prepare() {
+    candidate="$1"
+    runtime_source="$2"
+    runtime_dir_is_safe_path "$candidate" || return 1
+    mkdir -p "$candidate" 2>/dev/null || return 1
+    resolved="$(CDPATH= cd -- "$candidate" 2>/dev/null && pwd -P)" || return 1
+    runtime_dir_is_safe_path "$resolved" || return 1
+    RUNTIME_DIR="$resolved"
+    RUNTIME_DIR_SOURCE="$runtime_source"
+    return 0
+}
+
+if [ "${IDE_RUNTIME_DIR+x}" = "x" ]; then
+    if ! runtime_dir_prepare "$IDE_RUNTIME_DIR" "env"; then
+        if ! runtime_dir_prepare "$RUNTIME_DIR_DEFAULT" "default_after_invalid_env"; then
+            runtime_dir_prepare "$RUNTIME_DIR_FALLBACK" "tmp_after_invalid_env" || RUNTIME_DIR="$RUNTIME_DIR_FALLBACK"
+        fi
+    fi
+else
+    if ! runtime_dir_prepare "$RUNTIME_DIR_DEFAULT" "default"; then
+        runtime_dir_prepare "$RUNTIME_DIR_FALLBACK" "tmp" || RUNTIME_DIR="$RUNTIME_DIR_FALLBACK"
+    fi
+fi
 
 ensure_bundle_copy() {
     target="$1"
@@ -49,10 +93,6 @@ ensure_bundle_link() {
     fi
 }
 
-if ! mkdir -p "$RUNTIME_DIR" 2>/dev/null; then
-    RUNTIME_DIR="${TMPDIR:-/tmp}/IDE/runtime"
-    mkdir -p "$RUNTIME_DIR" 2>/dev/null || true
-fi
 mkdir -p "$RUNTIME_DIR/vk" "$RUNTIME_DIR/config/shared/shaders" 2>/dev/null || true
 ensure_bundle_copy "$RUNTIME_DIR/shaders" "$RES_DIR/shaders" "textured.vert.spv:textured.frag.spv:line.vert.spv:line.frag.spv:fill.vert.spv:fill.frag.spv"
 ensure_bundle_copy "$RUNTIME_DIR/vk_renderer" "$RES_DIR/vk_renderer" "shaders/textured.vert.spv:shaders/textured.frag.spv:shaders/line.vert.spv:shaders/line.frag.spv:shaders/fill.vert.spv:shaders/fill.frag.spv"
@@ -90,6 +130,7 @@ if [ "${1:-}" = "--print-config" ]; then
     echo "RES_DIR=$RES_DIR"
     echo "LOG_FILE=$LOG_FILE"
     echo "IDE_RUNTIME_DIR=$IDE_RUNTIME_DIR"
+    echo "IDE_RUNTIME_DIR_SOURCE=$RUNTIME_DIR_SOURCE"
     echo "IDE_RESOURCE_ROOT=$IDE_RESOURCE_ROOT"
     echo "IDE_TIMER_HUD_SETTINGS=$IDE_TIMER_HUD_SETTINGS"
     echo "IDE_TIMER_HUD=$IDE_TIMER_HUD"
@@ -118,6 +159,7 @@ if [ "${1:-}" = "--self-test" ]; then
     echo "self-test: ok"
     echo "LOG_FILE=$LOG_FILE"
     echo "IDE_RUNTIME_DIR=$IDE_RUNTIME_DIR"
+    echo "IDE_RUNTIME_DIR_SOURCE=$RUNTIME_DIR_SOURCE"
     echo "IDE_RESOURCE_ROOT=$IDE_RESOURCE_ROOT"
     echo "IDE_TIMER_HUD_SETTINGS=$IDE_TIMER_HUD_SETTINGS"
     echo "IDE_TIMER_HUD=$IDE_TIMER_HUD"

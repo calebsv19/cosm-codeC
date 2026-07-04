@@ -1,6 +1,6 @@
 # Desktop Packaging
 
-Last updated: 2026-05-04
+Last updated: 2026-06-18
 
 This IDE can now be packaged as a macOS app bundle so it can be launched from Finder/Desktop without relying on repository cwd.
 
@@ -83,6 +83,16 @@ Launcher diagnostics:
 
 - `--self-test` validates required bundle files and prints resolved roots
 - `--print-config` prints resolved roots/log file without launching UI
+- `IDE_RUNTIME_DIR` overrides are accepted only after validation and
+  canonicalization; relative paths, `..` path segments, broad lanes such as
+  `/`, `/tmp`, `$HOME`, `$HOME/Library`, `$HOME/Library/Application Support`,
+  app contents, bundle resources, and symlink-resolved equivalents are rejected
+  before runtime copy/removal behavior
+- invalid `IDE_RUNTIME_DIR` overrides fall back to the default user runtime
+  lane, then a temp runtime lane if needed
+- `--self-test` and `--print-config` print `IDE_RUNTIME_DIR_SOURCE` to show
+  whether the resolved runtime root came from `env`, `default`, an invalid-env
+  fallback, or a temp fallback
 - startup logs append to `~/Library/Logs/IDE/launcher.log` (fallback: `${TMPDIR}/ide-launcher.log`)
 - when icon inputs are provided, packaging bundles `Contents/Resources/AppIcon.icns` and declares `CFBundleIconFile=AppIcon`
 
@@ -118,8 +128,13 @@ Current release guardrails:
 - a signed-but-unnotarized `spctl` result such as `source=Unnotarized Developer ID`
   is valid only for pre-notary `release-verify`; it no longer satisfies
   `release-artifact` or `release-distribute`
-- the release manifest now records `signed=1`, `notarized=1`, and the
-  `notary_submit.json` evidence path for distribution-grade artifacts
+- the release manifest now records `signed=1`, `notarized=1`, the artifact
+  basename, and the artifact digest; private/local evidence such as
+  `notary_submit.json` stays in the ignored release build directory
+- `release-artifact` runs the release-artifact hygiene check before completing:
+  public manifests must not expose local paths, notary JSON paths, auth/secret
+  names, or generated runtime lanes such as `ide_files/`, and release ZIP
+  contents are checked for private/generated paths
 
 Intel target packaging note:
 

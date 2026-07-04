@@ -166,11 +166,42 @@ release-artifact-internal: release-verify-notarized-internal
 		echo "bundle_id=$(RELEASE_BUNDLE_ID)"; \
 		echo "signed=1"; \
 		echo "notarized=1"; \
-		echo "zip=$(RELEASE_APP_ZIP)"; \
+		echo "zip=$$(basename "$(RELEASE_APP_ZIP)")"; \
 		echo "sha256=$$(cut -d' ' -f1 "$(RELEASE_APP_ZIP).sha256")"; \
-		echo "notary_json=$(RELEASE_DIR)/notary_submit.json"; \
 	} > "$(RELEASE_MANIFEST)"
+	@$(MAKE) release-artifact-hygiene-check-internal
 	@echo "release-artifact complete: $(RELEASE_APP_ZIP)"
+
+release-artifact-hygiene-check:
+	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-artifact-hygiene-check-internal
+
+release-artifact-hygiene-check-internal:
+	@tools/packaging/macos/release-artifact-hygiene-check.sh "$(RELEASE_MANIFEST)" "$(RELEASE_APP_ZIP)" "$(RELEASE_DIR)/artifact_zip_listing.txt"
+
+test-release-artifact-hygiene:
+	@tmp="$$(mktemp -d "$${TMPDIR:-/tmp}/ide_release_hygiene.XXXXXX")"; \
+	mkdir -p "$$tmp/codeC.app/Contents/MacOS"; \
+	printf '%s\n' "fixture" > "$$tmp/codeC.app/Contents/MacOS/ide-bin"; \
+	(cd "$$tmp" && /usr/bin/zip -qr codeC-fixture.zip codeC.app); \
+	sha="$$(shasum -a 256 "$$tmp/codeC-fixture.zip" | cut -d' ' -f1)"; \
+	printf 'product=codeC\nprogram=ide\nzip=codeC-fixture.zip\nsha256=%s\n' "$$sha" > "$$tmp/good.manifest"; \
+	tools/packaging/macos/release-artifact-hygiene-check.sh "$$tmp/good.manifest" "$$tmp/codeC-fixture.zip"; \
+	printf 'product=codeC\nzip=/Users/test/codeC-fixture.zip\nsha256=%s\nnotary_json=build/release/notary_submit.json\n' "$$sha" > "$$tmp/bad.manifest"; \
+	if tools/packaging/macos/release-artifact-hygiene-check.sh "$$tmp/bad.manifest" "$$tmp/codeC-fixture.zip" >/dev/null 2>&1; then \
+		echo "release artifact hygiene check accepted private manifest"; \
+		exit 1; \
+	fi; \
+	mkdir -p "$$tmp/leaky/codeC.app/Contents/Resources/ide_files"; \
+	printf '%s\n' "private" > "$$tmp/leaky/codeC.app/Contents/Resources/ide_files/analysis_tokens.json"; \
+	(cd "$$tmp/leaky" && /usr/bin/zip -qr "$$tmp/leaky.zip" codeC.app); \
+	leaky_sha="$$(shasum -a 256 "$$tmp/leaky.zip" | cut -d' ' -f1)"; \
+	printf 'product=codeC\nzip=leaky.zip\nsha256=%s\n' "$$leaky_sha" > "$$tmp/leaky.manifest"; \
+	if tools/packaging/macos/release-artifact-hygiene-check.sh "$$tmp/leaky.manifest" "$$tmp/leaky.zip" >/dev/null 2>&1; then \
+		echo "release artifact hygiene check accepted leaky zip"; \
+		exit 1; \
+	fi; \
+	rm -rf "$$tmp"; \
+	echo "test-release-artifact-hygiene passed."
 
 release-distribute:
 	@$(MAKE) BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" release-distribute-internal

@@ -90,6 +90,41 @@ package-desktop-self-test: package-desktop-smoke
 	@$(PACKAGE_MACOS_DIR)/ide-launcher --self-test || (echo "package-desktop self-test failed."; exit 1)
 	@echo "package-desktop-self-test passed."
 
+test-package-launcher-runtime-dir-hardening:
+	@tmp="$$(mktemp -d "$${TMPDIR:-/tmp}/ide_launcher_runtime.XXXXXX")"; \
+	mkdir -p "$$tmp/app/Contents/MacOS" "$$tmp/app/Contents/Frameworks" \
+		"$$tmp/app/Contents/Resources/include/fonts/Lato" \
+		"$$tmp/app/Contents/Resources/shaders" \
+		"$$tmp/app/Contents/Resources/vk_renderer/shaders" \
+		"$$tmp/tmp"; \
+	cp "$(PACKAGE_LAUNCHER_SRC)" "$$tmp/app/Contents/MacOS/ide-launcher"; \
+	chmod +x "$$tmp/app/Contents/MacOS/ide-launcher"; \
+	touch "$$tmp/app/Contents/MacOS/ide-bin" "$$tmp/app/Contents/MacOS/idebridge" \
+		"$$tmp/app/Contents/Frameworks/libvulkan.1.dylib" \
+		"$$tmp/app/Contents/Frameworks/libMoltenVK.dylib" \
+		"$$tmp/app/Contents/Resources/include/fonts/Lato/Lato-Regular.ttf"; \
+	chmod +x "$$tmp/app/Contents/MacOS/ide-bin" "$$tmp/app/Contents/MacOS/idebridge"; \
+	for shader in textured.vert.spv textured.frag.spv line.vert.spv line.frag.spv fill.vert.spv fill.frag.spv; do \
+		touch "$$tmp/app/Contents/Resources/shaders/$$shader"; \
+		touch "$$tmp/app/Contents/Resources/vk_renderer/shaders/$$shader"; \
+	done; \
+	HOME="$$tmp/home" TMPDIR="$$tmp/tmp" IDE_RUNTIME_DIR="$$tmp/custom-runtime" \
+		"$$tmp/app/Contents/MacOS/ide-launcher" --print-config > "$$tmp/safe.out"; \
+	grep -F "IDE_RUNTIME_DIR=$$tmp/custom-runtime" "$$tmp/safe.out" >/dev/null; \
+	grep -F "IDE_RUNTIME_DIR_SOURCE=env" "$$tmp/safe.out" >/dev/null; \
+	test -f "$$tmp/custom-runtime/vk_renderer/shaders/textured.vert.spv"; \
+	HOME="$$tmp/home" TMPDIR="$$tmp/tmp" IDE_RUNTIME_DIR="relative-runtime" \
+		"$$tmp/app/Contents/MacOS/ide-launcher" --print-config > "$$tmp/relative.out"; \
+	grep -F "IDE_RUNTIME_DIR=$$tmp/home/Library/Application Support/IDE/runtime" "$$tmp/relative.out" >/dev/null; \
+	grep -F "IDE_RUNTIME_DIR_SOURCE=default_after_invalid_env" "$$tmp/relative.out" >/dev/null; \
+	ln -s / "$$tmp/root-link"; \
+	HOME="$$tmp/home2" TMPDIR="$$tmp/tmp" IDE_RUNTIME_DIR="$$tmp/root-link" \
+		"$$tmp/app/Contents/MacOS/ide-launcher" --print-config > "$$tmp/symlink.out"; \
+	grep -F "IDE_RUNTIME_DIR=$$tmp/home2/Library/Application Support/IDE/runtime" "$$tmp/symlink.out" >/dev/null; \
+	grep -F "IDE_RUNTIME_DIR_SOURCE=default_after_invalid_env" "$$tmp/symlink.out" >/dev/null; \
+	rm -rf "$$tmp"; \
+	echo "test-package-launcher-runtime-dir-hardening passed."
+
 package-desktop-remove:
 	@rm -rf "$(DESKTOP_APP_DIR)"
 	@echo "Removed desktop copy at $(DESKTOP_APP_DIR)"
