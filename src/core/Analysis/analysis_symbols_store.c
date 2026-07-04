@@ -5,9 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <sys/stat.h>
 #include <stdbool.h>
 
+#include "core/Analysis/analysis_artifact_io.h"
 #include "core/LoopKernel/mainthread_context.h"
 
 static AnalysisFileSymbols* g_files = NULL;
@@ -246,16 +246,6 @@ uint64_t analysis_symbols_store_combined_stamp(void) {
     return stamp;
 }
 
-static void ensure_cache_dir(const char* workspaceRoot) {
-    if (!workspaceRoot || !*workspaceRoot) return;
-    char dir[1024];
-    snprintf(dir, sizeof(dir), "%s/ide_files", workspaceRoot);
-    struct stat st;
-    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(dir, 0755);
-    }
-}
-
 static json_object* json_string_or_empty(const char* s) {
     return json_object_new_string(s ? s : "");
 }
@@ -263,9 +253,6 @@ static json_object* json_string_or_empty(const char* s) {
 void analysis_symbols_store_save(const char* workspaceRoot) {
     if (!workspaceRoot || !*workspaceRoot) return;
     analysis_symbols_store_lock();
-    ensure_cache_dir(workspaceRoot);
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_symbols.json", workspaceRoot);
 
     json_object* arr = json_object_new_array();
     for (size_t i = 0; i < g_file_count; ++i) {
@@ -316,12 +303,8 @@ void analysis_symbols_store_save(const char* workspaceRoot) {
     }
 
     const char* serialized = json_object_to_json_string_ext(arr, JSON_C_TO_STRING_PLAIN);
-    FILE* f = fopen(path, "w");
-    if (f && serialized) {
-        fputs(serialized, f);
-        fclose(f);
-    } else if (f) {
-        fclose(f);
+    if (serialized) {
+        analysis_artifact_io_write_text(workspaceRoot, "analysis_symbols.json", serialized);
     }
     json_object_put(arr);
     analysis_symbols_store_unlock();
@@ -331,25 +314,11 @@ void analysis_symbols_store_load(const char* workspaceRoot) {
     mainthread_context_assert_owner("analysis_symbols_store.load");
     analysis_symbols_store_clear();
     if (!workspaceRoot || !*workspaceRoot) return;
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_symbols.json", workspaceRoot);
-    FILE* f = fopen(path, "r");
-    if (!f) return;
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > (32 * 1024 * 1024)) {
-        fclose(f);
-        return;
-    }
-    char* buf = malloc((size_t)len + 1);
-    if (!buf) {
-        fclose(f);
-        return;
-    }
-    fread(buf, 1, (size_t)len, f);
-    buf[len] = '\0';
-    fclose(f);
+    char* buf = analysis_artifact_io_read_text(workspaceRoot,
+                                               "analysis_symbols.json",
+                                               ANALYSIS_ARTIFACT_IO_DEFAULT_MAX_BYTES,
+                                               NULL);
+    if (!buf) return;
 
     json_object* root = json_tokener_parse(buf);
     free(buf);

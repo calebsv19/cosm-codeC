@@ -1,4 +1,5 @@
 #include "diagnostics_engine.h"
+#include <errno.h>
 #include <json-c/json.h>
 #include <sys/stat.h>
 #include <stdlib.h>
@@ -8,9 +9,77 @@
 #include "Compiler/diagnostic_metadata.h"
 
 #define MAX_DIAGNOSTICS 512
+#define DIAGNOSTICS_ARTIFACT_MAX_BYTES (1 << 20)
 
 static Diagnostic diagnostics[MAX_DIAGNOSTICS];
 static int diagnosticCount = 0;
+static DiagnosticIoReport g_last_io_report;
+
+static void diagnostics_io_report_init(DiagnosticIoReport* report,
+                                       DiagnosticIoOperation operation,
+                                       const char* workspaceRoot) {
+    if (!report) return;
+    memset(report, 0, sizeof(*report));
+    report->operation = operation;
+    report->reason = DIAGNOSTIC_IO_REASON_NONE;
+    if (workspaceRoot && workspaceRoot[0]) {
+        snprintf(report->path,
+                 sizeof(report->path),
+                 "%s/ide_files/analysis_diagnostics.json",
+                 workspaceRoot);
+        report->path[sizeof(report->path) - 1] = '\0';
+    }
+}
+
+static void diagnostics_io_report_finish(DiagnosticIoReport* report,
+                                         DiagnosticIoReason reason,
+                                         bool ok,
+                                         bool noisy_failure) {
+    if (!report) return;
+    report->reason = reason;
+    report->ok = ok;
+    report->noisy_failure = noisy_failure;
+    g_last_io_report = *report;
+    if (noisy_failure) {
+        fprintf(stderr,
+                "[DiagnosticsIO] %s path=%s\n",
+                diagnostics_io_reason_string(reason),
+                report->path[0] ? report->path : "(none)");
+    }
+}
+
+static bool diagnostics_io_build_dir(const char* workspaceRoot,
+                                     char* outDir,
+                                     size_t outDirCap) {
+    if (!workspaceRoot || !workspaceRoot[0] || !outDir || outDirCap == 0) return false;
+    snprintf(outDir, outDirCap, "%s/ide_files", workspaceRoot);
+    outDir[outDirCap - 1] = '\0';
+    return outDir[0] != '\0';
+}
+
+const char* diagnostics_io_reason_string(DiagnosticIoReason reason) {
+    switch (reason) {
+        case DIAGNOSTIC_IO_REASON_INVALID_WORKSPACE: return "invalid_workspace";
+        case DIAGNOSTIC_IO_REASON_MISSING_OK: return "missing_ok";
+        case DIAGNOSTIC_IO_REASON_SAVED: return "saved";
+        case DIAGNOSTIC_IO_REASON_LOADED: return "loaded";
+        case DIAGNOSTIC_IO_REASON_SAVE_MKDIR_FAILED: return "save_mkdir_failed";
+        case DIAGNOSTIC_IO_REASON_SAVE_SERIALIZE_FAILED: return "save_serialize_failed";
+        case DIAGNOSTIC_IO_REASON_SAVE_OPEN_FAILED: return "save_open_failed";
+        case DIAGNOSTIC_IO_REASON_SAVE_WRITE_FAILED: return "save_write_failed";
+        case DIAGNOSTIC_IO_REASON_LOAD_OPEN_MISSING: return "load_open_missing";
+        case DIAGNOSTIC_IO_REASON_LOAD_STAT_FAILED: return "load_stat_failed";
+        case DIAGNOSTIC_IO_REASON_LOAD_EMPTY: return "load_empty";
+        case DIAGNOSTIC_IO_REASON_LOAD_OVERSIZED: return "load_oversized";
+        case DIAGNOSTIC_IO_REASON_LOAD_READ_FAILED: return "load_read_failed";
+        case DIAGNOSTIC_IO_REASON_LOAD_ALLOC_FAILED: return "load_alloc_failed";
+        case DIAGNOSTIC_IO_REASON_LOAD_INVALID_JSON: return "load_invalid_json";
+        case DIAGNOSTIC_IO_REASON_LOAD_INVALID_ROOT: return "load_invalid_root";
+        case DIAGNOSTIC_IO_REASON_LOAD_MALFORMED_ROWS: return "load_malformed_rows";
+        case DIAGNOSTIC_IO_REASON_NONE:
+        default: return "none";
+    }
+}
 
 const char* diagnostic_category_name(DiagnosticCategory category) {
     switch (category) {
@@ -107,6 +176,7 @@ static void free_diagnostic(Diagnostic* d) {
 
 void initDiagnosticsEngine() {
     clearDiagnostics();
+    memset(&g_last_io_report, 0, sizeof(g_last_io_report));
 }
 
 void clearDiagnostics() {
@@ -181,20 +251,50 @@ const Diagnostic* getDiagnosticAt(int index) {
     return &diagnostics[index];
 }
 
-void diagnostics_save(const char* workspaceRoot) {
-    if (!workspaceRoot || !*workspaceRoot) return;
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files", workspaceRoot);
-    struct stat st;
-    if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(path, 0755);
+bool diagnostics_save_report(const char* workspaceRoot, DiagnosticIoReport* outReport) {
+    DiagnosticIoReport report;
+    diagnostics_io_report_init(&report, DIAGNOSTIC_IO_SAVE, workspaceRoot);
+    if (!workspaceRoot || !*workspaceRoot) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_INVALID_WORKSPACE, false, true);
+        if (outReport) *outReport = report;
+        return false;
     }
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
+
+    char dir[1024];
+    if (!diagnostics_io_build_dir(workspaceRoot, dir, sizeof(dir))) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_INVALID_WORKSPACE, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+    struct stat st;
+    if (stat(dir, &st) == 0 && !S_ISDIR(st.st_mode)) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_SAVE_MKDIR_FAILED, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+    if (stat(dir, &st) != 0) {
+        if (mkdir(dir, 0755) != 0 && errno != EEXIST) {
+            diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_SAVE_MKDIR_FAILED, false, true);
+            if (outReport) *outReport = report;
+            return false;
+        }
+    }
 
     json_object* arr = json_object_new_array();
+    if (!arr) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_SAVE_SERIALIZE_FAILED, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
     for (int i = 0; i < diagnosticCount; ++i) {
         const Diagnostic* d = &diagnostics[i];
         json_object* obj = json_object_new_object();
+        if (!obj) {
+            json_object_put(arr);
+            diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_SAVE_SERIALIZE_FAILED, false, true);
+            if (outReport) *outReport = report;
+            return false;
+        }
         json_object_object_add(obj, "file", json_object_new_string(d->filePath ? d->filePath : ""));
         json_object_object_add(obj, "line", json_object_new_int(d->line));
         json_object_object_add(obj, "col", json_object_new_int(d->column));
@@ -210,50 +310,127 @@ void diagnostics_save(const char* workspaceRoot) {
     }
 
     const char* serialized = json_object_to_json_string_ext(arr, JSON_C_TO_STRING_PLAIN);
-    FILE* f = fopen(path, "w");
-    if (f && serialized) {
-        fputs(serialized, f);
-        fclose(f);
-    } else if (f) {
-        fclose(f);
+    if (!serialized) {
+        json_object_put(arr);
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_SAVE_SERIALIZE_FAILED, false, true);
+        if (outReport) *outReport = report;
+        return false;
     }
+
+    FILE* f = fopen(report.path, "w");
+    if (!f) {
+        json_object_put(arr);
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_SAVE_OPEN_FAILED, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+
+    size_t serialized_len = strlen(serialized);
+    bool write_ok = (fwrite(serialized, 1, serialized_len, f) == serialized_len);
+    if (fclose(f) != 0) write_ok = false;
     json_object_put(arr);
+    if (!write_ok) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_SAVE_WRITE_FAILED, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+
+    report.saved_rows = diagnosticCount;
+    diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_SAVED, true, false);
+    if (outReport) *outReport = report;
+    return true;
 }
 
-void diagnostics_load(const char* workspaceRoot) {
+void diagnostics_save(const char* workspaceRoot) {
+    (void)diagnostics_save_report(workspaceRoot, NULL);
+}
+
+bool diagnostics_load_report(const char* workspaceRoot, DiagnosticIoReport* outReport) {
+    DiagnosticIoReport report;
+    diagnostics_io_report_init(&report, DIAGNOSTIC_IO_LOAD, workspaceRoot);
     clearDiagnostics();
-    if (!workspaceRoot || !*workspaceRoot) return;
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
-    FILE* f = fopen(path, "r");
-    if (!f) return;
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > 1 << 20) {
-        fclose(f);
-        return;
+    if (!workspaceRoot || !*workspaceRoot) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_INVALID_WORKSPACE, false, true);
+        if (outReport) *outReport = report;
+        return false;
     }
-    char* buf = malloc((size_t)len + 1);
+
+    struct stat st;
+    if (stat(report.path, &st) != 0) {
+        bool missing = (errno == ENOENT);
+        diagnostics_io_report_finish(&report,
+                                     missing
+                                         ? DIAGNOSTIC_IO_REASON_MISSING_OK
+                                         : DIAGNOSTIC_IO_REASON_LOAD_OPEN_MISSING,
+                                     missing,
+                                     !missing);
+        if (outReport) *outReport = report;
+        return missing;
+    }
+    if (!S_ISREG(st.st_mode)) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_STAT_FAILED, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+    report.size_bytes = (long)st.st_size;
+    if (st.st_size <= 0) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_EMPTY, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+    if (st.st_size > DIAGNOSTICS_ARTIFACT_MAX_BYTES) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_OVERSIZED, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+
+    FILE* f = fopen(report.path, "r");
+    if (!f) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_OPEN_MISSING, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+
+    char* buf = malloc((size_t)st.st_size + 1);
     if (!buf) {
         fclose(f);
-        return;
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_ALLOC_FAILED, false, true);
+        if (outReport) *outReport = report;
+        return false;
     }
-    fread(buf, 1, (size_t)len, f);
-    buf[len] = '\0';
-    fclose(f);
+    size_t nread = fread(buf, 1, (size_t)st.st_size, f);
+    bool read_ok = (nread == (size_t)st.st_size);
+    if (ferror(f)) read_ok = false;
+    if (fclose(f) != 0) read_ok = false;
+    if (!read_ok) {
+        free(buf);
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_READ_FAILED, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+    buf[nread] = '\0';
 
     json_object* root = json_tokener_parse(buf);
     free(buf);
-    if (!root || !json_object_is_type(root, json_type_array)) {
-        if (root) json_object_put(root);
-        return;
+    if (!root) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_INVALID_JSON, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+    if (!json_object_is_type(root, json_type_array)) {
+        json_object_put(root);
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_INVALID_ROOT, false, true);
+        if (outReport) *outReport = report;
+        return false;
     }
 
     size_t arrLen = json_object_array_length(root);
     for (size_t i = 0; i < arrLen && diagnosticCount < MAX_DIAGNOSTICS; ++i) {
         json_object* obj = json_object_array_get_idx(root, i);
-        if (!obj) continue;
+        if (!obj) {
+            report.malformed_rows++;
+            continue;
+        }
         json_object* jfile = NULL;
         json_object* jline = NULL;
         json_object* jcol = NULL;
@@ -287,7 +464,27 @@ void diagnostics_load(const char* workspaceRoot) {
                                      jcode ? json_object_get_int(jcode) : 0,
                                      jcode_name ? json_object_get_string(jcode_name) : NULL,
                                      jstage ? json_object_get_string(jstage) : NULL);
+            report.loaded_rows++;
+        } else {
+            report.malformed_rows++;
         }
     }
     json_object_put(root);
+    diagnostics_io_report_finish(&report,
+                                 report.malformed_rows > 0
+                                     ? DIAGNOSTIC_IO_REASON_LOAD_MALFORMED_ROWS
+                                     : DIAGNOSTIC_IO_REASON_LOADED,
+                                 true,
+                                 report.malformed_rows > 0);
+    if (outReport) *outReport = report;
+    return true;
+}
+
+void diagnostics_load(const char* workspaceRoot) {
+    (void)diagnostics_load_report(workspaceRoot, NULL);
+}
+
+void diagnostics_last_io_report(DiagnosticIoReport* outReport) {
+    if (!outReport) return;
+    *outReport = g_last_io_report;
 }

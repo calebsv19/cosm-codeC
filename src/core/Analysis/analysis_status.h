@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+#include "core/Analysis/analysis_startup_audit.h"
+
 typedef enum {
     ANALYSIS_STATUS_IDLE = 0,
     ANALYSIS_STATUS_STALE_LOADING,
@@ -25,6 +27,8 @@ typedef struct {
     int removed_files;
     int dependent_files;
     int target_files;
+    bool has_startup_audit;
+    AnalysisStartupAudit startup_audit;
     char last_error[256];
 } AnalysisStatusSnapshot;
 
@@ -41,6 +45,7 @@ void analysis_refresh_set_running(bool running);
 // Cache + error tracking
 void analysis_status_set_has_cache(bool has);
 void analysis_status_set_last_error(const char* msg);
+void analysis_status_set_startup_audit(const AnalysisStartupAudit* audit);
 void analysis_status_note_refresh(AnalysisRefreshMode mode,
                                   int dirty_files,
                                   int removed_files,

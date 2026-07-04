@@ -5,7 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
+
+#include "core/Analysis/analysis_artifact_io.h"
 
 static AnalysisBuildGraphSnapshot* g_snapshots = NULL;
 static size_t g_snapshot_count = 0;
@@ -345,16 +346,6 @@ uint64_t analysis_build_graph_store_combined_stamp(void) {
     return stamp;
 }
 
-static void ensure_cache_dir(const char* workspaceRoot) {
-    if (!workspaceRoot || !*workspaceRoot) return;
-    char dir[1024];
-    snprintf(dir, sizeof(dir), "%s/ide_files", workspaceRoot);
-    struct stat st;
-    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(dir, 0755);
-    }
-}
-
 static json_object* summary_to_json(const AnalysisBuildGraphDiagnosticSummary* summary) {
     json_object* obj = json_object_new_object();
     json_object_object_add(obj, "available", json_object_new_boolean(summary ? summary->available : false));
@@ -412,9 +403,6 @@ static json_object* snapshot_to_json(const AnalysisBuildGraphSnapshot* snapshot)
 
 void analysis_build_graph_store_save(const char* workspaceRoot) {
     if (!workspaceRoot || !*workspaceRoot) return;
-    ensure_cache_dir(workspaceRoot);
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_build_graph_summaries.json", workspaceRoot);
 
     analysis_build_graph_store_lock();
     json_object* arr = json_object_new_array();
@@ -422,12 +410,10 @@ void analysis_build_graph_store_save(const char* workspaceRoot) {
         json_object_array_add(arr, snapshot_to_json(&g_snapshots[i]));
     }
     const char* serialized = json_object_to_json_string_ext(arr, JSON_C_TO_STRING_PLAIN);
-    FILE* f = fopen(path, "w");
-    if (f && serialized) {
-        fputs(serialized, f);
-        fclose(f);
-    } else if (f) {
-        fclose(f);
+    if (serialized) {
+        analysis_artifact_io_write_text(workspaceRoot,
+                                        "analysis_build_graph_summaries.json",
+                                        serialized);
     }
     json_object_put(arr);
     analysis_build_graph_store_unlock();
@@ -436,25 +422,11 @@ void analysis_build_graph_store_save(const char* workspaceRoot) {
 void analysis_build_graph_store_load(const char* workspaceRoot) {
     analysis_build_graph_store_clear();
     if (!workspaceRoot || !*workspaceRoot) return;
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_build_graph_summaries.json", workspaceRoot);
-    FILE* f = fopen(path, "r");
-    if (!f) return;
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > (32 * 1024 * 1024)) {
-        fclose(f);
-        return;
-    }
-    char* buf = (char*)malloc((size_t)len + 1);
-    if (!buf) {
-        fclose(f);
-        return;
-    }
-    size_t read_len = fread(buf, 1, (size_t)len, f);
-    fclose(f);
-    buf[read_len] = '\0';
+    char* buf = analysis_artifact_io_read_text(workspaceRoot,
+                                               "analysis_build_graph_summaries.json",
+                                               ANALYSIS_ARTIFACT_IO_DEFAULT_MAX_BYTES,
+                                               NULL);
+    if (!buf) return;
 
     json_object* root = json_tokener_parse(buf);
     free(buf);

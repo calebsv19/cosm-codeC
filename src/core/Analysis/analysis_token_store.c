@@ -5,7 +5,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
+#include <unistd.h>
+
+#include "core/Analysis/analysis_artifact_io.h"
 
 static AnalysisFileTokens* g_files = NULL;
 static size_t g_file_count = 0;
@@ -117,66 +119,105 @@ const AnalysisFileTokens* analysis_token_store_file_at(size_t idx) {
     return &g_files[idx];
 }
 
-static void ensure_cache_dir(const char* workspaceRoot) {
-    if (!workspaceRoot || !*workspaceRoot) return;
-    char dir[1024];
-    snprintf(dir, sizeof(dir), "%s/ide_files", workspaceRoot);
-    struct stat st;
-    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(dir, 0755);
-    }
-}
-
 void analysis_token_store_save(const char* workspaceRoot) {
     if (!workspaceRoot || !*workspaceRoot) return;
-    ensure_cache_dir(workspaceRoot);
+    if (!analysis_artifact_io_ensure_dir(workspaceRoot)) return;
     char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_tokens.json", workspaceRoot);
+    char tmpPath[1024];
+    if (!analysis_artifact_io_path(workspaceRoot, "analysis_tokens.json", path, sizeof(path))) return;
+    snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", path);
 
-    json_object* arr = json_object_new_array();
+    FILE* out = fopen(tmpPath, "w");
+    if (!out) return;
+    size_t written = 0;
+    bool ok = true;
+#define WRITE_LIMITED_LITERAL(lit) \
+    do { \
+        const char* _s = (lit); \
+        size_t _n = strlen(_s); \
+        if (written + _n > ANALYSIS_TOKEN_STORE_PERSIST_LIMIT_BYTES || \
+            fwrite(_s, 1, _n, out) != _n) { \
+            ok = false; \
+        } else { \
+            written += _n; \
+        } \
+    } while (0)
+#define WRITE_LIMITED_FORMAT(fmt, ...) \
+    do { \
+        char _buf[128]; \
+        int _n = snprintf(_buf, sizeof(_buf), (fmt), __VA_ARGS__); \
+        if (_n < 0 || (size_t)_n >= sizeof(_buf) || \
+            written + (size_t)_n > ANALYSIS_TOKEN_STORE_PERSIST_LIMIT_BYTES || \
+            fwrite(_buf, 1, (size_t)_n, out) != (size_t)_n) { \
+            ok = false; \
+        } else { \
+            written += (size_t)_n; \
+        } \
+    } while (0)
+
+    WRITE_LIMITED_LITERAL("[");
     for (size_t i = 0; i < g_file_count; ++i) {
+        if (!ok) break;
         AnalysisFileTokens* f = &g_files[i];
-        json_object* obj = json_object_new_object();
-        json_object_object_add(obj, "path", json_object_new_string(f->path ? f->path : ""));
-        json_object_object_add(obj, "stamp", json_object_new_int64((long long)f->stamp));
-
-        json_object* spans = json_object_new_array();
+        if (i > 0) WRITE_LIMITED_LITERAL(",");
+        WRITE_LIMITED_LITERAL("{\"path\":");
+        if (!ok) break;
+        json_object* escaped_path = json_object_new_string(f->path ? f->path : "");
+        const char* path_json = escaped_path
+                                    ? json_object_to_json_string_ext(escaped_path, JSON_C_TO_STRING_PLAIN)
+                                    : "\"\"";
+        WRITE_LIMITED_LITERAL(path_json ? path_json : "\"\"");
+        if (escaped_path) json_object_put(escaped_path);
+        WRITE_LIMITED_FORMAT(",\"stamp\":%llu,\"spans\":[",
+                             (unsigned long long)f->stamp);
         for (size_t s = 0; s < f->count; ++s) {
+            if (!ok) break;
             const FisicsTokenSpan* span = &f->spans[s];
-            json_object* js = json_object_new_object();
-            json_object_object_add(js, "line", json_object_new_int(span->line));
-            json_object_object_add(js, "column", json_object_new_int(span->column));
-            json_object_object_add(js, "length", json_object_new_int(span->length));
-            json_object_object_add(js, "kind", json_object_new_int(span->kind));
-            json_object_array_add(spans, js);
+            if (s > 0) WRITE_LIMITED_LITERAL(",");
+            WRITE_LIMITED_FORMAT("{\"line\":%d,\"column\":%d,\"length\":%d,\"kind\":%d}",
+                                 span->line,
+                                 span->column,
+                                 span->length,
+                                 (int)span->kind);
         }
-        json_object_object_add(obj, "spans", spans);
-        json_object_array_add(arr, obj);
+        WRITE_LIMITED_LITERAL("]}");
+    }
+    WRITE_LIMITED_LITERAL("]");
+
+#undef WRITE_LIMITED_FORMAT
+#undef WRITE_LIMITED_LITERAL
+
+    if (fclose(out) != 0) {
+        ok = false;
     }
 
-    const char* serialized = json_object_to_json_string_ext(arr, JSON_C_TO_STRING_PLAIN);
-    FILE* f = fopen(path, "w");
-    if (f && serialized) {
-        fputs(serialized, f);
-        fclose(f);
-    } else if (f) {
-        fclose(f);
+    if (!ok) {
+        unlink(tmpPath);
+        unlink(path);
+        return;
     }
-    json_object_put(arr);
+    if (rename(tmpPath, path) != 0) {
+        unlink(tmpPath);
+    }
 }
 
 void analysis_token_store_load(const char* workspaceRoot) {
     analysis_token_store_clear();
     if (!workspaceRoot || !*workspaceRoot) return;
     char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_tokens.json", workspaceRoot);
+    if (!analysis_artifact_io_path(workspaceRoot, "analysis_tokens.json", path, sizeof(path))) return;
     FILE* f = fopen(path, "r");
     if (!f) return;
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > (32 * 1024 * 1024)) {
+    if (len <= 0) {
         fclose(f);
+        return;
+    }
+    if (len > (long)ANALYSIS_TOKEN_STORE_PERSIST_LIMIT_BYTES) {
+        fclose(f);
+        unlink(path);
         return;
     }
     char* buf = malloc((size_t)len + 1);

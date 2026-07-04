@@ -179,11 +179,13 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
     const char* flags = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
     BuildFlagSet flagsSet = {0};
     gather_build_flags(projectPath, flags, &flagsSet);
+    build_flags_enable_overlays_for_source(&flagsSet, contents, length);
     FisicsFrontendOptions opts = {0};
     opts.include_paths = (const char* const*)flagsSet.include_paths;
     opts.include_path_count = flagsSet.include_count;
     opts.macro_defines = (const char* const*)flagsSet.macro_defines;
     opts.macro_define_count = flagsSet.macro_count;
+    opts.overlay_features = flagsSet.overlay_features;
 
     fisics_frontend_guard_lock();
     bool ok = fisics_analyze_buffer(filePath, contents, length, &opts, &result);

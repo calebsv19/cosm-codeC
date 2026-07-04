@@ -17,6 +17,8 @@ static int g_dependent_files = 0;
 static int g_target_files = 0;
 static int g_progress_completed_files = 0;
 static int g_progress_total_files = 0;
+static bool g_has_startup_audit = false;
+static AnalysisStartupAudit g_startup_audit;
 static char g_last_error[256] = {0};
 static bool g_frontend_logs_enabled = false;
 static SDL_mutex* g_status_mutex = NULL;
@@ -45,6 +47,8 @@ void analysis_status_init(void) {
     g_target_files = 0;
     g_progress_completed_files = 0;
     g_progress_total_files = 0;
+    g_has_startup_audit = false;
+    analysis_startup_audit_init(&g_startup_audit);
     g_last_error[0] = '\0';
     const char* env = getenv("IDE_ANALYSIS_FRONTEND_LOGS");
     g_frontend_logs_enabled = (env && env[0] == '1');
@@ -112,6 +116,18 @@ void analysis_status_set_last_error(const char* msg) {
     status_unlock();
 }
 
+void analysis_status_set_startup_audit(const AnalysisStartupAudit* audit) {
+    status_lock();
+    if (audit) {
+        g_startup_audit = *audit;
+        g_has_startup_audit = audit->valid;
+    } else {
+        analysis_startup_audit_init(&g_startup_audit);
+        g_has_startup_audit = false;
+    }
+    status_unlock();
+}
+
 void analysis_status_note_refresh(AnalysisRefreshMode mode,
                                   int dirty_files,
                                   int removed_files,
@@ -158,6 +174,8 @@ void analysis_status_snapshot(AnalysisStatusSnapshot* out) {
     out->removed_files = g_removed_files;
     out->dependent_files = g_dependent_files;
     out->target_files = g_target_files;
+    out->has_startup_audit = g_has_startup_audit;
+    out->startup_audit = g_startup_audit;
     snprintf(out->last_error, sizeof(out->last_error), "%s", g_last_error);
     out->last_error[sizeof(out->last_error) - 1] = '\0';
     status_unlock();

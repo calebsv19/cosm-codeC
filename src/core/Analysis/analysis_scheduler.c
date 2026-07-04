@@ -2,6 +2,7 @@
 
 #include <SDL2/SDL.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "core/Analysis/analysis_job.h"
@@ -14,6 +15,13 @@ typedef struct PendingJobState {
     unsigned int reason_mask;
     uint64_t enqueue_seq;
     unsigned int coalesced_replaced;
+#define ANALYSIS_SCHEDULER_MAX_FILE_HINTS 32
+    char file_hints[ANALYSIS_SCHEDULER_MAX_FILE_HINTS][1024];
+    size_t file_hint_count;
+    char live_file_path[1024];
+    char* live_contents;
+    size_t live_content_length;
+    uint64_t live_document_revision;
 } PendingJobState;
 
 static SDL_mutex* g_scheduler_mutex = NULL;
@@ -25,7 +33,7 @@ static bool g_active_force_full = false;
 static AnalysisJobKey g_active_job_key = ANALYSIS_JOB_KEY_NONE;
 static bool g_running = false;
 
-static PendingJobState g_pending_jobs[ANALYSIS_JOB_KEY_INDEX + 1];
+static PendingJobState g_pending_jobs[ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS + 1];
 static uint64_t g_next_enqueue_seq = 1;
 
 static uint64_t g_jobs_scheduled = 0;
@@ -40,7 +48,13 @@ static void scheduler_unlock(void) {
 }
 
 static bool is_valid_job_key(AnalysisJobKey key) {
-    return key > ANALYSIS_JOB_KEY_NONE && key <= ANALYSIS_JOB_KEY_INDEX;
+    return key > ANALYSIS_JOB_KEY_NONE && key <= ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS;
+}
+
+static void pending_job_reset_unsafe(PendingJobState* slot) {
+    if (!slot) return;
+    free(slot->live_contents);
+    memset(slot, 0, sizeof(*slot));
 }
 
 static bool reason_is_index_lane(unsigned int reason_mask) {
@@ -48,9 +62,25 @@ static bool reason_is_index_lane(unsigned int reason_mask) {
     return reason_mask == ANALYSIS_REASON_LIBRARY_PANEL_REFRESH;
 }
 
+static void pending_job_add_file_hint_unsafe(PendingJobState* slot, const char* file_path) {
+    if (!slot || !file_path || !file_path[0]) return;
+    for (size_t i = 0; i < slot->file_hint_count; ++i) {
+        if (strcmp(slot->file_hints[i], file_path) == 0) {
+            return;
+        }
+    }
+    if (slot->file_hint_count >= ANALYSIS_SCHEDULER_MAX_FILE_HINTS) return;
+    snprintf(slot->file_hints[slot->file_hint_count],
+             sizeof(slot->file_hints[slot->file_hint_count]),
+             "%s",
+             file_path);
+    slot->file_hints[slot->file_hint_count][sizeof(slot->file_hints[slot->file_hint_count]) - 1] = '\0';
+    slot->file_hint_count++;
+}
+
 static unsigned int pending_key_mask_unsafe(void) {
     unsigned int mask = 0;
-    for (int i = (int)ANALYSIS_JOB_KEY_WORKSPACE; i <= (int)ANALYSIS_JOB_KEY_INDEX; ++i) {
+    for (int i = (int)ANALYSIS_JOB_KEY_WORKSPACE; i <= (int)ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS; ++i) {
         if (!g_pending_jobs[i].pending) continue;
         mask |= (1u << (unsigned int)i);
     }
@@ -59,7 +89,7 @@ static unsigned int pending_key_mask_unsafe(void) {
 
 static uint32_t pending_count_unsafe(void) {
     uint32_t count = 0;
-    for (int i = (int)ANALYSIS_JOB_KEY_WORKSPACE; i <= (int)ANALYSIS_JOB_KEY_INDEX; ++i) {
+    for (int i = (int)ANALYSIS_JOB_KEY_WORKSPACE; i <= (int)ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS; ++i) {
         if (g_pending_jobs[i].pending) count++;
     }
     return count;
@@ -67,7 +97,7 @@ static uint32_t pending_count_unsafe(void) {
 
 static unsigned int pending_reason_mask_unsafe(void) {
     unsigned int reason_mask = 0;
-    for (int i = (int)ANALYSIS_JOB_KEY_WORKSPACE; i <= (int)ANALYSIS_JOB_KEY_INDEX; ++i) {
+    for (int i = (int)ANALYSIS_JOB_KEY_WORKSPACE; i <= (int)ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS; ++i) {
         if (!g_pending_jobs[i].pending) continue;
         reason_mask |= g_pending_jobs[i].reason_mask;
     }
@@ -75,7 +105,7 @@ static unsigned int pending_reason_mask_unsafe(void) {
 }
 
 static bool pending_force_full_unsafe(void) {
-    for (int i = (int)ANALYSIS_JOB_KEY_WORKSPACE; i <= (int)ANALYSIS_JOB_KEY_INDEX; ++i) {
+    for (int i = (int)ANALYSIS_JOB_KEY_WORKSPACE; i <= (int)ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS; ++i) {
         if (!g_pending_jobs[i].pending) continue;
         if (g_pending_jobs[i].force_full) return true;
     }
@@ -83,10 +113,20 @@ static bool pending_force_full_unsafe(void) {
 }
 
 static AnalysisJobKey select_next_pending_key_unsafe(void) {
+    PendingJobState* diagnostics = &g_pending_jobs[(int)ANALYSIS_JOB_KEY_DIAGNOSTICS];
+    if (diagnostics->pending &&
+        (diagnostics->reason_mask & (unsigned int)ANALYSIS_REASON_EDITOR_SAVE) != 0u) {
+        return ANALYSIS_JOB_KEY_DIAGNOSTICS;
+    }
+    PendingJobState* live = &g_pending_jobs[(int)ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS];
+    if (live->pending) {
+        return ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS;
+    }
+
     AnalysisJobKey selected = ANALYSIS_JOB_KEY_NONE;
     uint64_t selected_seq = 0;
 
-    for (int i = (int)ANALYSIS_JOB_KEY_WORKSPACE; i <= (int)ANALYSIS_JOB_KEY_INDEX; ++i) {
+    for (int i = (int)ANALYSIS_JOB_KEY_WORKSPACE; i <= (int)ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS; ++i) {
         if (!g_pending_jobs[i].pending) continue;
         if (selected == ANALYSIS_JOB_KEY_NONE || g_pending_jobs[i].enqueue_seq < selected_seq) {
             selected = (AnalysisJobKey)i;
@@ -96,12 +136,31 @@ static AnalysisJobKey select_next_pending_key_unsafe(void) {
     return selected;
 }
 
+static bool active_job_should_yield_to_editor_save_unsafe(void) {
+    if (!g_running) return false;
+    switch (g_active_job_key) {
+        case ANALYSIS_JOB_KEY_WORKSPACE:
+        case ANALYSIS_JOB_KEY_SYMBOLS:
+        case ANALYSIS_JOB_KEY_INDEX:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool pending_editor_save_diagnostics_unsafe(void) {
+    const PendingJobState* slot = &g_pending_jobs[(int)ANALYSIS_JOB_KEY_DIAGNOSTICS];
+    return slot->pending &&
+           ((slot->reason_mask & (unsigned int)ANALYSIS_REASON_EDITOR_SAVE) != 0u);
+}
+
 const char* analysis_scheduler_key_to_string(AnalysisJobKey key) {
     switch (key) {
         case ANALYSIS_JOB_KEY_WORKSPACE: return "analysis:workspace";
         case ANALYSIS_JOB_KEY_SYMBOLS: return "symbols:workspace";
         case ANALYSIS_JOB_KEY_DIAGNOSTICS: return "diagnostics:workspace";
         case ANALYSIS_JOB_KEY_INDEX: return "index:workspace";
+        case ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS: return "live_diagnostics:buffer";
         default: return "none";
     }
 }
@@ -127,7 +186,9 @@ const char* analysis_scheduler_reason_mask_to_string(unsigned int reason_mask,
         { ANALYSIS_REASON_MANUAL_REFRESH, "manual_refresh" },
         { ANALYSIS_REASON_PROJECT_MUTATION, "project_mutation" },
         { ANALYSIS_REASON_LIBRARY_PANEL_REFRESH, "library_panel_refresh" },
-        { ANALYSIS_REASON_EDITOR_EDIT_TRANSACTION, "editor_edit_txn" }
+        { ANALYSIS_REASON_EDITOR_EDIT_TRANSACTION, "editor_edit_txn" },
+        { ANALYSIS_REASON_EDITOR_SAVE, "editor_save" },
+        { ANALYSIS_REASON_EDITOR_LIVE_BUFFER, "editor_live_buffer" }
     };
 
     for (size_t i = 0; i < sizeof(reasons) / sizeof(reasons[0]); ++i) {
@@ -151,7 +212,9 @@ void analysis_scheduler_init(void) {
     g_active_force_full = false;
     g_active_job_key = ANALYSIS_JOB_KEY_NONE;
     g_running = false;
-    memset(g_pending_jobs, 0, sizeof(g_pending_jobs));
+    for (int i = (int)ANALYSIS_JOB_KEY_NONE; i <= (int)ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS; ++i) {
+        pending_job_reset_unsafe(&g_pending_jobs[i]);
+    }
     g_next_enqueue_seq = 1;
     g_jobs_scheduled = 0;
     g_jobs_coalesced_replaced = 0;
@@ -243,6 +306,122 @@ void analysis_scheduler_request_key(AnalysisJobKey key,
     }
 }
 
+void analysis_scheduler_request_file(const char* file_path,
+                                     AnalysisRefreshReason reason,
+                                     bool force_full) {
+    if (!file_path || !file_path[0]) return;
+    if (reason == ANALYSIS_REASON_NONE) return;
+    char reason_text[128];
+    bool should_cancel = false;
+    scheduler_lock();
+    PendingJobState* slot = &g_pending_jobs[(int)ANALYSIS_JOB_KEY_DIAGNOSTICS];
+    bool replaced_pending = slot->pending;
+    if (!slot->pending) {
+        slot->pending = true;
+        slot->enqueue_seq = g_next_enqueue_seq++;
+        slot->reason_mask = ANALYSIS_REASON_NONE;
+        slot->force_full = false;
+        slot->coalesced_replaced = 0;
+        slot->file_hint_count = 0;
+    }
+    slot->reason_mask |= (unsigned int)reason;
+    slot->force_full = slot->force_full || force_full;
+    pending_job_add_file_hint_unsafe(slot, file_path);
+    g_jobs_scheduled++;
+    if (replaced_pending || (g_running && g_active_job_key == ANALYSIS_JOB_KEY_DIAGNOSTICS)) {
+        slot->coalesced_replaced++;
+        g_jobs_coalesced_replaced++;
+    }
+    if ((reason & ANALYSIS_REASON_EDITOR_SAVE) != 0u &&
+        active_job_should_yield_to_editor_save_unsafe()) {
+        should_cancel = true;
+    }
+    unsigned int pending_mask = pending_key_mask_unsafe();
+    unsigned int slot_reason_mask = slot->reason_mask;
+    bool slot_force_full = slot->force_full;
+    size_t hint_count = slot->file_hint_count;
+    unsigned int slot_coalesced = slot->coalesced_replaced;
+    scheduler_unlock();
+
+    if (should_cancel) {
+        analysis_job_request_cancel();
+    }
+
+    printf("[AnalysisRun] queued key=%s reason=%s force_full=%d pending_keys=0x%x file_hints=%zu\n",
+           analysis_scheduler_key_to_string(ANALYSIS_JOB_KEY_DIAGNOSTICS),
+           analysis_scheduler_reason_mask_to_string(slot_reason_mask, reason_text, sizeof(reason_text)),
+           slot_force_full ? 1 : 0,
+           pending_mask,
+           hint_count);
+    if (slot_coalesced > 0) {
+        printf("[AnalysisRun] key=%s coalesced=%u\n",
+               analysis_scheduler_key_to_string(ANALYSIS_JOB_KEY_DIAGNOSTICS),
+               slot_coalesced);
+    }
+}
+
+void analysis_scheduler_request_live_buffer(const char* file_path,
+                                            const char* contents,
+                                            size_t content_length,
+                                            uint64_t document_revision,
+                                            AnalysisRefreshReason reason,
+                                            bool force_full) {
+    if (!file_path || !file_path[0] || !contents) return;
+    if (reason == ANALYSIS_REASON_NONE) return;
+#define ANALYSIS_SCHEDULER_MAX_LIVE_BUFFER_BYTES (2u * 1024u * 1024u)
+    if (content_length > ANALYSIS_SCHEDULER_MAX_LIVE_BUFFER_BYTES) return;
+
+    char* owned_contents = (char*)malloc(content_length + 1u);
+    if (!owned_contents) return;
+    memcpy(owned_contents, contents, content_length);
+    owned_contents[content_length] = '\0';
+
+    char reason_text[128];
+    scheduler_lock();
+    PendingJobState* slot = &g_pending_jobs[(int)ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS];
+    bool replaced_pending = slot->pending;
+    if (!slot->pending) {
+        slot->pending = true;
+        slot->enqueue_seq = g_next_enqueue_seq++;
+        slot->reason_mask = ANALYSIS_REASON_NONE;
+        slot->force_full = false;
+        slot->coalesced_replaced = 0;
+    }
+    slot->reason_mask |= (unsigned int)reason;
+    slot->force_full = slot->force_full || force_full;
+    snprintf(slot->live_file_path, sizeof(slot->live_file_path), "%s", file_path);
+    slot->live_file_path[sizeof(slot->live_file_path) - 1] = '\0';
+    free(slot->live_contents);
+    slot->live_contents = owned_contents;
+    slot->live_content_length = content_length;
+    slot->live_document_revision = document_revision;
+    pending_job_add_file_hint_unsafe(slot, file_path);
+    g_jobs_scheduled++;
+    if (replaced_pending || (g_running && g_active_job_key == ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS)) {
+        slot->coalesced_replaced++;
+        g_jobs_coalesced_replaced++;
+    }
+    unsigned int pending_mask = pending_key_mask_unsafe();
+    unsigned int slot_reason_mask = slot->reason_mask;
+    bool slot_force_full = slot->force_full;
+    size_t hint_count = slot->file_hint_count;
+    unsigned int slot_coalesced = slot->coalesced_replaced;
+    scheduler_unlock();
+
+    printf("[AnalysisRun] queued key=%s reason=%s force_full=%d pending_keys=0x%x file_hints=%zu revision=%llu\n",
+           analysis_scheduler_key_to_string(ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS),
+           analysis_scheduler_reason_mask_to_string(slot_reason_mask, reason_text, sizeof(reason_text)),
+           slot_force_full ? 1 : 0,
+           pending_mask,
+           hint_count,
+           (unsigned long long)document_revision);
+    if (slot_coalesced > 0) {
+        printf("[AnalysisRun] key=%s coalesced=%u\n",
+               analysis_scheduler_key_to_string(ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS),
+               slot_coalesced);
+    }
+}
+
 bool analysis_scheduler_running(void) {
     scheduler_lock();
     bool running = g_running;
@@ -263,6 +442,7 @@ void analysis_scheduler_snapshot(AnalysisSchedulerSnapshot* out) {
     out->pending_key_mask = pending_key_mask_unsafe();
     out->active_reason_mask = g_active_reason_mask;
     out->active_job_key = g_active_job_key;
+    out->pending_editor_save_diagnostics = pending_editor_save_diagnostics_unsafe();
     scheduler_unlock();
 }
 
@@ -281,6 +461,14 @@ void analysis_scheduler_tick(const char* project_root, const char* build_args) {
     uint64_t run_id = 0;
     unsigned int coalesced = 0;
     AnalysisJobKey job_key = ANALYSIS_JOB_KEY_NONE;
+    char file_hints[ANALYSIS_SCHEDULER_MAX_FILE_HINTS][1024];
+    const char* file_hint_ptrs[ANALYSIS_SCHEDULER_MAX_FILE_HINTS];
+    size_t file_hint_count = 0;
+    char live_file_path[1024];
+    char* live_contents = NULL;
+    size_t live_content_length = 0;
+    uint64_t live_document_revision = 0;
+    live_file_path[0] = '\0';
 
     scheduler_lock();
     bool worker_running = analysis_refresh_running();
@@ -316,8 +504,22 @@ void analysis_scheduler_tick(const char* project_root, const char* build_args) {
             reason_mask = g_active_reason_mask;
             force_full = g_active_force_full;
             coalesced = slot->coalesced_replaced;
+            file_hint_count = slot->file_hint_count;
+            for (size_t i = 0; i < file_hint_count; ++i) {
+                snprintf(file_hints[i], sizeof(file_hints[i]), "%s", slot->file_hints[i]);
+                file_hints[i][sizeof(file_hints[i]) - 1] = '\0';
+                file_hint_ptrs[i] = file_hints[i];
+            }
+            if (job_key == ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS && slot->live_contents) {
+                snprintf(live_file_path, sizeof(live_file_path), "%s", slot->live_file_path);
+                live_file_path[sizeof(live_file_path) - 1] = '\0';
+                live_contents = slot->live_contents;
+                slot->live_contents = NULL;
+                live_content_length = slot->live_content_length;
+                live_document_revision = slot->live_document_revision;
+            }
 
-            memset(slot, 0, sizeof(*slot));
+            pending_job_reset_unsafe(slot);
             start_now = true;
         }
     }
@@ -338,5 +540,20 @@ void analysis_scheduler_tick(const char* project_root, const char* build_args) {
            analysis_scheduler_reason_mask_to_string(reason_mask, reason_text, sizeof(reason_text)),
            force_full ? 1 : 0,
            coalesced);
-    start_async_workspace_analysis(project_root, build_args, run_id);
+    if (job_key == ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS) {
+        start_async_live_buffer_analysis(project_root,
+                                         build_args,
+                                         run_id,
+                                         live_file_path,
+                                         live_contents,
+                                         live_content_length,
+                                         live_document_revision);
+        free(live_contents);
+    } else {
+        start_async_workspace_analysis_with_file_hints(project_root,
+                                                      build_args,
+                                                      run_id,
+                                                      file_hint_count > 0 ? file_hint_ptrs : NULL,
+                                                      file_hint_count);
+    }
 }

@@ -6,10 +6,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 
 #include <json-c/json.h>
 
+#include "core/Analysis/analysis_artifact_io.h"
 #include "core/LoopKernel/mainthread_context.h"
 
 static LibraryBucket g_buckets[LIB_BUCKET_COUNT];
@@ -358,19 +358,8 @@ const LibraryUsage* library_index_get_usage(const LibraryHeader* header, size_t 
 
 // Persistence
 
-static void ensure_cache_dir(const char* workspace_root) {
-    if (!workspace_root || !*workspace_root) return;
-    char dir[PATH_MAX];
-    snprintf(dir, sizeof(dir), "%s/ide_files", workspace_root);
-    struct stat st;
-    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(dir, 0755);
-    }
-}
-
 void library_index_save(const char* workspace_root) {
     if (!workspace_root || !*workspace_root) return;
-    ensure_cache_dir(workspace_root);
 
     library_index_lock();
     json_object* root = json_object_new_object();
@@ -407,14 +396,8 @@ void library_index_save(const char* workspace_root) {
     json_object_object_add(root, "buckets", buckets);
 
     const char* serialized = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/ide_files/library_index.json", workspace_root);
-    FILE* f = fopen(path, "w");
-    if (f && serialized) {
-        fputs(serialized, f);
-        fclose(f);
-    } else if (f) {
-        fclose(f);
+    if (serialized) {
+        analysis_artifact_io_write_text(workspace_root, "library_index.json", serialized);
     }
     json_object_put(root);
     library_index_unlock();
@@ -429,30 +412,14 @@ void library_index_load(const char* workspace_root) {
         return;
     }
 
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/ide_files/library_index.json", workspace_root);
-    FILE* f = fopen(path, "r");
-    if (!f) {
-        library_index_unlock();
-        return;
-    }
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > (32 * 1024 * 1024)) {
-        fclose(f);
-        library_index_unlock();
-        return;
-    }
-    char* buf = malloc((size_t)len + 1);
+    char* buf = analysis_artifact_io_read_text(workspace_root,
+                                               "library_index.json",
+                                               ANALYSIS_ARTIFACT_IO_DEFAULT_MAX_BYTES,
+                                               NULL);
     if (!buf) {
-        fclose(f);
         library_index_unlock();
         return;
     }
-    fread(buf, 1, (size_t)len, f);
-    buf[len] = '\0';
-    fclose(f);
 
     json_object* root = json_tokener_parse(buf);
     free(buf);

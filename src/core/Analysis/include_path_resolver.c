@@ -4,9 +4,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <dirent.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <json-c/json.h>
+
+#include "core/Analysis/analysis_artifact_io.h"
+
+static char* trim_in_place(char* text);
 
 static char* dup_str(const char* p) {
     if (!p) return NULL;
@@ -39,6 +48,178 @@ static bool has_unexpanded_make_var(const char* s) {
     return strstr(s, "$(") != NULL || strstr(s, "${") != NULL;
 }
 
+static bool env_truthy(const char* name) {
+    const char* value = getenv(name);
+    if (!value || !*value) return false;
+    return strcmp(value, "1") == 0 ||
+           strcmp(value, "true") == 0 ||
+           strcmp(value, "TRUE") == 0 ||
+           strcmp(value, "yes") == 0 ||
+           strcmp(value, "YES") == 0 ||
+           strcmp(value, "on") == 0 ||
+           strcmp(value, "ON") == 0;
+}
+
+static bool run_command_capture(const char* cwd,
+                                char* const argv[],
+                                char* output,
+                                size_t outputSize) {
+    if (!argv || !argv[0] || !output || outputSize == 0) return false;
+    output[0] = '\0';
+
+    int pipefd[2];
+    if (pipe(pipefd) != 0) return false;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return false;
+    }
+
+    if (pid == 0) {
+        close(pipefd[0]);
+        if (cwd && *cwd) {
+            if (chdir(cwd) != 0) {
+                _exit(127);
+            }
+        }
+        if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
+            _exit(127);
+        }
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
+        close(pipefd[1]);
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+
+    size_t used = 0;
+    while (used + 1 < outputSize) {
+        ssize_t n = read(pipefd[0], output + used, outputSize - used - 1);
+        if (n > 0) {
+            used += (size_t)n;
+            continue;
+        }
+        if (n == 0) break;
+        if (errno == EINTR) continue;
+        break;
+    }
+    output[used] = '\0';
+    close(pipefd[0]);
+
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        return false;
+    }
+
+    return used > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static bool run_command_first_line(const char* cwd,
+                                   char* const argv[],
+                                   char* line,
+                                   size_t lineSize) {
+    if (!line || lineSize == 0) return false;
+    line[0] = '\0';
+
+    char output[4096];
+    if (!run_command_capture(cwd, argv, output, sizeof(output))) return false;
+
+    char* first = output;
+    char* newline = strpbrk(first, "\r\n");
+    if (newline) *newline = '\0';
+    first = trim_in_place(first);
+    if (!first || !*first) return false;
+
+    snprintf(line, lineSize, "%s", first);
+    return true;
+}
+
+static char* trim_in_place(char* text) {
+    if (!text) return NULL;
+    while (*text == ' ' || *text == '\t' || *text == '\n' || *text == '\r') {
+        text++;
+    }
+    size_t len = strlen(text);
+    while (len > 0) {
+        char c = text[len - 1];
+        if (c != ' ' && c != '\t' && c != '\n' && c != '\r') break;
+        text[--len] = '\0';
+    }
+    return text;
+}
+
+static void parse_overlay_mode(const char* mode, uint64_t* overlays) {
+    if (!mode || !overlays || has_unexpanded_make_var(mode)) return;
+    if (strcmp(mode, "0") == 0 || strcmp(mode, "off") == 0 || strcmp(mode, "none") == 0) {
+        *overlays = 0;
+        return;
+    }
+    if (strcmp(mode, "1") == 0 || strcmp(mode, "on") == 0 || strcmp(mode, "all") == 0) {
+        *overlays |= BUILD_FLAG_OVERLAY_ALL;
+        return;
+    }
+
+    char buf[512];
+    size_t len = strlen(mode);
+    if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+    memcpy(buf, mode, len);
+    buf[len] = '\0';
+
+    char* save = NULL;
+    for (char* tok = strtok_r(buf, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+        char* part = trim_in_place(tok);
+        if (!part || !*part) continue;
+        if (strcmp(part, "all") == 0) {
+            *overlays |= BUILD_FLAG_OVERLAY_ALL;
+        } else if (strcmp(part, "ide") == 0 ||
+                   strcmp(part, "ide-metadata") == 0 ||
+                   strcmp(part, "ide_metadata") == 0) {
+            *overlays |= BUILD_FLAG_OVERLAY_IDE_METADATA;
+        } else if (strcmp(part, "units") == 0 ||
+                   strcmp(part, "physics-units") == 0 ||
+                   strcmp(part, "physics_units") == 0) {
+            *overlays |= BUILD_FLAG_OVERLAY_PHYSICS_UNITS;
+        } else if (strcmp(part, "memory-check") == 0 ||
+                   strcmp(part, "memory_check") == 0 ||
+                   strcmp(part, "memcheck") == 0) {
+            *overlays |= BUILD_FLAG_OVERLAY_MEMORY_CHECK;
+        }
+    }
+}
+
+static bool contains_bytes(const char* text, size_t length, const char* needle) {
+    if (!text || !needle || !*needle) return false;
+    size_t needle_len = strlen(needle);
+    if (needle_len == 0 || length < needle_len) return false;
+    for (size_t i = 0; i + needle_len <= length; ++i) {
+        if (memcmp(text + i, needle, needle_len) == 0) return true;
+    }
+    return false;
+}
+
+bool build_flags_source_requests_physics_units(const char* source, size_t length) {
+    if (!source || length == 0) return false;
+    return contains_bytes(source, length, "[[fisics::dim") ||
+           contains_bytes(source, length, "[[fisics::unit") ||
+           contains_bytes(source, length, "fisics::dim(") ||
+           contains_bytes(source, length, "fisics::unit(");
+}
+
+void build_flags_enable_overlays_for_source(BuildFlagSet* set, const char* source, size_t length) {
+    if (!set) return;
+    if (build_flags_source_requests_physics_units(source, length)) {
+        set->overlay_features |= BUILD_FLAG_OVERLAY_PHYSICS_UNITS;
+    }
+}
+
 static void expand_relative(const char* project_root, const char* raw, char* out, size_t outSize) {
     if (!out || outSize == 0) return;
     out[0] = '\0';
@@ -66,6 +247,129 @@ static void expand_relative(const char* project_root, const char* raw, char* out
         strncpy(out, raw, outSize - 1);
         out[outSize - 1] = '\0';
     }
+}
+
+static bool has_source_extension(const char* path) {
+    if (!path) return false;
+    const char* ext = strrchr(path, '.');
+    return ext && (strcmp(ext, ".c") == 0 || strcmp(ext, ".h") == 0);
+}
+
+static bool should_skip_source_scan_dir(const char* name) {
+    if (!name) return true;
+    return strcmp(name, ".") == 0 ||
+           strcmp(name, "..") == 0 ||
+           strcmp(name, "build") == 0 ||
+           strcmp(name, "ide_files") == 0 ||
+           strcmp(name, ".git") == 0 ||
+           strcmp(name, ".DS_Store") == 0;
+}
+
+static void scan_source_file_for_overlay(const char* path, uint64_t* overlays) {
+    if (!path || !overlays || (*overlays & BUILD_FLAG_OVERLAY_PHYSICS_UNITS)) return;
+
+    FILE* f = fopen(path, "rb");
+    if (!f) return;
+    char buf[8192];
+    size_t n = 0;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        if (build_flags_source_requests_physics_units(buf, n)) {
+            *overlays |= BUILD_FLAG_OVERLAY_PHYSICS_UNITS;
+            break;
+        }
+    }
+    fclose(f);
+}
+
+static void scan_source_tree_for_overlays(const char* root, uint64_t* overlays) {
+    if (!root || !*root || !overlays || (*overlays & BUILD_FLAG_OVERLAY_PHYSICS_UNITS)) return;
+
+    DIR* dir = opendir(root);
+    if (!dir) return;
+
+    struct dirent* ent;
+    char child[PATH_MAX];
+    while ((ent = readdir(dir)) != NULL) {
+        if (*overlays & BUILD_FLAG_OVERLAY_PHYSICS_UNITS) break;
+        if (should_skip_source_scan_dir(ent->d_name)) continue;
+        snprintf(child, sizeof(child), "%s/%s", root, ent->d_name);
+        struct stat st;
+        if (stat(child, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) {
+            scan_source_tree_for_overlays(child, overlays);
+        } else if (S_ISREG(st.st_mode) && has_source_extension(child)) {
+            scan_source_file_for_overlay(child, overlays);
+        }
+    }
+    closedir(dir);
+}
+
+static void parse_manifest_string_array(json_object* root,
+                                        const char* key,
+                                        const char* project_root,
+                                        char*** includes,
+                                        size_t* icount,
+                                        size_t* icap,
+                                        char*** macros,
+                                        size_t* mcount,
+                                        size_t* mcap,
+                                        uint64_t* overlays) {
+    json_object* arr = NULL;
+    if (!json_object_object_get_ex(root, key, &arr) || !arr || !json_object_is_type(arr, json_type_array)) {
+        return;
+    }
+    const size_t count = json_object_array_length(arr);
+    for (size_t i = 0; i < count; ++i) {
+        json_object* item = json_object_array_get_idx(arr, i);
+        const char* value = item ? json_object_get_string(item) : NULL;
+        if (!value || !*value || has_unexpanded_make_var(value)) continue;
+        if (strcmp(key, "include_dirs") == 0) {
+            char expanded[PATH_MAX];
+            expand_relative(project_root, value, expanded, sizeof(expanded));
+            add_unique(includes, icount, icap, expanded);
+        } else if (strcmp(key, "defines") == 0) {
+            add_unique(macros, mcount, mcap, value);
+        } else if (strcmp(key, "overlays") == 0) {
+            parse_overlay_mode(value, overlays);
+        }
+    }
+}
+
+static void parse_project_manifest(const char* project_root,
+                                   char*** includes,
+                                   size_t* icount,
+                                   size_t* icap,
+                                   char*** macros,
+                                   size_t* mcount,
+                                   size_t* mcap,
+                                   uint64_t* overlays) {
+    if (!project_root || !*project_root) return;
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/project.fisics.json", project_root);
+    json_object* manifest = json_object_from_file(path);
+    if (!manifest || !json_object_is_type(manifest, json_type_object)) {
+        if (manifest) json_object_put(manifest);
+        return;
+    }
+
+    json_object* defaults = NULL;
+    if (json_object_object_get_ex(manifest, "defaults", &defaults) &&
+        defaults && json_object_is_type(defaults, json_type_object)) {
+        parse_manifest_string_array(defaults, "include_dirs", project_root,
+                                    includes, icount, icap,
+                                    macros, mcount, mcap,
+                                    overlays);
+        parse_manifest_string_array(defaults, "defines", project_root,
+                                    includes, icount, icap,
+                                    macros, mcount, mcap,
+                                    overlays);
+        parse_manifest_string_array(defaults, "overlays", project_root,
+                                    includes, icount, icap,
+                                    macros, mcount, mcap,
+                                    overlays);
+    }
+
+    json_object_put(manifest);
 }
 
 // Split a colon-separated env var.
@@ -101,11 +405,12 @@ static void parse_flags_for_includes_and_macros(const char* project_root,
                                                 char*** macros,
                                                 size_t* mcount,
                                                 size_t* mcap,
+                                                uint64_t* overlays,
                                                 char* lastSysroot,
                                                 size_t lastSysrootSize) {
     if (!flags) return;
     const char* delim = " \t\r\n";
-    char buf[2048];
+    char buf[32768];
     size_t flen = strlen(flags);
     if (flen >= sizeof(buf)) flen = sizeof(buf) - 1;
     memcpy(buf, flags, flen);
@@ -146,6 +451,11 @@ static void parse_flags_for_includes_and_macros(const char* project_root,
             if (*def && !has_unexpanded_make_var(def)) {
                 add_unique(macros, mcount, mcap, def);
             }
+        } else if (strcmp(tok, "--overlay") == 0) {
+            char* mode = strtok_r(NULL, delim, &save);
+            parse_overlay_mode(mode, overlays);
+        } else if (strncmp(tok, "--overlay=", 10) == 0) {
+            parse_overlay_mode(tok + 10, overlays);
         } else if (strncmp(tok, "-isysroot", 9) == 0) {
             const char* root = tok + 9;
             if (!*root) {
@@ -219,6 +529,7 @@ static void parse_makefiles(const char* project_root,
                             char*** macros,
                             size_t* mcount,
                             size_t* mcap,
+                            uint64_t* overlays,
                             char* lastSysroot,
                             size_t lastSysrootSize) {
     char mf[PATH_MAX];
@@ -234,12 +545,15 @@ static void parse_makefiles(const char* project_root,
         parse_flags_for_includes_and_macros(project_root, line,
                                             includes, icount, icap,
                                             macros, mcount, mcap,
+                                            overlays,
                                             lastSysroot, lastSysrootSize);
     }
     fclose(f);
 }
 
-// Run `make -pn` (or similar) to resolve variables without executing build steps.
+// Running make can evaluate Makefile $(shell ...) expressions. Keep this behind
+// an explicit trust opt-in so passive workspace analysis does not execute
+// workspace-controlled commands by default.
 static void parse_make_vars(const char* project_root,
                             char*** includes,
                             size_t* icount,
@@ -247,17 +561,34 @@ static void parse_make_vars(const char* project_root,
                             char*** macros,
                             size_t* mcount,
                             size_t* mcap,
+                            uint64_t* overlays,
                             char* lastSysroot,
                             size_t lastSysrootSize) {
     if (!project_root || !*project_root) return;
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "cd \"%s\" && make -pn 2>/dev/null", project_root);
-    FILE* f = popen(cmd, "r");
-    if (!f) return;
+    if (!env_truthy("IDE_TRUST_WORKSPACE_MAKE_VARS")) return;
 
-    const char* interesting[] = { "CPPFLAGS", "CFLAGS", "SDL2_CFLAGS", "SDLAPP_DIR", "SDKROOT" };
-    char line[2048];
-    while (fgets(line, sizeof(line), f)) {
+    char* const argv[] = { "make", "-pn", NULL };
+    char output[1024 * 1024];
+    if (!run_command_capture(project_root, argv, output, sizeof(output))) return;
+
+    const char* interesting[] = {
+        "CPPFLAGS",
+        "CFLAGS",
+        "COMMON_CFLAGS",
+        "CLANG_CFLAGS",
+        "INCLUDES",
+        "INC_DIRS",
+        "SDL_CFLAGS",
+        "SDL2_CFLAGS",
+        "SDL_TTF_CFLAGS",
+        "FISICS_FLAGS",
+        "SDLAPP_DIR",
+        "SDKROOT"
+    };
+    char* saveLine = NULL;
+    for (char* line = strtok_r(output, "\n", &saveLine);
+         line;
+         line = strtok_r(NULL, "\n", &saveLine)) {
         for (size_t i = 0; i < sizeof(interesting)/sizeof(interesting[0]); ++i) {
             const char* key = interesting[i];
             size_t klen = strlen(key);
@@ -280,12 +611,12 @@ static void parse_make_vars(const char* project_root,
                     parse_flags_for_includes_and_macros(project_root, val,
                                                         includes, icount, icap,
                                                         macros, mcount, mcap,
+                                                        overlays,
                                                         lastSysroot, lastSysrootSize);
                 }
             }
         }
     }
-    pclose(f);
 }
 
 static void add_clang_resource_include(char*** includes,
@@ -294,25 +625,12 @@ static void add_clang_resource_include(char*** includes,
     const char* candidates[] = { "clang", "clang++" };
     char line[PATH_MAX];
     for (size_t i = 0; i < sizeof(candidates)/sizeof(candidates[0]); ++i) {
-        char cmd[256];
-        snprintf(cmd, sizeof(cmd), "%s -print-resource-dir 2>/dev/null", candidates[i]);
-        FILE* f = popen(cmd, "r");
-        if (!f) continue;
-        if (fgets(line, sizeof(line), f)) {
-            // trim newline
-            size_t len = strlen(line);
-            while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-                line[--len] = '\0';
-            }
-            if (len > 0) {
-                char inc[PATH_MAX];
-                snprintf(inc, sizeof(inc), "%s/include", line);
-                add_unique(includes, icount, icap, inc);
-                pclose(f);
-                return;
-            }
-        }
-        pclose(f);
+        char* const argv[] = { (char*)candidates[i], "-print-resource-dir", NULL };
+        if (!run_command_first_line(NULL, argv, line, sizeof(line))) continue;
+        char inc[PATH_MAX];
+        snprintf(inc, sizeof(inc), "%s/include", line);
+        add_unique(includes, icount, icap, inc);
+        return;
     }
 }
 
@@ -322,26 +640,8 @@ static bool run_llvm_config_cflags(const char* command,
                                    size_t lineSize) {
     if (!command || !command[0] || !line || lineSize == 0) return false;
 
-    char cmd[768];
-    if (project_root && *project_root) {
-        snprintf(cmd,
-                 sizeof(cmd),
-                 "cd \"%s\" && \"%s\" --cflags 2>/dev/null",
-                 project_root,
-                 command);
-    } else {
-        snprintf(cmd, sizeof(cmd), "\"%s\" --cflags 2>/dev/null", command);
-    }
-
-    FILE* f = popen(cmd, "r");
-    if (!f) return false;
-
-    bool ok = false;
-    if (fgets(line, (int)lineSize, f) && line[0] != '\0') {
-        ok = true;
-    }
-    pclose(f);
-    return ok;
+    char* const argv[] = { (char*)command, "--cflags", NULL };
+    return run_command_first_line(project_root, argv, line, lineSize);
 }
 
 static void add_llvm_config_flags(const char* project_root,
@@ -351,6 +651,7 @@ static void add_llvm_config_flags(const char* project_root,
                                   char*** macros,
                                   size_t* mcount,
                                   size_t* mcap,
+                                  uint64_t* overlays,
                                   char* lastSysroot,
                                   size_t lastSysrootSize) {
     char line[2048];
@@ -369,6 +670,7 @@ static void add_llvm_config_flags(const char* project_root,
         parse_flags_for_includes_and_macros(project_root, line,
                                             includes, icount, icap,
                                             macros, mcount, mcap,
+                                            overlays,
                                             lastSysroot, lastSysrootSize);
         return;
     }
@@ -382,26 +684,36 @@ size_t gather_build_flags(const char* project_root,
         out->include_count = 0;
         out->macro_defines = NULL;
         out->macro_count = 0;
+        out->overlay_features = 0;
     }
 
     char** incs = NULL;
     char** defs = NULL;
     size_t icount = 0, dcount = 0;
     size_t icap = 0, dcap = 0;
+    uint64_t overlays = 0;
 
+    parse_project_manifest(project_root,
+                           &incs, &icount, &icap,
+                           &defs, &dcount, &dcap,
+                           &overlays);
     char lastSysroot[PATH_MAX] = {0};
     parse_makefiles(project_root, &incs, &icount, &icap, &defs, &dcount, &dcap,
+                    &overlays,
                     lastSysroot, sizeof(lastSysroot));
     parse_make_vars(project_root, &incs, &icount, &icap, &defs, &dcount, &dcap,
+                    &overlays,
                     lastSysroot, sizeof(lastSysroot));
     add_llvm_config_flags(project_root,
                           &incs, &icount, &icap,
                           &defs, &dcount, &dcap,
+                          &overlays,
                           lastSysroot, sizeof(lastSysroot));
     add_default_includes(project_root, &incs, &icount, &icap);
     parse_flags_for_includes_and_macros(project_root, extra_flags,
                                         &incs, &icount, &icap,
                                         &defs, &dcount, &dcap,
+                                        &overlays,
                                         lastSysroot, sizeof(lastSysroot));
     // If sysroot was captured, add frameworks root as well.
     if (lastSysroot[0]) {
@@ -410,6 +722,9 @@ size_t gather_build_flags(const char* project_root,
         add_unique(&incs, &icount, &icap, fw);
     }
     add_clang_resource_include(&incs, &icount, &icap);
+    if (!(overlays & BUILD_FLAG_OVERLAY_PHYSICS_UNITS)) {
+        scan_source_tree_for_overlays(project_root, &overlays);
+    }
 
     const char* debugEnv = getenv("ANALYSIS_FLAGS_DEBUG");
     bool debug = (debugEnv && debugEnv[0] && debugEnv[0] != '0');
@@ -422,6 +737,7 @@ size_t gather_build_flags(const char* project_root,
         for (size_t i = 0; i < dcount; ++i) {
             printf("  - %s\n", defs[i] ? defs[i] : "(null)");
         }
+        printf("[FlagsDebug] Overlays: 0x%llx\n", (unsigned long long)overlays);
     }
 
     if (out) {
@@ -429,6 +745,7 @@ size_t gather_build_flags(const char* project_root,
         out->include_count = icount;
         out->macro_defines = defs;
         out->macro_count = dcount;
+        out->overlay_features = overlays;
     } else {
         for (size_t i = 0; i < icount; ++i) free(incs[i]);
         free(incs);
@@ -451,20 +768,8 @@ void free_build_flag_set(BuildFlagSet* set) {
     memset(set, 0, sizeof(*set));
 }
 
-// Persistence helpers -------------------------------------------------------
-static void ensure_cache_dir(const char* workspace_root) {
-    if (!workspace_root || !*workspace_root) return;
-    char dir[PATH_MAX];
-    snprintf(dir, sizeof(dir), "%s/ide_files", workspace_root);
-    struct stat st;
-    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(dir, 0755);
-    }
-}
-
 void save_build_flags(const BuildFlagSet* set, const char* workspace_root) {
     if (!workspace_root || !*workspace_root || !set) return;
-    ensure_cache_dir(workspace_root);
 
     json_object* root = json_object_new_object();
     json_object* incs = json_object_new_array();
@@ -479,16 +784,13 @@ void save_build_flags(const BuildFlagSet* set, const char* workspace_root) {
     }
     json_object_object_add(root, "include_paths", incs);
     json_object_object_add(root, "macro_defines", defs);
+    json_object_object_add(root,
+                           "overlay_features",
+                           json_object_new_int64((int64_t)set->overlay_features));
 
     const char* serialized = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/ide_files/build_flags.json", workspace_root);
-    FILE* f = fopen(path, "w");
-    if (f && serialized) {
-        fputs(serialized, f);
-        fclose(f);
-    } else if (f) {
-        fclose(f);
+    if (serialized) {
+        analysis_artifact_io_write_text(workspace_root, "build_flags.json", serialized);
     }
     json_object_put(root);
 }
@@ -498,25 +800,11 @@ void load_build_flags(BuildFlagSet* set, const char* workspace_root) {
     free_build_flag_set(set);
     if (!workspace_root || !*workspace_root) return;
 
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/ide_files/build_flags.json", workspace_root);
-    FILE* f = fopen(path, "r");
-    if (!f) return;
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > (32 * 1024 * 1024)) {
-        fclose(f);
-        return;
-    }
-    char* buf = malloc((size_t)len + 1);
-    if (!buf) {
-        fclose(f);
-        return;
-    }
-    fread(buf, 1, (size_t)len, f);
-    buf[len] = '\0';
-    fclose(f);
+    char* buf = analysis_artifact_io_read_text(workspace_root,
+                                               "build_flags.json",
+                                               ANALYSIS_ARTIFACT_IO_DEFAULT_MAX_BYTES,
+                                               NULL);
+    if (!buf) return;
 
     json_object* root = json_tokener_parse(buf);
     free(buf);
@@ -554,6 +842,11 @@ void load_build_flags(BuildFlagSet* set, const char* workspace_root) {
             if (has_unexpanded_make_var(v)) continue;
             add_unique(&set->macro_defines, &set->macro_count, &dcap, v ? v : "");
         }
+    }
+
+    json_object* jov = NULL;
+    if (json_object_object_get_ex(root, "overlay_features", &jov) && jov) {
+        set->overlay_features = (uint64_t)json_object_get_int64(jov);
     }
 
     json_object_put(root);

@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 typedef enum {
     ANALYSIS_REASON_NONE = 0,
@@ -12,7 +13,9 @@ typedef enum {
     ANALYSIS_REASON_MANUAL_REFRESH = 1u << 3,
     ANALYSIS_REASON_PROJECT_MUTATION = 1u << 4,
     ANALYSIS_REASON_LIBRARY_PANEL_REFRESH = 1u << 5,
-    ANALYSIS_REASON_EDITOR_EDIT_TRANSACTION = 1u << 6
+    ANALYSIS_REASON_EDITOR_EDIT_TRANSACTION = 1u << 6,
+    ANALYSIS_REASON_EDITOR_SAVE = 1u << 7,
+    ANALYSIS_REASON_EDITOR_LIVE_BUFFER = 1u << 8
 } AnalysisRefreshReason;
 
 typedef enum {
@@ -20,7 +23,8 @@ typedef enum {
     ANALYSIS_JOB_KEY_WORKSPACE = 1,
     ANALYSIS_JOB_KEY_SYMBOLS = 2,
     ANALYSIS_JOB_KEY_DIAGNOSTICS = 3,
-    ANALYSIS_JOB_KEY_INDEX = 4
+    ANALYSIS_JOB_KEY_INDEX = 4,
+    ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS = 5
 } AnalysisJobKey;
 
 typedef struct {
@@ -34,6 +38,7 @@ typedef struct {
     AnalysisJobKey active_job_key;
     uint32_t pending_job_count;
     unsigned int pending_key_mask;
+    bool pending_editor_save_diagnostics;
 } AnalysisSchedulerSnapshot;
 
 typedef struct {
@@ -48,6 +53,15 @@ void analysis_scheduler_request_library_index_refresh(bool force_full);
 void analysis_scheduler_request_key(AnalysisJobKey key,
                                     AnalysisRefreshReason reason,
                                     bool force_full);
+void analysis_scheduler_request_file(const char* file_path,
+                                     AnalysisRefreshReason reason,
+                                     bool force_full);
+void analysis_scheduler_request_live_buffer(const char* file_path,
+                                            const char* contents,
+                                            size_t content_length,
+                                            uint64_t document_revision,
+                                            AnalysisRefreshReason reason,
+                                            bool force_full);
 void analysis_scheduler_tick(const char* project_root, const char* build_args);
 bool analysis_scheduler_running(void);
 void analysis_scheduler_snapshot(AnalysisSchedulerSnapshot* out);

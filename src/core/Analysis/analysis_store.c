@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <sys/stat.h>
 
+#include "core/Analysis/analysis_artifact_io.h"
 #include "core/LoopKernel/mainthread_context.h"
 
 static AnalysisFileDiagnostics* g_files = NULL;
@@ -257,23 +257,9 @@ void analysis_store_flatten_to_engine(void) {
 
 // Persistence helpers
 #include <json-c/json.h>
-#include <sys/stat.h>
-
-static void ensure_cache_dir(const char* workspaceRoot) {
-    if (!workspaceRoot || !*workspaceRoot) return;
-    char dir[1024];
-    snprintf(dir, sizeof(dir), "%s/ide_files", workspaceRoot);
-    struct stat st;
-    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(dir, 0755);
-    }
-}
 
 void analysis_store_save(const char* workspaceRoot) {
     if (!workspaceRoot || !*workspaceRoot) return;
-    ensure_cache_dir(workspaceRoot);
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
 
     analysis_store_lock();
     json_object* arr = json_object_new_array();
@@ -302,12 +288,8 @@ void analysis_store_save(const char* workspaceRoot) {
     }
 
     const char* serialized = json_object_to_json_string_ext(arr, JSON_C_TO_STRING_PLAIN);
-    FILE* f = fopen(path, "w");
-    if (f && serialized) {
-        fputs(serialized, f);
-        fclose(f);
-    } else if (f) {
-        fclose(f);
+    if (serialized) {
+        analysis_artifact_io_write_text(workspaceRoot, "analysis_diagnostics.json", serialized);
     }
     json_object_put(arr);
     analysis_store_unlock();
@@ -321,30 +303,14 @@ void analysis_store_load(const char* workspaceRoot) {
         analysis_store_unlock();
         return;
     }
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
-    FILE* f = fopen(path, "r");
-    if (!f) {
-        analysis_store_unlock();
-        return;
-    }
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > (32 * 1024 * 1024)) {
-        fclose(f);
-        analysis_store_unlock();
-        return;
-    }
-    char* buf = malloc((size_t)len + 1);
+    char* buf = analysis_artifact_io_read_text(workspaceRoot,
+                                               "analysis_diagnostics.json",
+                                               ANALYSIS_ARTIFACT_IO_DEFAULT_MAX_BYTES,
+                                               NULL);
     if (!buf) {
-        fclose(f);
         analysis_store_unlock();
         return;
     }
-    fread(buf, 1, (size_t)len, f);
-    buf[len] = '\0';
-    fclose(f);
 
     json_object* root = json_tokener_parse(buf);
     free(buf);

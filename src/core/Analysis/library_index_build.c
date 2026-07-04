@@ -205,6 +205,7 @@ static void scan_dir(const char* root, int depth) {
             opts.include_path_count = flags->include_count;
             opts.macro_defines = (const char* const*)flags->macro_defines;
             opts.macro_define_count = flags->macro_count;
+            opts.overlay_features = flags->overlay_features;
 
             int saved_stderr = -1;
             int saved_stdout = -1;

@@ -27,4 +27,14 @@ void analysis_scan_files_with_flags(const char* root,
                                     bool update_engine,
                                     bool persist_outputs);
 
+// Live active-buffer variant: analyzes one in-memory buffer snapshot using the
+// same flag set without requiring the file contents on disk to match.
+void analysis_scan_buffer_with_flags(const char* root,
+                                     const char* file_path,
+                                     const char* contents,
+                                     size_t content_length,
+                                     const BuildFlagSet* flags,
+                                     bool update_engine,
+                                     bool persist_outputs);
+
 #endif // PROJECT_SCAN_H

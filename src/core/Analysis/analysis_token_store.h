@@ -6,6 +6,10 @@
 
 #include "fisics_frontend.h"
 
+#ifndef ANALYSIS_TOKEN_STORE_PERSIST_LIMIT_BYTES
+#define ANALYSIS_TOKEN_STORE_PERSIST_LIMIT_BYTES (32u * 1024u * 1024u)
+#endif
+
 typedef struct {
     char* path;
     FisicsTokenSpan* spans;

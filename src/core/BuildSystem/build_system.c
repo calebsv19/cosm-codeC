@@ -6,6 +6,7 @@
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "core/BuildSystem/build_diagnostics.h"
+#include "core/BuildSystem/build_trust_notice.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -200,12 +201,14 @@ void triggerBuild(void) {
 
     char commandForShell[1024] = {0};   // Command to feed into an interactive shell
     char commandForPopen[2048] = {0};   // Command to execute via popen fallback
+    const char* commandSource = "default_compile_fallback";
 
     bool usePopenFallback = false;
 
     if (!customCommand) {
         bool useMake = has_makefile(projectPath);
         if (useMake) {
+            commandSource = "default_make";
             snprintf(commandForShell, sizeof(commandForShell), "make");
             snprintf(commandForPopen, sizeof(commandForPopen),
                      "cd \"%s\" && make 2>&1",
@@ -245,6 +248,7 @@ void triggerBuild(void) {
             printToTerminal(msg);
         }
     } else {
+        commandSource = "workspace_config";
         char buildArgs[512];
         buildArgs[0] = '\0';
         if (cfg->build_args[0]) {
@@ -273,6 +277,17 @@ void triggerBuild(void) {
             snprintf(summary, sizeof(summary), "[BuildSystem] Artifact directory: %s\n", outputDirForArtifacts);
             printToTerminal(summary);
         }
+    }
+
+    {
+        char trustNotice[2048];
+        ide_build_trust_notice_format(trustNotice,
+                                      sizeof(trustNotice),
+                                      IDE_BUILD_TRUST_ACTION_BUILD,
+                                      commandSource,
+                                      workingDir,
+                                      commandForShell[0] ? commandForShell : commandForPopen);
+        printToTerminal(trustNotice);
     }
 
     // Preferred path: run inside a PTY shell so output streams live into the Build tab.

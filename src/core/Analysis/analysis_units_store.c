@@ -5,8 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 
+#include "core/Analysis/analysis_artifact_io.h"
 #include "core/LoopKernel/mainthread_context.h"
 
 static AnalysisFileUnits* g_files = NULL;
@@ -35,6 +35,7 @@ static char* dup_str(const char* s) {
 static void free_attachment(AnalysisUnitsAttachment* att) {
     if (!att) return;
     free(att->symbol_name);
+    free(att->source_file_path);
     free(att->dim_text);
     free(att->unit_source_text);
     free(att->unit_name);
@@ -73,7 +74,13 @@ static bool clone_attachment(AnalysisUnitsAttachment* dst,
     if (!dst || !src) return false;
     memset(dst, 0, sizeof(*dst));
     dst->symbol_stable_id = src->symbol_stable_id;
+    dst->has_symbol_stable_id = src->has_symbol_stable_id || src->symbol_stable_id != 0;
     dst->symbol_name = dup_str(src->symbol_name);
+    dst->source_file_path = dup_str(src->source_file_path);
+    dst->start_line = src->start_line;
+    dst->start_col = src->start_col;
+    dst->end_line = src->end_line;
+    dst->end_col = src->end_col;
     dst->dim_text = dup_str(src->dim_text);
     for (size_t i = 0; i < FISICS_UNITS_DIM_SLOTS; ++i) {
         dst->dim[i] = src->dim[i];
@@ -94,6 +101,7 @@ static bool clone_attachment(AnalysisUnitsAttachment* dst,
     }
 
     if ((src->symbol_name && !dst->symbol_name) ||
+        (src->source_file_path && !dst->source_file_path) ||
         (src->dim_text && !dst->dim_text) ||
         (concreteUnitFieldsEnabled && src->unit_source_text && !dst->unit_source_text) ||
         (concreteUnitFieldsEnabled && src->unit_name && !dst->unit_name) ||
@@ -227,16 +235,6 @@ uint64_t analysis_units_store_combined_stamp(void) {
     return stamp;
 }
 
-static void ensure_cache_dir(const char* workspaceRoot) {
-    if (!workspaceRoot || !*workspaceRoot) return;
-    char dir[1024];
-    snprintf(dir, sizeof(dir), "%s/ide_files", workspaceRoot);
-    struct stat st;
-    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(dir, 0755);
-    }
-}
-
 static json_object* json_string_or_empty(const char* s) {
     return json_object_new_string(s ? s : "");
 }
@@ -265,9 +263,6 @@ static uint64_t parse_json_u64(json_object* value) {
 
 void analysis_units_store_save(const char* workspaceRoot) {
     if (!workspaceRoot || !*workspaceRoot) return;
-    ensure_cache_dir(workspaceRoot);
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_units_attachments.json", workspaceRoot);
 
     analysis_units_store_lock();
     json_object* arr = json_object_new_array();
@@ -283,7 +278,13 @@ void analysis_units_store_save(const char* workspaceRoot) {
             char stable_id_hex[19];
             format_u64_hex(att->symbol_stable_id, stable_id_hex);
             json_object_object_add(ja, "symbol_stable_id", json_object_new_string(stable_id_hex));
+            json_object_object_add(ja, "has_symbol_stable_id", json_object_new_boolean(att->has_symbol_stable_id));
             json_object_object_add(ja, "symbol_name", json_string_or_empty(att->symbol_name));
+            json_object_object_add(ja, "source_file_path", json_string_or_empty(att->source_file_path));
+            json_object_object_add(ja, "start_line", json_object_new_int(att->start_line));
+            json_object_object_add(ja, "start_col", json_object_new_int(att->start_col));
+            json_object_object_add(ja, "end_line", json_object_new_int(att->end_line));
+            json_object_object_add(ja, "end_col", json_object_new_int(att->end_col));
             json_object_object_add(ja, "dim_text", json_string_or_empty(att->dim_text));
             json_object* dim = json_object_new_array();
             for (size_t d = 0; d < FISICS_UNITS_DIM_SLOTS; ++d) {
@@ -305,12 +306,10 @@ void analysis_units_store_save(const char* workspaceRoot) {
         json_object_array_add(arr, obj);
     }
     const char* serialized = json_object_to_json_string_ext(arr, JSON_C_TO_STRING_PLAIN);
-    FILE* f = fopen(path, "w");
-    if (f && serialized) {
-        fputs(serialized, f);
-        fclose(f);
-    } else if (f) {
-        fclose(f);
+    if (serialized) {
+        analysis_artifact_io_write_text(workspaceRoot,
+                                        "analysis_units_attachments.json",
+                                        serialized);
     }
     json_object_put(arr);
     analysis_units_store_unlock();
@@ -320,25 +319,11 @@ void analysis_units_store_load(const char* workspaceRoot) {
     mainthread_context_assert_owner("analysis_units_store.load");
     analysis_units_store_clear();
     if (!workspaceRoot || !*workspaceRoot) return;
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/ide_files/analysis_units_attachments.json", workspaceRoot);
-    FILE* f = fopen(path, "r");
-    if (!f) return;
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > (32 * 1024 * 1024)) {
-        fclose(f);
-        return;
-    }
-    char* buf = (char*)malloc((size_t)len + 1);
-    if (!buf) {
-        fclose(f);
-        return;
-    }
-    size_t read_len = fread(buf, 1, (size_t)len, f);
-    fclose(f);
-    buf[read_len] = '\0';
+    char* buf = analysis_artifact_io_read_text(workspaceRoot,
+                                               "analysis_units_attachments.json",
+                                               ANALYSIS_ARTIFACT_IO_DEFAULT_MAX_BYTES,
+                                               NULL);
+    if (!buf) return;
 
     json_object* root = json_tokener_parse(buf);
     free(buf);
@@ -370,10 +355,17 @@ void analysis_units_store_load(const char* workspaceRoot) {
         for (size_t i = 0; i < count; ++i) {
             json_object* ja = json_object_array_get_idx(jatts, i);
             if (!ja) continue;
-            json_object* jid=NULL,* jname=NULL,* jdimText=NULL,* jdim=NULL,* jresolved=NULL,* jhasConcrete=NULL;
+            json_object* jid=NULL,* jhasId=NULL,* jname=NULL,* jsource=NULL,* jstartLine=NULL,* jstartCol=NULL,* jendLine=NULL,* jendCol=NULL;
+            json_object* jdimText=NULL,* jdim=NULL,* jresolved=NULL,* jhasConcrete=NULL;
             json_object* jus=NULL,* jun=NULL,* jusym=NULL,* juf=NULL,* jur=NULL;
             json_object_object_get_ex(ja, "symbol_stable_id", &jid);
+            json_object_object_get_ex(ja, "has_symbol_stable_id", &jhasId);
             json_object_object_get_ex(ja, "symbol_name", &jname);
+            json_object_object_get_ex(ja, "source_file_path", &jsource);
+            json_object_object_get_ex(ja, "start_line", &jstartLine);
+            json_object_object_get_ex(ja, "start_col", &jstartCol);
+            json_object_object_get_ex(ja, "end_line", &jendLine);
+            json_object_object_get_ex(ja, "end_col", &jendCol);
             json_object_object_get_ex(ja, "dim_text", &jdimText);
             json_object_object_get_ex(ja, "dim", &jdim);
             json_object_object_get_ex(ja, "resolved", &jresolved);
@@ -384,7 +376,13 @@ void analysis_units_store_load(const char* workspaceRoot) {
             json_object_object_get_ex(ja, "unit_family", &juf);
             json_object_object_get_ex(ja, "unit_resolved", &jur);
             tmp[i].symbol_stable_id = parse_json_u64(jid);
+            tmp[i].has_symbol_stable_id = jhasId ? json_object_get_boolean(jhasId) : (tmp[i].symbol_stable_id != 0);
             tmp[i].symbol_name = dup_str(jname ? json_object_get_string(jname) : NULL);
+            tmp[i].source_file_path = dup_str(jsource ? json_object_get_string(jsource) : NULL);
+            tmp[i].start_line = jstartLine ? json_object_get_int(jstartLine) : 0;
+            tmp[i].start_col = jstartCol ? json_object_get_int(jstartCol) : 0;
+            tmp[i].end_line = jendLine ? json_object_get_int(jendLine) : 0;
+            tmp[i].end_col = jendCol ? json_object_get_int(jendCol) : 0;
             tmp[i].dim_text = dup_str(jdimText ? json_object_get_string(jdimText) : NULL);
             if (jdim && json_object_is_type(jdim, json_type_array)) {
                 size_t len_dim = json_object_array_length(jdim);
@@ -411,6 +409,7 @@ void analysis_units_store_load(const char* workspaceRoot) {
         analysis_units_store_upsert(path_str, tmp, count, any_concrete);
         for (size_t i = 0; i < count; ++i) {
             free((char*)tmp[i].symbol_name);
+            free((char*)tmp[i].source_file_path);
             free((char*)tmp[i].dim_text);
             free((char*)tmp[i].unit_source_text);
             free((char*)tmp[i].unit_name);

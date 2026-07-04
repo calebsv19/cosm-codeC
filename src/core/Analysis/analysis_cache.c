@@ -9,20 +9,12 @@
 #include <time.h>
 
 #include "core/Analysis/analysis_store.h"
+#include "core/Analysis/analysis_artifact_io.h"
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
 #include "core/Analysis/analysis_units_store.h"
+#include "core/Analysis/include_graph.h"
 #include "core/Analysis/library_index.h"
-
-static void ensure_cache_dir(const char* workspace_root) {
-    if (!workspace_root || !*workspace_root) return;
-    char dir[PATH_MAX];
-    snprintf(dir, sizeof(dir), "%s/ide_files", workspace_root);
-    struct stat st;
-    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(dir, 0755);
-    }
-}
 
 static uint64_t fnv1a64(const char* s, uint64_t seed) {
     uint64_t hash = seed ? seed : 0xcbf29ce484222325ULL;
@@ -41,6 +33,15 @@ static long get_makefile_mtime(const char* workspace_root) {
     snprintf(path, sizeof(path), "%s/Makefile", workspace_root);
     if (stat(path, &st) == 0) return st.st_mtime;
     snprintf(path, sizeof(path), "%s/makefile", workspace_root);
+    if (stat(path, &st) == 0) return st.st_mtime;
+    return 0;
+}
+
+static long get_project_manifest_mtime(const char* workspace_root) {
+    if (!workspace_root || !*workspace_root) return 0;
+    char path[PATH_MAX];
+    struct stat st;
+    snprintf(path, sizeof(path), "%s/project.fisics.json", workspace_root);
     if (stat(path, &st) == 0) return st.st_mtime;
     return 0;
 }
@@ -122,6 +123,10 @@ void analysis_cache_compute_meta(const char* workspace_root,
     if (build_args && *build_args) {
         h = fnv1a64(build_args, h);
     }
+    char flag_sig[96];
+    snprintf(flag_sig, sizeof(flag_sig), "analysis-build-flags-v2:%ld",
+             get_project_manifest_mtime(workspace_root));
+    h = fnv1a64(flag_sig, h);
     out->build_args_hash = h;
     out->makefile_mtime = get_makefile_mtime(workspace_root);
     compute_frontend_lib_fingerprint(out);
@@ -129,7 +134,6 @@ void analysis_cache_compute_meta(const char* workspace_root,
 
 bool analysis_cache_save_meta(const AnalysisCacheMeta* meta, const char* workspace_root) {
     if (!meta || !workspace_root || !*workspace_root) return false;
-    ensure_cache_dir(workspace_root);
     json_object* root = json_object_new_object();
     json_object_object_add(root, "version", json_object_new_int((int)meta->version));
     json_object_object_add(root, "build_args_hash",
@@ -143,41 +147,18 @@ bool analysis_cache_save_meta(const AnalysisCacheMeta* meta, const char* workspa
     json_object_object_add(root, "frontend_lib_path",
                            json_object_new_string(meta->frontend_lib_path[0] ? meta->frontend_lib_path : ""));
     const char* serialized = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/ide_files/cache_meta.json", workspace_root);
-    FILE* f = fopen(path, "w");
-    if (f && serialized) {
-        fputs(serialized, f);
-        fclose(f);
-        json_object_put(root);
-        return true;
-    }
-    if (f) fclose(f);
+    bool ok = serialized && analysis_artifact_io_write_text(workspace_root, "cache_meta.json", serialized);
     json_object_put(root);
-    return false;
+    return ok;
 }
 
 bool analysis_cache_load_meta(AnalysisCacheMeta* out, const char* workspace_root) {
     if (!out || !workspace_root || !*workspace_root) return false;
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/ide_files/cache_meta.json", workspace_root);
-    FILE* f = fopen(path, "r");
-    if (!f) return false;
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > (32 * 1024 * 1024)) {
-        fclose(f);
-        return false;
-    }
-    char* buf = malloc((size_t)len + 1);
-    if (!buf) {
-        fclose(f);
-        return false;
-    }
-    fread(buf, 1, (size_t)len, f);
-    buf[len] = '\0';
-    fclose(f);
+    char* buf = analysis_artifact_io_read_text(workspace_root,
+                                               "cache_meta.json",
+                                               ANALYSIS_ARTIFACT_IO_DEFAULT_MAX_BYTES,
+                                               NULL);
+    if (!buf) return false;
 
     json_object* root = json_tokener_parse(buf);
     free(buf);
@@ -313,6 +294,18 @@ bool analysis_cache_load_library(const char* workspace_root, const char* build_a
     }
     library_index_load(workspace_root);
     return true;
+}
+
+bool analysis_cache_load_include_graph(const char* workspace_root, const char* build_args) {
+    include_graph_clear();
+    if (!workspace_root || !*workspace_root) return false;
+    AnalysisCacheMeta meta = {0};
+    if (!analysis_cache_load_meta(&meta, workspace_root) ||
+        !analysis_cache_meta_matches(&meta, workspace_root, build_args)) {
+        return false;
+    }
+    include_graph_load(workspace_root);
+    return include_graph_entry_count() > 0;
 }
 
 bool analysis_cache_save_build_flags(const BuildFlagSet* flags, const char* workspace_root) {

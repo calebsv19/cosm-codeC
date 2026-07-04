@@ -1,4 +1,5 @@
 #include "tool_git.h"
+#include "ide/Panes/ToolPanels/Git/git_command_runner.h"
 #include "ide/Panes/ToolPanels/Git/tree_git_adapter.h"
 #include "ide/Panes/ToolPanels/tool_panel_adapter.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
@@ -22,7 +23,7 @@ typedef struct {
     GitLogEntry* logs;
     int log_count;
     int log_capacity;
-    FILE* log_pipe;
+    GitCommandProcess log_process;
     bool log_loading;
     bool log_parse_error;
 } GitPanelModelState;
@@ -102,9 +103,8 @@ static void git_panel_destroy_controller_state(void* ptr) {
     state->tree.expand_cache = NULL;
     state->tree.expand_count = 0;
     state->tree.expand_cap = 0;
-    if (state->model.log_pipe) {
-        pclose(state->model.log_pipe);
-        state->model.log_pipe = NULL;
+    if (state->model.log_process.stream) {
+        (void)git_command_process_close(&state->model.log_process);
     }
     free(state->model.logs);
     state->model.logs = NULL;
@@ -133,7 +133,7 @@ static GitPanelControllerState* git_panel_state(void) {
 #define gitLogEntries (git_panel_state()->model.logs)
 #define gitLogCount (git_panel_state()->model.log_count)
 #define gitLogCapacity (git_panel_state()->model.log_capacity)
-#define gitLogPipe (git_panel_state()->model.log_pipe)
+#define gitLogProcess (git_panel_state()->model.log_process)
 #define gitLogLoading (git_panel_state()->model.log_loading)
 #define gitLogParseError (git_panel_state()->model.log_parse_error)
 
@@ -324,9 +324,8 @@ static bool git_panel_is_metadata_path_ignored(const char* path) {
 }
 
 static void git_panel_log_close_stream(void) {
-    if (!gitLogPipe) return;
-    pclose(gitLogPipe);
-    gitLogPipe = NULL;
+    if (!gitLogProcess.stream) return;
+    (void)git_command_process_close(&gitLogProcess);
     gitLogLoading = false;
 }
 
@@ -403,22 +402,30 @@ static bool git_panel_log_start_stream(int requestedMaxCommits) {
     if (!projectPath[0]) return false;
 
     int maxCommits = requestedMaxCommits > 0 ? requestedMaxCommits : git_panel_log_max_commits_env();
-    char cmd[2048];
+    char maxArg[32] = {0};
     if (maxCommits > 0) {
-        snprintf(cmd,
-                 sizeof(cmd),
-                 "cd \"%s\" && git log -n %d --date=short --pretty=format:\"%%h%%x1f%%s%%x1f%%an%%x1f%%ad\"",
-                 projectPath,
-                 maxCommits);
-    } else {
-        snprintf(cmd,
-                 sizeof(cmd),
-                 "cd \"%s\" && git log --date=short --pretty=format:\"%%h%%x1f%%s%%x1f%%an%%x1f%%ad\"",
-                 projectPath);
+        snprintf(maxArg, sizeof(maxArg), "%d", maxCommits);
     }
 
-    gitLogPipe = popen(cmd, "r");
-    if (!gitLogPipe) {
+    const char* const argv_limited[] = {
+        "git",
+        "log",
+        "-n",
+        maxArg,
+        "--date=short",
+        "--pretty=format:%h%x1f%s%x1f%an%x1f%ad",
+        NULL
+    };
+    const char* const argv_full[] = {
+        "git",
+        "log",
+        "--date=short",
+        "--pretty=format:%h%x1f%s%x1f%an%x1f%ad",
+        NULL
+    };
+    const char* const* argv = maxCommits > 0 ? argv_limited : argv_full;
+
+    if (!git_command_process_start(projectPath, argv, GIT_COMMAND_STDERR_TO_NULL, &gitLogProcess)) {
         fprintf(stderr, "[GitError] Failed to start git log stream\n");
         gitLogLoading = false;
         return false;
@@ -429,11 +436,11 @@ static bool git_panel_log_start_stream(int requestedMaxCommits) {
 }
 
 static int git_panel_log_pump_stream(int maxLines) {
-    if (!gitLogPipe || maxLines <= 0) return 0;
+    if (!gitLogProcess.stream || maxLines <= 0) return 0;
 
     int appended = 0;
     char line[GIT_LOG_LINE_MAX];
-    while (appended < maxLines && fgets(line, sizeof(line), gitLogPipe)) {
+    while (appended < maxLines && fgets(line, sizeof(line), gitLogProcess.stream)) {
         GitLogEntry parsed = {0};
         if (!git_panel_log_parse_line(line, &parsed)) {
             gitLogParseError = true;
@@ -450,64 +457,27 @@ static int git_panel_log_pump_stream(int maxLines) {
         appended++;
     }
 
-    if (feof(gitLogPipe)) {
+    if (feof(gitLogProcess.stream)) {
         git_panel_log_close_stream();
     }
 
     return appended;
 }
 
-static void shell_append_quoted(char* out, size_t outCap, const char* raw) {
-    if (!out || outCap == 0) return;
-    size_t n = strlen(out);
-    if (n + 2 >= outCap) return;
-    out[n++] = '\'';
-    if (raw) {
-        for (size_t i = 0; raw[i] && n + 5 < outCap; ++i) {
-            if (raw[i] == '\'') {
-                out[n++] = '\'';
-                out[n++] = '\\';
-                out[n++] = '\'';
-                out[n++] = '\'';
-            } else {
-                out[n++] = raw[i];
-            }
-        }
-    }
-    if (n + 1 < outCap) out[n++] = '\'';
-    out[n] = '\0';
-}
-
-static bool run_git_command(const char* gitArgs, char* outLine, size_t outLineCap) {
+static bool run_git_command(const char* const argv[], char* outLine, size_t outLineCap) {
     if (outLine && outLineCap > 0) outLine[0] = '\0';
-    if (!projectPath[0] || !gitArgs || !gitArgs[0]) return false;
+    if (!projectPath[0] || !argv || !argv[0]) return false;
 
-    char cmd[2048] = {0};
-    snprintf(cmd, sizeof(cmd), "cd ");
-    shell_append_quoted(cmd, sizeof(cmd), projectPath);
-    strncat(cmd, " && git ", sizeof(cmd) - strlen(cmd) - 1);
-    strncat(cmd, gitArgs, sizeof(cmd) - strlen(cmd) - 1);
-    strncat(cmd, " 2>&1", sizeof(cmd) - strlen(cmd) - 1);
-
-    FILE* pipe = popen(cmd, "r");
-    if (!pipe) {
+    if (!git_command_capture_first_line(projectPath,
+                                        argv,
+                                        GIT_COMMAND_STDERR_TO_STDOUT,
+                                        outLine,
+                                        outLineCap)) {
         if (outLine && outLineCap > 0) snprintf(outLine, outLineCap, "Failed to start git command");
         return false;
     }
-
-    if (outLine && outLineCap > 0) {
-        if (!fgets(outLine, (int)outLineCap, pipe)) {
-            outLine[0] = '\0';
-        } else {
-            sanitize_line(outLine);
-        }
-    } else {
-        char sink[256];
-        fgets(sink, sizeof(sink), pipe);
-    }
-
-    int rc = pclose(pipe);
-    return rc == 0;
+    sanitize_line(outLine);
+    return true;
 }
 
 const char* git_panel_branch_name(void) {
@@ -713,7 +683,8 @@ void git_panel_move_cursor_end(void) {
 
 bool git_stage_all_changes(void) {
     char line[256] = {0};
-    bool ok = run_git_command("add -A", line, sizeof(line));
+    const char* const argv[] = {"git", "add", "-A", NULL};
+    bool ok = run_git_command(argv, line, sizeof(line));
     if (ok) {
         snprintf(g_statusText, sizeof(g_statusText), "Staged all changes");
     } else {
@@ -729,12 +700,9 @@ bool git_commit_with_message(void) {
         return false;
     }
 
-    char args[1024] = {0};
-    snprintf(args, sizeof(args), "commit -m ");
-    shell_append_quoted(args, sizeof(args), g_commitMessage);
-
     char line[256] = {0};
-    bool ok = run_git_command(args, line, sizeof(line));
+    const char* const argv[] = {"git", "commit", "-m", g_commitMessage, NULL};
+    bool ok = run_git_command(argv, line, sizeof(line));
     if (ok) {
         snprintf(g_statusText, sizeof(g_statusText), "%s", line[0] ? line : "Commit complete");
         UIPanelTextEditBuffer buffer = git_panel_message_buffer();
@@ -749,28 +717,27 @@ bool git_commit_with_message(void) {
 void refreshGitStatus() {
     gitFileCount = 0;
 
-    // Get branch name
-    char branchCmd[1024];
-    snprintf(branchCmd, sizeof(branchCmd), "cd %s && git branch --show-current", projectPath);
-
-    FILE* bpipe = popen(branchCmd, "r");
-    if (bpipe) {
-        fgets(currentGitBranch, sizeof(currentGitBranch), bpipe);
-        currentGitBranch[strcspn(currentGitBranch, "\n")] = 0;
-        pclose(bpipe);
+    const char* const branch_argv[] = {"git", "branch", "--show-current", NULL};
+    if (!git_command_capture_first_line(projectPath,
+                                        branch_argv,
+                                        GIT_COMMAND_STDERR_TO_NULL,
+                                        currentGitBranch,
+                                        sizeof(currentGitBranch))) {
+        snprintf(currentGitBranch, sizeof(currentGitBranch), "%s", "unknown");
     }
 
-    // Get file status
-    char statusCmd[1024];
-    snprintf(statusCmd, sizeof(statusCmd), "cd %s && git status --porcelain", projectPath);
-    FILE* pipe = popen(statusCmd, "r");
-    if (!pipe) {
+    const char* const status_argv[] = {"git", "status", "--porcelain", NULL};
+    GitCommandProcess process = {0};
+    if (!git_command_process_start(projectPath,
+                                   status_argv,
+                                   GIT_COMMAND_STDERR_TO_NULL,
+                                   &process)) {
         fprintf(stderr, "[GitError] Failed to run git status\n");
         return;
     }
 
     char line[512];
-    while (fgets(line, sizeof(line), pipe) && gitFileCount < MAX_GIT_ENTRIES) {
+    while (fgets(line, sizeof(line), process.stream) && gitFileCount < MAX_GIT_ENTRIES) {
         if (strlen(line) < 4) continue;
 
         char statusCode[3];
@@ -810,7 +777,7 @@ void refreshGitStatus() {
         }
     }
 
-    pclose(pipe);
+    (void)git_command_process_close(&process);
 }
 
 void refreshGitLog(int maxEntries) {
@@ -831,18 +798,19 @@ void pollGitStatusWatcher(void) {
         resetGitTree();
     }
 
-    char cmd[1200];
-    snprintf(cmd,
-             sizeof(cmd),
-             "cd \"%s\" && git status --porcelain=v1 --branch 2>/dev/null",
-             projectPath);
-    FILE* pipe = popen(cmd, "r");
-    if (!pipe) return;
+    const char* const status_argv[] = {"git", "status", "--porcelain=v1", "--branch", NULL};
+    GitCommandProcess process = {0};
+    if (!git_command_process_start(projectPath,
+                                   status_argv,
+                                   GIT_COMMAND_STDERR_TO_NULL,
+                                   &process)) {
+        return;
+    }
 
     uint64_t hash = 0;
     char buf[1024];
     bool sawAny = false;
-    while (fgets(buf, sizeof(buf), pipe)) {
+    while (fgets(buf, sizeof(buf), process.stream)) {
         char lineCopy[1024];
         snprintf(lineCopy, sizeof(lineCopy), "%s", buf);
         lineCopy[sizeof(lineCopy) - 1] = '\0';
@@ -864,7 +832,7 @@ void pollGitStatusWatcher(void) {
         sawAny = true;
         hash = fnv1a64_bytes((const unsigned char*)buf, strlen(buf), hash);
     }
-    int rc = pclose(pipe);
+    int rc = git_command_process_close(&process);
     if (rc != 0) return;
     if (!sawAny) {
         hash = fnv1a64_bytes((const unsigned char*)"clean", 5, 0);

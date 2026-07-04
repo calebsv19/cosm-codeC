@@ -7,7 +7,7 @@
 
 #include "core/Analysis/include_path_resolver.h"
 
-#define ANALYSIS_CACHE_VERSION 1
+#define ANALYSIS_CACHE_VERSION 2
 
 typedef struct {
     uint32_t version;
@@ -41,6 +41,7 @@ bool analysis_cache_load_tokens(const char* workspace_root, const char* build_ar
 
 bool analysis_cache_save_library(const char* workspace_root);
 bool analysis_cache_load_library(const char* workspace_root, const char* build_args);
+bool analysis_cache_load_include_graph(const char* workspace_root, const char* build_args);
 
 bool analysis_cache_save_build_flags(const BuildFlagSet* flags, const char* workspace_root);
 bool analysis_cache_load_build_flags(BuildFlagSet* flags,

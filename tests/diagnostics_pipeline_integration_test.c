@@ -50,7 +50,9 @@ static void reset_pane_dirty(UIPane* pane) {
 }
 
 static bool apply_diagnostics_result_like_main_loop(const CompletedResult* result,
-                                                    const char* project_root) {
+                                                    const char* project_root,
+                                                    const char* open_file_path,
+                                                    uint64_t open_file_revision) {
     if (!result || result->kind != COMPLETED_RESULT_DIAGNOSTICS_UPDATED) return false;
     const CompletedResultDiagnosticsUpdatedPayload* p = &result->payload.diagnostics_updated;
     if (p->project_root[0] && strcmp(p->project_root, project_root) != 0) {
@@ -60,6 +62,14 @@ static bool apply_diagnostics_result_like_main_loop(const CompletedResult* resul
     if (analysis_store_combined_stamp() != p->diagnostics_stamp) {
         completed_results_queue_note_stale_dropped();
         return false;
+    }
+    if (result->has_document_revision) {
+        if (!result->document_path[0] || !open_file_path ||
+            strcmp(result->document_path, open_file_path) != 0 ||
+            result->document_revision != open_file_revision) {
+            completed_results_queue_note_stale_dropped();
+            return false;
+        }
     }
     analysis_store_flatten_to_engine();
     completed_results_queue_note_applied();
@@ -116,7 +126,7 @@ static void test_diagnostics_apply_dispatch_and_invalidation(void) {
     CompletedResult popped;
     memset(&popped, 0, sizeof(popped));
     assert(completed_results_queue_pop_any(&popped));
-    assert(apply_diagnostics_result_like_main_loop(&popped, project_root));
+    assert(apply_diagnostics_result_like_main_loop(&popped, project_root, NULL, 0u));
     completed_results_queue_release(&popped);
 
     UIPane editor = {0};
@@ -179,12 +189,60 @@ static void test_stale_diagnostics_result_is_dropped(void) {
     CompletedResult popped;
     memset(&popped, 0, sizeof(popped));
     assert(completed_results_queue_pop_any(&popped));
-    assert(!apply_diagnostics_result_like_main_loop(&popped, project_root));
+    assert(!apply_diagnostics_result_like_main_loop(&popped, project_root, NULL, 0u));
     completed_results_queue_release(&popped);
 
     IDEEvent ev = {0};
     assert(!loop_events_pop(&ev));
     assert(analysis_store_published_stamp() == 0u);
+}
+
+static void test_live_document_revision_mismatch_is_dropped(void) {
+    const char* project_root = "/tmp/diagnostics_pipeline_integration";
+    const char* file_path = "/tmp/diagnostics_pipeline_integration/src/live.c";
+
+    completed_results_queue_reset();
+    analysis_store_clear();
+    loop_events_reset();
+    analysis_store_mark_published(0u);
+
+    seed_store_single_diag(file_path, "live diag");
+    uint64_t stamp = analysis_store_combined_stamp();
+    assert(stamp > 0u);
+
+    CompletedResult in;
+    memset(&in, 0, sizeof(in));
+    in.subsystem = COMPLETED_SUBSYSTEM_DIAGNOSTICS;
+    in.kind = COMPLETED_RESULT_DIAGNOSTICS_UPDATED;
+    in.has_document_revision = true;
+    snprintf(in.document_path, sizeof(in.document_path), "%s", file_path);
+    in.document_path[sizeof(in.document_path) - 1] = '\0';
+    in.document_revision = 10u;
+    in.payload.diagnostics_updated.analysis_run_id = 99u;
+    in.payload.diagnostics_updated.diagnostics_stamp = stamp;
+    snprintf(in.payload.diagnostics_updated.project_root,
+             sizeof(in.payload.diagnostics_updated.project_root),
+             "%s",
+             project_root);
+    assert(completed_results_queue_push(&in));
+
+    CompletedResult popped;
+    memset(&popped, 0, sizeof(popped));
+    assert(completed_results_queue_pop_any(&popped));
+    assert(!apply_diagnostics_result_like_main_loop(&popped,
+                                                    project_root,
+                                                    file_path,
+                                                    11u));
+    completed_results_queue_release(&popped);
+
+    IDEEvent ev = {0};
+    assert(!loop_events_pop(&ev));
+    assert(analysis_store_published_stamp() == 0u);
+
+    CompletedResultsQueueStats stats = {0};
+    completed_results_queue_snapshot(&stats);
+    assert(stats.results_stale_dropped == 1u);
+    assert(stats.results_applied == 0u);
 }
 
 int main(void) {
@@ -193,6 +251,7 @@ int main(void) {
 
     test_diagnostics_apply_dispatch_and_invalidation();
     test_stale_diagnostics_result_is_dropped();
+    test_live_document_revision_mismatch_is_dropped();
 
     loop_events_shutdown();
     completed_results_queue_shutdown();

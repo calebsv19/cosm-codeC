@@ -327,6 +327,13 @@ const char* ide_runtime_executable_dir(void) {
     return g_executable_dir;
 }
 
+const char* ide_runtime_resource_source_label(void) {
+    if (!g_initialized) {
+        ide_runtime_paths_init(NULL);
+    }
+    return g_source_label;
+}
+
 bool ide_runtime_join_resource_path(const char* relative_path,
                                     char* out_path,
                                     size_t out_cap) {

@@ -1,4 +1,5 @@
 #include "run_build.h"
+#include "core/BuildSystem/build_trust_notice.h"
 #include "ide/Panes/Terminal/terminal.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/workspace_prefs.h"
@@ -128,6 +129,16 @@ void runExecutableAndStreamOutput(const char* executablePath) {
             snprintf(infoMsg, sizeof(infoMsg), "[RunSystem] Working directory: %s\n", workingDir);
             printToTerminal(infoMsg);
         }
+        {
+            char trustNotice[2048];
+            ide_build_trust_notice_format(trustNotice,
+                                          sizeof(trustNotice),
+                                          IDE_BUILD_TRUST_ACTION_RUN,
+                                          "selected_executable",
+                                          workingDir,
+                                          executablePath);
+            printToTerminal(trustNotice);
+        }
 
         char command[1024];
         snprintf(command, sizeof(command), "cd \"%s\" && \"%s\" 2>&1", workingDir, executablePath);
@@ -201,6 +212,23 @@ void runExecutableAndStreamOutput(const char* executablePath) {
              expandedArgs[0] ? " " : "",
              expandedArgs);
     printToTerminal(infoMsg);
+    {
+        char commandDisplay[1536];
+        char trustNotice[2048];
+        snprintf(commandDisplay,
+                 sizeof(commandDisplay),
+                 "%s%s%s",
+                 cfg->run_command,
+                 expandedArgs[0] ? " " : "",
+                 expandedArgs);
+        ide_build_trust_notice_format(trustNotice,
+                                      sizeof(trustNotice),
+                                      IDE_BUILD_TRUST_ACTION_RUN,
+                                      "workspace_config",
+                                      resolvedWorkingDir,
+                                      commandDisplay);
+        printToTerminal(trustNotice);
+    }
 
     FILE* pipe = popen(command, "r");
     if (!pipe) {

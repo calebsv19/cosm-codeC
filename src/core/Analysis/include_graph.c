@@ -7,7 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
+
+#include "core/Analysis/analysis_artifact_io.h"
 
 typedef struct {
     char* source_path;
@@ -232,19 +233,8 @@ const IncludeGraphEntryView include_graph_entry_at(size_t index) {
     return out;
 }
 
-static void ensure_ide_dir(const char* workspace_root) {
-    if (!workspace_root || !*workspace_root) return;
-    char dir[PATH_MAX];
-    snprintf(dir, sizeof(dir), "%s/ide_files", workspace_root);
-    struct stat st;
-    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(dir, 0755);
-    }
-}
-
 void include_graph_save(const char* workspace_root) {
     if (!workspace_root || !*workspace_root) return;
-    ensure_ide_dir(workspace_root);
     include_graph_lock();
 
     json_object* root = json_object_new_object();
@@ -262,13 +252,9 @@ void include_graph_save(const char* workspace_root) {
     }
     json_object_object_add(root, "entries", entries);
 
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/ide_files/include_graph.json", workspace_root);
-    FILE* fp = fopen(path, "w");
-    if (fp) {
-        const char* serialized = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
-        if (serialized) fputs(serialized, fp);
-        fclose(fp);
+    const char* serialized = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
+    if (serialized) {
+        analysis_artifact_io_write_text(workspace_root, "include_graph.json", serialized);
     }
     json_object_put(root);
     include_graph_unlock();
@@ -278,27 +264,11 @@ void include_graph_load(const char* workspace_root) {
     include_graph_clear();
     if (!workspace_root || !*workspace_root) return;
 
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/ide_files/include_graph.json", workspace_root);
-    FILE* fp = fopen(path, "r");
-    if (!fp) return;
-
-    fseek(fp, 0, SEEK_END);
-    long len = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    if (len <= 0 || len > (32 * 1024 * 1024)) {
-        fclose(fp);
-        return;
-    }
-
-    char* buf = (char*)malloc((size_t)len + 1);
-    if (!buf) {
-        fclose(fp);
-        return;
-    }
-    fread(buf, 1, (size_t)len, fp);
-    buf[len] = '\0';
-    fclose(fp);
+    char* buf = analysis_artifact_io_read_text(workspace_root,
+                                               "include_graph.json",
+                                               ANALYSIS_ARTIFACT_IO_DEFAULT_MAX_BYTES,
+                                               NULL);
+    if (!buf) return;
 
     json_object* root = json_tokener_parse(buf);
     free(buf);

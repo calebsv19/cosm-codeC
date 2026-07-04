@@ -2,7 +2,8 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
+
+#include "test_fixture_utils.h"
 
 static int failures = 0;
 
@@ -93,8 +94,9 @@ int main(void) {
     check(dry && strcmp(dry->actions[1].kind, "link") == 0, "link action kind");
     check(dry && strcmp(dry->actions[1].output, "/tmp/project/build/app") == 0, "link action output");
 
-    const char* workspace = "/tmp/ide_build_graph_store_test";
-    mkdir(workspace, 0755);
+    char workspace[256];
+    check(ide_test_prepare_workspace(workspace, sizeof(workspace), "ide_build_graph_store_test"),
+          "workspace setup");
     analysis_build_graph_store_save(workspace);
     analysis_build_graph_store_clear();
     analysis_build_graph_store_load(workspace);

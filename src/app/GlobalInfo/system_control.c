@@ -2,6 +2,7 @@
 #include "system_control.h"
 #include "core_state.h"
 #include "runtime_paths.h"
+#include "startup_diagnostics.h"
 #include "workspace_startup_policy.h"
 
 #include "project.h"
@@ -32,6 +33,7 @@
 #include "core/Analysis/analysis_token_store.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/analysis_cache.h"
+#include "core/Analysis/analysis_cache_manifest.h"
 #include "core/Analysis/analysis_snapshot.h"
 #include "core/Analysis/analysis_runtime_events.h"
 #include "core/Analysis/include_path_resolver.h"
@@ -189,19 +191,28 @@ static void loadInitialWorkspace(void) {
     bool defaultPathValid = pathIsDirectory(defaultPath);
     bool pathChanged = false;
 
-    if (!ide_workspace_startup_select_root(requestedPath,
-                                           requestedPathValid,
-                                           defaultPath,
-                                           defaultPathValid,
-                                           selectedPath,
-                                           sizeof(selectedPath),
-                                           &pathChanged)) {
+    bool workspaceSelected = ide_workspace_startup_select_root(requestedPath,
+                                                               requestedPathValid,
+                                                               defaultPath,
+                                                               defaultPathValid,
+                                                               selectedPath,
+                                                               sizeof(selectedPath),
+                                                               &pathChanged);
+    if (!workspaceSelected) {
         if (requestedPath && requestedPath[0]) {
             fprintf(stderr, "[Workspace] Stored workspace unavailable: %s\n", requestedPath);
         }
     } else {
         finalPath = selectedPath;
     }
+
+    ide_startup_diagnostics_record_workspace_selection(requestedPath,
+                                                       requestedPathValid,
+                                                       defaultPath,
+                                                       defaultPathValid,
+                                                       finalPath,
+                                                       pathChanged,
+                                                       finalPath != NULL);
 
     if (!finalPath) {
         fprintf(stderr, "[Workspace] No valid workspace directory available.\n");
@@ -294,10 +305,16 @@ static void loadInitialWorkspace(void) {
 
 bool initializeSystem(const char* argv0) {
     char cwd[1024];
+    ide_startup_diagnostics_reset();
     if (getcwd(cwd, sizeof(cwd))) {
         printf("Current working directory: %s\n", cwd);
     }
-    if (!ide_runtime_paths_init(argv0)) {
+    bool runtimePathsOk = ide_runtime_paths_init(argv0);
+    ide_startup_diagnostics_record_runtime_paths(runtimePathsOk,
+                                                 ide_runtime_resource_root(),
+                                                 ide_runtime_resource_source_label(),
+                                                 ide_runtime_executable_dir());
+    if (!runtimePathsOk) {
         fprintf(stderr, "[RuntimePaths] Warning: failed to resolve runtime resource root.\n");
     }
 
@@ -426,6 +443,13 @@ bool initializeSystem(const char* argv0) {
 
     const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
     const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
+    AnalysisCacheManifestReport startupReport;
+    if (analysis_cache_manifest_evaluate(projectPath, buildArgs, "startup", &startupReport)) {
+        (void)analysis_cache_manifest_save(&startupReport);
+        if (startupReport.has_startup_audit) {
+            analysis_status_set_startup_audit(&startupReport.startup_audit);
+        }
+    }
     bool loadedCache = analysis_cache_load_errors(projectPath, buildArgs);
     if (!loadedCache) {
         analysis_store_load(projectPath);
@@ -441,7 +465,7 @@ bool initializeSystem(const char* argv0) {
     if (analysis_cache_load_library(projectPath, buildArgs)) {
         loadedCache = true;
     }
-    include_graph_load(projectPath);
+    (void)analysis_cache_load_include_graph(projectPath, buildArgs);
     analysis_status_set_has_cache(loadedCache || loadedSymbols || loadedTokens);
     (void)analysis_emit_store_hydrated_events(projectPath);
     // Session state can restore search/projection before symbols are loaded.
@@ -461,11 +485,22 @@ bool initializeSystem(const char* argv0) {
     initAssetManagerPanel();
 
     if (!ide_ipc_start(projectPath)) {
+        ide_startup_diagnostics_record_ipc_start(true,
+                                                 false,
+                                                 "start_failed",
+                                                 NULL,
+                                                 NULL);
         fprintf(stderr, "[IPC] Warning: failed to start IDE IPC server. idebridge will be unavailable.\n");
     } else {
+        ide_startup_diagnostics_record_ipc_start(true,
+                                                 true,
+                                                 "listening",
+                                                 ide_ipc_socket_path(),
+                                                 ide_ipc_session_id());
         ide_ipc_set_open_handler(ide_ipc_open_from_ui, NULL);
         ide_ipc_set_edit_handler(ide_ipc_edit_apply_from_ui, NULL);
     }
+    ide_startup_diagnostics_print_if_enabled(stderr);
 
     initTerminal();
 

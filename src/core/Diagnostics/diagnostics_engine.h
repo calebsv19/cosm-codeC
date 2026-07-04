@@ -2,6 +2,7 @@
 #define DIAGNOSTICS_ENGINE_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef enum {
     DIAG_SEVERITY_INFO,
@@ -35,6 +36,45 @@ typedef struct {
     const char* stage;
 } Diagnostic;
 
+typedef enum {
+    DIAGNOSTIC_IO_NONE = 0,
+    DIAGNOSTIC_IO_SAVE,
+    DIAGNOSTIC_IO_LOAD
+} DiagnosticIoOperation;
+
+typedef enum {
+    DIAGNOSTIC_IO_REASON_NONE = 0,
+    DIAGNOSTIC_IO_REASON_INVALID_WORKSPACE,
+    DIAGNOSTIC_IO_REASON_MISSING_OK,
+    DIAGNOSTIC_IO_REASON_SAVED,
+    DIAGNOSTIC_IO_REASON_LOADED,
+    DIAGNOSTIC_IO_REASON_SAVE_MKDIR_FAILED,
+    DIAGNOSTIC_IO_REASON_SAVE_SERIALIZE_FAILED,
+    DIAGNOSTIC_IO_REASON_SAVE_OPEN_FAILED,
+    DIAGNOSTIC_IO_REASON_SAVE_WRITE_FAILED,
+    DIAGNOSTIC_IO_REASON_LOAD_OPEN_MISSING,
+    DIAGNOSTIC_IO_REASON_LOAD_STAT_FAILED,
+    DIAGNOSTIC_IO_REASON_LOAD_EMPTY,
+    DIAGNOSTIC_IO_REASON_LOAD_OVERSIZED,
+    DIAGNOSTIC_IO_REASON_LOAD_READ_FAILED,
+    DIAGNOSTIC_IO_REASON_LOAD_ALLOC_FAILED,
+    DIAGNOSTIC_IO_REASON_LOAD_INVALID_JSON,
+    DIAGNOSTIC_IO_REASON_LOAD_INVALID_ROOT,
+    DIAGNOSTIC_IO_REASON_LOAD_MALFORMED_ROWS
+} DiagnosticIoReason;
+
+typedef struct {
+    DiagnosticIoOperation operation;
+    DiagnosticIoReason reason;
+    bool ok;
+    bool noisy_failure;
+    char path[1024];
+    int saved_rows;
+    int loaded_rows;
+    int malformed_rows;
+    long size_bytes;
+} DiagnosticIoReport;
+
 void initDiagnosticsEngine();
 void clearDiagnostics();
 void addDiagnostic(const char* file, int line, int col, const char* msg, DiagnosticSeverity severity);
@@ -65,5 +105,9 @@ const char* diagnostic_stage_name(int codeId);
 // Persistence helpers (store under workspace/ide_files/analysis_diagnostics.json)
 void diagnostics_save(const char* workspaceRoot);
 void diagnostics_load(const char* workspaceRoot);
+bool diagnostics_save_report(const char* workspaceRoot, DiagnosticIoReport* outReport);
+bool diagnostics_load_report(const char* workspaceRoot, DiagnosticIoReport* outReport);
+void diagnostics_last_io_report(DiagnosticIoReport* outReport);
+const char* diagnostics_io_reason_string(DiagnosticIoReason reason);
 
 #endif

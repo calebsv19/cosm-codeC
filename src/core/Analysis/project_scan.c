@@ -262,23 +262,24 @@ static int count_scannable_files_in_list(const char* const* files, size_t file_c
     return total;
 }
 
-static void analyze_file_with_active_flags(const char* file_path) {
-    if (!file_path || !*file_path) return;
+static void analyze_buffer_with_active_flags(const char* file_path,
+                                             const char* buf,
+                                             size_t len) {
+    if (!file_path || !*file_path || !buf) return;
     if (analysis_job_cancel_requested()) return;
-
-    size_t len = 0;
-    char* buf = read_file(file_path, &len);
-    if (!buf) return;
 
     FisicsAnalysisResult res;
     memset(&res, 0, sizeof(res));
 
     const BuildFlagSet* flags = g_activeFlags ? g_activeFlags : &g_buildFlags;
+    BuildFlagSet file_flags = *flags;
+    build_flags_enable_overlays_for_source(&file_flags, buf, len);
     FisicsFrontendOptions opts = {0};
-    opts.include_paths = (const char* const*)flags->include_paths;
-    opts.include_path_count = flags->include_count;
-    opts.macro_defines = (const char* const*)flags->macro_defines;
-    opts.macro_define_count = flags->macro_count;
+    opts.include_paths = (const char* const*)file_flags.include_paths;
+    opts.include_path_count = file_flags.include_count;
+    opts.macro_defines = (const char* const*)file_flags.macro_defines;
+    opts.macro_define_count = file_flags.macro_count;
+    opts.overlay_features = file_flags.overlay_features;
 
     int saved_stderr = -1;
     int saved_stdout = -1;
@@ -299,7 +300,6 @@ static void analyze_file_with_active_flags(const char* file_path) {
 
     if (analysis_job_cancel_requested()) {
         fisics_free_analysis_result(&res);
-        free(buf);
         return;
     }
 
@@ -386,7 +386,6 @@ static void analyze_file_with_active_flags(const char* file_path) {
     size_t log_symbol_count = symbol_count;
     size_t include_count = res.include_count;
     fisics_free_analysis_result(&res);
-    free(buf);
 
     g_analysis_progress_done++;
     analysis_job_report_progress(g_analysis_progress_done, g_analysis_progress_total);
@@ -400,6 +399,17 @@ static void analyze_file_with_active_flags(const char* file_path) {
                include_count);
     }
     analysis_job_maybe_throttle();
+}
+
+static void analyze_file_with_active_flags(const char* file_path) {
+    if (!file_path || !*file_path) return;
+    if (analysis_job_cancel_requested()) return;
+
+    size_t len = 0;
+    char* buf = read_file(file_path, &len);
+    if (!buf) return;
+    analyze_buffer_with_active_flags(file_path, buf, len);
+    free(buf);
 }
 
 static void scan_dir(const char* root) {
@@ -548,6 +558,43 @@ void analysis_scan_files_with_flags(const char* root,
         if (!should_analyze_source_path(path)) continue;
         analyze_file_with_active_flags(path);
     }
+
+    g_activeFlags = NULL;
+    g_activeWorkspaceRoot = NULL;
+    g_update_library_index = false;
+    if (update_engine) {
+        analysis_store_flatten_to_engine();
+    }
+    if (persist_outputs) {
+        analysis_store_save(root);
+        analysis_symbols_store_save(root);
+        analysis_token_store_save(root);
+        analysis_units_store_save(root);
+        include_graph_save(root);
+        library_index_save(root);
+    }
+}
+
+void analysis_scan_buffer_with_flags(const char* root,
+                                     const char* file_path,
+                                     const char* contents,
+                                     size_t content_length,
+                                     const BuildFlagSet* flags,
+                                     bool update_engine,
+                                     bool persist_outputs) {
+    if (!root || !*root || !file_path || !*file_path || !contents || !flags) return;
+    g_activeFlags = flags;
+    g_activeWorkspaceRoot = root;
+    g_update_library_index = true;
+    g_contract_warning_emitted = false;
+    g_symbol_capability_warning_emitted = false;
+    g_token_capability_warning_emitted = false;
+    g_parent_link_warning_emitted = false;
+    g_analysis_progress_total = 1;
+    g_analysis_progress_done = 0;
+    analysis_job_report_progress(0, g_analysis_progress_total);
+
+    analyze_buffer_with_active_flags(file_path, contents, content_length);
 
     g_activeFlags = NULL;
     g_activeWorkspaceRoot = NULL;

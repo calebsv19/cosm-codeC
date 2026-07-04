@@ -11,6 +11,8 @@
 #include <sys/stat.h>
 #include <time.h>
 
+#include "core/Analysis/analysis_artifact_io.h"
+
 static uint64_t fnv1a64_update(uint64_t hash, const unsigned char* data, size_t len) {
     if (!data || len == 0) return hash;
     for (size_t i = 0; i < len; ++i) {
@@ -54,16 +56,6 @@ static bool fingerprint_content_equal(const AnalysisFileFingerprint* cached_file
     // Fallback for legacy snapshots with missing hashes.
     return cached_file->mtime == current_file->mtime &&
            cached_file->size == current_file->size;
-}
-
-static void ensure_ide_dir(const char* workspace_root) {
-    if (!workspace_root || !*workspace_root) return;
-    char dir[PATH_MAX];
-    snprintf(dir, sizeof(dir), "%s/ide_files", workspace_root);
-    struct stat st;
-    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(dir, 0755);
-    }
 }
 
 static bool has_ext(const char* name, const char* ext) {
@@ -243,7 +235,6 @@ bool analysis_snapshot_scan_workspace(const char* workspace_root, AnalysisSnapsh
 
 bool analysis_snapshot_save(const char* workspace_root, const AnalysisSnapshot* snapshot) {
     if (!workspace_root || !*workspace_root || !snapshot) return false;
-    ensure_ide_dir(workspace_root);
 
     json_object* root = json_object_new_object();
     json_object_object_add(root, "version", json_object_new_int((int)snapshot->version));
@@ -262,52 +253,26 @@ bool analysis_snapshot_save(const char* workspace_root, const AnalysisSnapshot* 
     }
     json_object_object_add(root, "files", files);
 
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/ide_files/index.json", workspace_root);
-    FILE* fp = fopen(path, "w");
-    if (!fp) {
-        json_object_put(root);
-        return false;
-    }
-
     const char* serialized = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
     if (!serialized) {
-        fclose(fp);
         json_object_put(root);
         return false;
     }
 
-    fputs(serialized, fp);
-    fclose(fp);
+    bool ok = analysis_artifact_io_write_text(workspace_root, "index.json", serialized);
     json_object_put(root);
-    return true;
+    return ok;
 }
 
 bool analysis_snapshot_load(const char* workspace_root, AnalysisSnapshot* out_snapshot) {
     if (!workspace_root || !*workspace_root || !out_snapshot) return false;
     analysis_snapshot_clear(out_snapshot);
 
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/ide_files/index.json", workspace_root);
-    FILE* fp = fopen(path, "r");
-    if (!fp) return false;
-
-    fseek(fp, 0, SEEK_END);
-    long len = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    if (len <= 0 || len > (32 * 1024 * 1024)) {
-        fclose(fp);
-        return false;
-    }
-
-    char* buf = (char*)malloc((size_t)len + 1);
-    if (!buf) {
-        fclose(fp);
-        return false;
-    }
-    fread(buf, 1, (size_t)len, fp);
-    buf[len] = '\0';
-    fclose(fp);
+    char* buf = analysis_artifact_io_read_text(workspace_root,
+                                               "index.json",
+                                               ANALYSIS_ARTIFACT_IO_DEFAULT_MAX_BYTES,
+                                               NULL);
+    if (!buf) return false;
 
     json_object* root = json_tokener_parse(buf);
     free(buf);

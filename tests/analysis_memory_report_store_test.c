@@ -2,7 +2,8 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
+
+#include "test_fixture_utils.h"
 
 static int failures = 0;
 
@@ -89,8 +90,9 @@ int main(void) {
     check(snap && snap->summary.active == 0 && snap->summary.leaked_bytes == 0, "replacement summary");
     check(snap && snap->leak_count == 0, "replacement leak count");
 
-    const char* workspace = "/tmp/ide_memory_report_store_test";
-    mkdir(workspace, 0755);
+    char workspace[256];
+    check(ide_test_prepare_workspace(workspace, sizeof(workspace), "ide_memory_report_store_test"),
+          "workspace setup");
     analysis_memory_report_store_save(workspace);
     analysis_memory_report_store_clear();
     analysis_memory_report_store_load(workspace);
