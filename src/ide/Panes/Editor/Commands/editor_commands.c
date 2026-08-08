@@ -1,7 +1,9 @@
 #include "ide/Panes/Editor/Commands/editor_commands.h"
 #include "ide/Panes/Editor/editor_clipboard.h"
 #include "ide/Panes/Editor/editor_core.h"
+#include "ide/Panes/Editor/editor_cursor_preferences.h"
 #include "app/GlobalInfo/project.h"
+#include "core/LoopTime/loop_time.h"
 
 #include <string.h>
 
@@ -186,10 +188,22 @@ bool editor_jump_to(EditorView* view, const char* filePath, int line, int column
 
     file->state.cursorRow = targetRow;
     file->state.cursorCol = targetCol;
-    editorStateSetTopRow(&file->state, (targetRow > 2) ? targetRow - 2 : 0);
+    EditorCursorPreferences prefs = editor_cursor_preferences_get();
+    if (prefs.goto_flash_enabled) {
+        editorStateTriggerActiveLineFlash(&file->state,
+                                          loop_time_now_ns(),
+                                          prefs.goto_flash_ms);
+    }
+    editorStateFrameLineInUpperBand(&file->state,
+                                    targetRow,
+                                    editor_view_content_h(view),
+                                    file->buffer->lineCount);
     file->state.selecting = false;
     file->state.draggingWithMouse = false;
     setActiveEditorView(view);
+    if (view->parentPane) {
+        invalidatePane(view->parentPane, RENDER_INVALIDATION_CONTENT);
+    }
     return true;
 }
 

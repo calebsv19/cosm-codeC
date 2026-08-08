@@ -14,6 +14,7 @@
 
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/Editor/editor_state.h"
+#include "ide/Panes/Editor/editor_cursor_preferences.h"
 
 #include "core/InputManager/input_manager.h"
 #include "core/CommandBus/command_bus.h"
@@ -88,6 +89,7 @@ static bool s_force_full_redraw = false;
 static bool s_loop_timers_registered = false;
 static int s_file_watcher_timer_id = -1;
 static int s_git_watcher_timer_id = -1;
+static int s_editor_cursor_blink_timer_id = -1;
 static uint64_t s_latest_applied_analysis_run_id = 0;
 static uint64_t s_analysis_progress_stamp = 0;
 static uint64_t s_analysis_status_stamp = 0;
@@ -120,6 +122,31 @@ static void loop_timer_git_watcher_cb(void* user_data) {
     pollGitStatusWatcher();
 }
 
+static void loop_timer_editor_cursor_blink_cb(void* user_data);
+
+static void schedule_editor_cursor_blink_timer(void) {
+    EditorCursorPreferences prefs = editor_cursor_preferences_get();
+    uint32_t delay_ms = editor_cursor_blink_next_edge_delay_ms(prefs, loop_time_now_ns());
+    if (delay_ms == 0u) {
+        s_editor_cursor_blink_timer_id = -1;
+        return;
+    }
+    s_editor_cursor_blink_timer_id = mainthread_timer_schedule_once(delay_ms,
+                                                                    loop_timer_editor_cursor_blink_cb,
+                                                                    NULL,
+                                                                    "editor_cursor_blink");
+}
+
+static void loop_timer_editor_cursor_blink_cb(void* user_data) {
+    (void)user_data;
+    s_editor_cursor_blink_timer_id = -1;
+    IDECoreState* core = getCoreState();
+    if (core && core->editorPane) {
+        invalidatePane(core->editorPane, RENDER_INVALIDATION_CONTENT);
+    }
+    schedule_editor_cursor_blink_timer();
+}
+
 static void tick_command_bus_job(void* user_data) {
     (void)user_data;
     tickCommandBus();
@@ -135,6 +162,7 @@ static void ensure_loop_timers_registered(void) {
                                                                  loop_timer_git_watcher_cb,
                                                                  NULL,
                                                                  "git_watcher");
+    schedule_editor_cursor_blink_timer();
     s_loop_timers_registered = true;
 }
 

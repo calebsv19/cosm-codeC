@@ -7,8 +7,10 @@
 #include "ide/Panes/Editor/Render/editor_diagnostic_markers.h"
 #include "app/GlobalInfo/system_control.h"
 #include "app/GlobalInfo/core_state.h"
+#include "core/LoopTime/loop_time.h"
 
 #include "ide/Panes/PaneInfo/pane.h"
+#include "ide/Panes/Editor/editor_cursor_preferences.h"
 #include "ide/Panes/Editor/editor_view.h"    // editorView, layout, render
 #include "ide/Panes/Editor/editor_view_state.h"
 #include "ide/Panes/Editor/editor_core.h"
@@ -61,7 +63,61 @@ static bool is_light_color(SDL_Color c) {
     return color_luma(c) >= 170;
 }
 
+static bool editor_cursor_blink_visible(EditorCursorPreferences prefs, uint64_t now_ns) {
+    return editor_cursor_blink_visible_at_ns(prefs, now_ns);
+}
+
+static int editor_cursor_width_px(EditorCursorPreferences prefs) {
+    return prefs.width_px;
+}
+
 static SDL_Color editor_gutter_fill(const IDEThemePalette* palette);
+
+static bool editor_active_line_flash_visible(const EditorState* state, uint64_t now_ns) {
+    return state && state->activeLineFlashUntilNs > now_ns;
+}
+
+static SDL_Color editor_active_line_number_color(const IDEThemePalette* palette,
+                                                 SDL_Color base,
+                                                 EditorCursorPreferences prefs,
+                                                 bool flashVisible) {
+    int amount = prefs.active_line_number_tint_amount;
+    if (flashVisible) {
+        amount += 24;
+    }
+    if (palette && is_light_color(palette->app_background)) {
+        return darken_color(base, amount);
+    }
+    return brighten_color(base, amount);
+}
+
+static void render_active_line_gutter_marker(SDL_Renderer* renderer,
+                                             int gutterX,
+                                             int yLine,
+                                             int lineHeight,
+                                             const IDEThemePalette* palette,
+                                             EditorCursorPreferences prefs,
+                                             bool flashVisible) {
+    if (!renderer || !palette || !prefs.active_line_marker_enabled) return;
+
+    int markerW = prefs.active_line_marker_width_px;
+    if (markerW < 1) markerW = 1;
+    if (markerW > 8) markerW = 8;
+
+    int markerH = lineHeight - 6;
+    if (markerH < 4) markerH = lineHeight;
+
+    SDL_Color marker = palette->text_primary;
+    marker.a = flashVisible
+                   ? prefs.active_line_marker_flash_alpha
+                   : prefs.active_line_marker_alpha;
+
+    int markerX = gutterX + 4;
+    int markerY = yLine + (lineHeight - markerH) / 2;
+    SDL_Rect rect = { markerX, markerY, markerW, markerH };
+    SDL_SetRenderDrawColor(renderer, marker.r, marker.g, marker.b, marker.a);
+    SDL_RenderFillRect(renderer, &rect);
+}
 
 static SDL_Color editor_content_text_color(const IDEThemePalette* palette) {
     if (!palette) return (SDL_Color){235, 235, 235, 255};
@@ -793,6 +849,8 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
     state->viewTopRow = firstVisibleRow;
     state->lastScrollAnchorCursorRow = state->cursorRow;
     state->lastScrollAnchorCursorCol = state->cursorCol;
+    EditorCursorPreferences cursorPrefs = editor_cursor_preferences_get();
+    uint64_t renderNowNs = loop_time_now_ns();
 
     // Draw visible lines
     for (int bufferLineIndex = firstVisibleRow; bufferLineIndex < totalLines; ++bufferLineIndex) {
@@ -803,6 +861,18 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
         if (maxWidth < 0) maxWidth = 0;
         int visibleXMin = textX;
         int visibleXMax = textX + maxWidth;
+        bool isCursorLine = !projectionMode && bufferLineIndex == state->cursorRow;
+        bool flashVisible = isCursorLine && editor_active_line_flash_visible(state, renderNowNs);
+
+        if (isCursorLine) {
+            render_active_line_gutter_marker(renderer,
+                                             x,
+                                             yLine,
+                                             lineHeight,
+                                             &palette,
+                                             cursorPrefs,
+                                             flashVisible);
+        }
 
         int lineNumber = editor_render_source_line_number(file, bufferLineIndex);
         if (lineNumber > 0) {
@@ -816,6 +886,12 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
                                  : palette.text_muted;
             if (is_light_color(palette.app_background)) {
                 numColor = darken_color(numColor, 16);
+            }
+            if (isCursorLine && cursorPrefs.active_line_number_tint_enabled) {
+                numColor = editor_active_line_number_color(&palette,
+                                                           numColor,
+                                                           cursorPrefs,
+                                                           flashVisible);
             }
             drawTextUTF8WithFontColorClipped(numX, yLine, numBuf, textFont, numColor, false, &gutterTextClip);
         }
@@ -880,14 +956,20 @@ void renderEditorBuffer(OpenFile* file, EditorState* state,
             };
             text_selection_manager_register(&desc);
 
-            // Always draw cursor on the current line, even if it's empty
-            if (bufferLineIndex == state->cursorRow) {
+            // Always place the cursor on the current line, even if it's empty.
+            if (isCursorLine && editor_cursor_blink_visible(cursorPrefs, renderNowNs)) {
                 int cursorX = (line[0] == '\0')
                             ? textX
                             : textX + getTextWidthNWithFont(line, state->cursorCol, textFont);
+                int cursorWidth = editor_cursor_width_px(cursorPrefs);
 
                 SDL_SetRenderDrawColor(renderer, bodyText.r, bodyText.g, bodyText.b, bodyText.a);
-                SDL_RenderDrawLine(renderer, cursorX, yLine, cursorX, yLine + lineHeight);
+                if (cursorWidth <= 1) {
+                    SDL_RenderDrawLine(renderer, cursorX, yLine, cursorX, yLine + lineHeight);
+                } else {
+                    SDL_Rect cursorRect = { cursorX, yLine, cursorWidth, lineHeight };
+                    SDL_RenderFillRect(renderer, &cursorRect);
+                }
             }
         }
     }
