@@ -150,6 +150,9 @@ bool control_panel_copy_visible_symbol_tree(void);
 void control_panel_select_all_visible(void);
 bool control_panel_point_in_symbol_tree_content(const struct UIPane* pane, int x, int y);
 
+typedef bool (*ControlPanelPersistRequestCallback)(void);
+void control_panel_set_persist_request_callback(ControlPanelPersistRequestCallback callback);
+
 const char* control_panel_get_search_query(void);
 int control_panel_get_search_cursor(void);
 bool control_panel_is_search_focused(void);

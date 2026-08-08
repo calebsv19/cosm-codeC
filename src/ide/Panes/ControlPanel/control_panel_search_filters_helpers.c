@@ -8,6 +8,38 @@
 #include "ide/UI/panel_text_edit.h"
 #include "ide/UI/text_input_focus.h"
 
+static ControlPanelPersistRequestCallback g_persist_request_callback = NULL;
+
+void control_panel_set_persist_request_callback(ControlPanelPersistRequestCallback callback) {
+    g_persist_request_callback = callback;
+}
+
+void control_panel_request_persist_state_save(void) {
+    if (g_persist_request_callback) {
+        g_persist_request_callback();
+    }
+}
+
+void control_panel_copy_startup_persist_state(ControlPanelControllerState* dst,
+                                              const ControlPanelControllerState* src) {
+    if (!dst || !src) return;
+
+    snprintf(dst->ui.search_query, sizeof(dst->ui.search_query), "%s", src->ui.search_query);
+    snprintf(dst->ui.marker_focus_query, sizeof(dst->ui.marker_focus_query), "%s",
+             src->ui.marker_focus_query);
+    dst->ui.search_cursor = src->ui.search_cursor;
+    if (dst->ui.search_cursor < 0) dst->ui.search_cursor = 0;
+    if (dst->ui.search_cursor >= CONTROL_PANEL_SEARCH_MAX) {
+        dst->ui.search_cursor = CONTROL_PANEL_SEARCH_MAX - 1;
+    }
+    dst->ui.search_focused = src->ui.search_focused;
+    dst->ui.search_enabled = src->ui.search_enabled;
+    dst->ui.filters_collapsed = src->ui.filters_collapsed;
+
+    dst->filters = src->filters;
+    dst->tree.visible_tree_dirty = true;
+}
+
 UIPanelTextEditBuffer control_panel_search_buffer(void) {
     UIPanelTextEditBuffer buffer = {
         searchQuery,
@@ -18,9 +50,11 @@ UIPanelTextEditBuffer control_panel_search_buffer(void) {
 }
 
 void control_panel_after_search_text_edit(void) {
+    markerFocusQuery[0] = '\0';
     control_panel_mark_visible_tree_dirty();
     reset_symbol_scroll_to_top();
     editor_sync_active_file_projection_mode();
+    control_panel_request_persist_state_save();
 }
 
 void reset_symbol_scroll_to_top(void) {
@@ -106,6 +140,7 @@ void control_panel_set_search_enabled(bool enabled) {
     control_panel_refresh_visible_symbol_tree();
     reset_symbol_scroll_to_top();
     editor_sync_active_file_projection_mode();
+    control_panel_request_persist_state_save();
 }
 
 bool control_panel_set_search_query_text(const char* text) {
@@ -122,17 +157,14 @@ bool control_panel_set_search_query_text(const char* text) {
 bool control_panel_focus_unit_marker_query(const char* unitSymbolQuery) {
     if (!unitSymbolQuery || !unitSymbolQuery[0]) return false;
 
-    ControlSearchScope previousScope = searchScope;
     searchEnabled = true;
-    targetUnitsEnabled = true;
-    targetSymbolsEnabled = false;
     targetEditorEnabled = true;
-    searchScope = previousScope;
     editorViewMode = CONTROL_EDITOR_VIEW_MARKERS;
-    unitDimensionMask = 0u;
     searchFocused = false;
+    snprintf(markerFocusQuery, sizeof(markerFocusQuery), "%s", unitSymbolQuery);
 
-    return control_panel_set_search_query_text(unitSymbolQuery);
+    editor_sync_active_file_projection_mode();
+    return true;
 }
 
 void control_panel_toggle_search_enabled(void) {
@@ -153,6 +185,7 @@ bool control_panel_filters_collapsed(void) {
 
 void control_panel_toggle_filters_collapsed(void) {
     filtersCollapsed = !filtersCollapsed;
+    control_panel_request_persist_state_save();
 }
 
 void control_panel_capture_persist_state(ControlPanelPersistState* outState) {
@@ -201,6 +234,7 @@ void control_panel_apply_persist_state(const ControlPanelPersistState* state) {
         searchCursor = CONTROL_PANEL_SEARCH_MAX - 1;
     }
     searchFocused = false;
+    markerFocusQuery[0] = '\0';
 
     filtersCollapsed = state->filters_collapsed;
     targetSymbolsEnabled = state->target_symbols_enabled;
@@ -366,21 +400,23 @@ void control_panel_get_search_filter_options(SymbolFilterOptions* outOptions) {
 void control_panel_capture_projection_options(ControlPanelProjectionOptions* outOptions) {
     if (!outOptions) return;
     memset(outOptions, 0, sizeof(*outOptions));
-    outOptions->query = searchQuery;
+    bool markerFocusActive = (editorViewMode == CONTROL_EDITOR_VIEW_MARKERS) &&
+                             markerFocusQuery[0] != '\0';
+    outOptions->query = markerFocusActive ? markerFocusQuery : searchQuery;
     outOptions->search_enabled = searchEnabled;
-    outOptions->query_has_text = searchQuery[0] != '\0';
+    outOptions->query_has_text = outOptions->query && outOptions->query[0] != '\0';
     outOptions->live_parse_enabled = liveParseEnabled;
     outOptions->inline_errors_enabled = showInlineErrors;
     outOptions->macros_enabled = showMacros;
     outOptions->target_symbols_enabled = targetSymbolsEnabled;
-    outOptions->target_units_enabled = targetUnitsEnabled;
+    outOptions->target_units_enabled = targetUnitsEnabled || markerFocusActive;
     outOptions->target_editor_enabled = targetEditorEnabled;
     outOptions->search_scope = searchScope;
     outOptions->scope_project_files = searchScope == CONTROL_SEARCH_SCOPE_PROJECT_FILES;
     outOptions->editor_view_mode = editorViewMode;
     outOptions->projection_render_enabled = editorViewMode == CONTROL_EDITOR_VIEW_PROJECTION;
     outOptions->marker_render_enabled = editorViewMode == CONTROL_EDITOR_VIEW_MARKERS;
-    outOptions->unit_dimension_mask = unitDimensionMask;
+    outOptions->unit_dimension_mask = markerFocusActive ? 0u : unitDimensionMask;
     outOptions->query_active = searchEnabled &&
                                (outOptions->query_has_text || targetUnitsEnabled);
     control_panel_get_search_filter_options(&outOptions->symbol_filter_options);
@@ -421,22 +457,28 @@ ControlEditorViewMode control_panel_get_editor_view_mode(void) {
 }
 
 void control_panel_set_target_symbols_enabled(bool enabled) {
+    if (targetSymbolsEnabled == enabled) return;
     targetSymbolsEnabled = enabled;
     control_panel_refresh_visible_symbol_tree();
     reset_symbol_scroll_to_top();
     editor_sync_active_file_projection_mode();
+    control_panel_request_persist_state_save();
 }
 
 void control_panel_set_target_units_enabled(bool enabled) {
+    if (targetUnitsEnabled == enabled) return;
     targetUnitsEnabled = enabled;
     control_panel_refresh_visible_symbol_tree();
     reset_symbol_scroll_to_top();
     editor_sync_active_file_projection_mode();
+    control_panel_request_persist_state_save();
 }
 
 void control_panel_set_target_editor_enabled(bool enabled) {
+    if (targetEditorEnabled == enabled) return;
     targetEditorEnabled = enabled;
     editor_sync_active_file_projection_mode();
+    control_panel_request_persist_state_save();
 }
 
 void control_panel_set_unit_dimension_mask(unsigned int mask) {
@@ -445,16 +487,21 @@ void control_panel_set_unit_dimension_mask(unsigned int mask) {
     control_panel_refresh_visible_symbol_tree();
     reset_symbol_scroll_to_top();
     editor_sync_active_file_projection_mode();
+    control_panel_request_persist_state_save();
 }
 
 void control_panel_set_search_scope(ControlSearchScope scope) {
+    if (searchScope == scope) return;
     searchScope = scope;
     control_panel_refresh_visible_symbol_tree();
     reset_symbol_scroll_to_top();
     editor_sync_active_file_projection_mode();
+    control_panel_request_persist_state_save();
 }
 
 void control_panel_set_match_kind(ControlMatchKind kind) {
+    bool priorMatchAll = matchAllEnabled;
+    uint32_t priorMatchMask = matchMask;
     matchAllEnabled = false;
     switch (kind) {
         case CONTROL_MATCH_KIND_METHODS: matchMask = CONTROL_MATCH_MASK_METHODS; break;
@@ -467,14 +514,18 @@ void control_panel_set_match_kind(ControlMatchKind kind) {
             matchMask = control_match_mask_all_bits();
             break;
     }
+    if (matchAllEnabled == priorMatchAll && matchMask == priorMatchMask) return;
     control_panel_refresh_visible_symbol_tree();
     reset_symbol_scroll_to_top();
     editor_sync_active_file_projection_mode();
+    control_panel_request_persist_state_save();
 }
 
 void control_panel_set_editor_view_mode(ControlEditorViewMode mode) {
+    if (editorViewMode == mode) return;
     editorViewMode = mode;
     editor_sync_active_file_projection_mode();
+    control_panel_request_persist_state_save();
 }
 
 void control_panel_get_match_button_order(ControlFilterButtonId outOrder[4]) {

@@ -166,3 +166,30 @@ test-editor-edit-transaction-debounce:
 	@echo "Running editor edit transaction debounce test..."
 	@$(TEST_BUILD_DIR)/editor_edit_transaction_debounce_test || (echo "editor edit transaction debounce test failed."; exit 1)
 	@echo "Editor edit transaction debounce test passed."
+
+.PHONY: test-editor-goto-framing
+test-editor-goto-framing:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling editor goto framing test..."
+	@$(CC) $(CFLAGS) tests/editor_goto_framing_test.c src/ide/Panes/Editor/editor_state.c -o $(EDITOR_GOTO_FRAMING_TEST_OUT) $(LIB_DIRS) -lSDL2 -lm || (echo "editor goto framing test compile failed."; exit 1)
+	@echo "Running editor goto framing test..."
+	@$(EDITOR_GOTO_FRAMING_TEST_OUT) || (echo "editor goto framing test failed."; exit 1)
+	@echo "Editor goto framing test passed."
+
+.PHONY: test-editor-cursor-preferences
+test-editor-cursor-preferences:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling editor cursor preferences test..."
+	@$(CC) $(CFLAGS) tests/editor_cursor_preferences_test.c src/ide/Panes/Editor/editor_cursor_preferences.c -o $(EDITOR_CURSOR_PREFERENCES_TEST_OUT) $(LIB_DIRS) -lSDL2 || (echo "editor cursor preferences test compile failed."; exit 1)
+	@echo "Running editor cursor preferences test..."
+	@$(EDITOR_CURSOR_PREFERENCES_TEST_OUT) || (echo "editor cursor preferences test failed."; exit 1)
+	@echo "Editor cursor preferences test passed."
+
+.PHONY: test-editor-session-control-panel
+test-editor-session-control-panel:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling editor session Control panel test..."
+	@$(CC) $(CFLAGS) tests/editor_session_control_panel_test.c src/ide/Panes/Editor/editor_session_control_panel.c -o $(EDITOR_SESSION_CONTROL_PANEL_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "editor session Control panel test compile failed."; exit 1)
+	@echo "Running editor session Control panel test..."
+	@$(EDITOR_SESSION_CONTROL_PANEL_TEST_OUT) || (echo "editor session Control panel test failed."; exit 1)
+	@echo "Editor session Control panel test passed."

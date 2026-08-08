@@ -91,25 +91,9 @@ static inline OpenFile* ui_open_path_in_active_editor(const char* path) {
 static inline bool ui_open_path_at_location_in_active_editor(const char* path,
                                                              int line,
                                                              int column) {
-    OpenFile* file = ui_open_path_in_active_editor(path);
-    if (!file || !file->buffer) return false;
-
-    int targetRow = line > 0 ? line - 1 : 0;
-    if (targetRow >= file->buffer->lineCount) targetRow = file->buffer->lineCount - 1;
-    if (targetRow < 0) targetRow = 0;
-
-    int lineLen = file->buffer->lines && file->buffer->lines[targetRow]
-                      ? (int)strlen(file->buffer->lines[targetRow])
-                      : 0;
-    int targetCol = column > 0 ? column - 1 : 0;
-    if (targetCol > lineLen) targetCol = lineLen;
-
-    file->state.cursorRow = targetRow;
-    file->state.cursorCol = targetCol;
-    file->state.viewTopRow = (targetRow > 2) ? targetRow - 2 : 0;
-    file->state.selecting = false;
-    file->state.draggingWithMouse = false;
-    return true;
+    IDECoreState* core = getCoreState();
+    if (!core || !core->activeEditorView) return false;
+    return editor_jump_to(core->activeEditorView, path, line, column);
 }
 
 static inline bool ui_open_path_at_location_in_best_editor_view(const char* path,

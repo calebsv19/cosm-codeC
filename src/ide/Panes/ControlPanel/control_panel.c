@@ -534,6 +534,7 @@ void control_panel_reset_symbol_tree(void) {
         baseUnitsTree = NULL;
     }
     searchQuery[0] = '\0';
+    markerFocusQuery[0] = '\0';
     searchCursor = 0;
     searchFocused = false;
     searchEnabled = true;
@@ -888,5 +889,6 @@ void control_panel_activate_filter_button(ControlFilterButtonId id) {
         control_panel_refresh_visible_symbol_tree();
         reset_symbol_scroll_to_top();
         editor_sync_active_file_projection_mode();
+        control_panel_request_persist_state_save();
     }
 }

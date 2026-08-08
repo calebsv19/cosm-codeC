@@ -21,7 +21,7 @@ static bool editor_projection_mode_active(const OpenFile* file) {
            file->projection.lineCount > 0;
 }
 
-static void jump_from_projection_to_source(OpenFile* activeFile) {
+static void jump_from_projection_to_source(EditorView* view, OpenFile* activeFile) {
     if (!activeFile || !activeFile->buffer) return;
     EditorState* state = &activeFile->state;
 
@@ -37,7 +37,10 @@ static void jump_from_projection_to_source(OpenFile* activeFile) {
 
     state->cursorRow = sourceRow;
     state->cursorCol = sourceCol;
-    editorStateSetTopRow(state, (sourceRow > 2) ? sourceRow - 2 : 0);
+    editorStateFrameLineInUpperBand(state,
+                                    sourceRow,
+                                    editor_view_content_h(view),
+                                    activeFile->buffer->lineCount);
     state->selecting = false;
     state->draggingWithMouse = false;
     editor_set_file_render_source(activeFile, EDITOR_RENDER_REAL);
@@ -70,7 +73,7 @@ void handleEditorCommand(UIPane* pane, InputCommandMetadata meta) {
         case COMMAND_INSERT_NEWLINE:
             if (activeFile && buffer && state) {
                 if (projectionReadOnly) {
-                    jump_from_projection_to_source(activeFile);
+                    jump_from_projection_to_source(view, activeFile);
                     break;
                 }
                 handleCommandInsertNewline(activeFile, buffer, state);

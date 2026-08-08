@@ -36,6 +36,42 @@ void editorStateSetTopRow(EditorState* state, int topRow) {
     state->scrollTargetPx = state->scrollOffsetPx;
 }
 
+void editorStateFrameLineInUpperBand(EditorState* state,
+                                     int targetRow,
+                                     int viewportHeight,
+                                     int totalLines) {
+    if (!state) return;
+    if (targetRow < 0) targetRow = 0;
+    if (totalLines > 0 && targetRow >= totalLines) targetRow = totalLines - 1;
+    if (targetRow < 0) targetRow = 0;
+
+    if (viewportHeight <= 0 || totalLines <= 0) {
+        editorStateSetTopRow(state, (targetRow > 4) ? targetRow - 4 : 0);
+        return;
+    }
+
+    const int lineHeight = EDITOR_LINE_HEIGHT;
+    const float anchorPx = (float)viewportHeight * 0.25f;
+    float targetOffset = (float)editor_vertical_padding_px(state) +
+                         ((float)targetRow * (float)lineHeight) -
+                         anchorPx;
+    if (targetOffset < 0.0f) targetOffset = 0.0f;
+
+    float maxOffset = editor_max_scroll_offset_px(state, totalLines, viewportHeight);
+    if (targetOffset > maxOffset) targetOffset = maxOffset;
+
+    state->scrollOffsetPx = targetOffset;
+    state->scrollTargetPx = targetOffset;
+    state->viewTopRow = editor_first_visible_row(state);
+}
+
+void editorStateTriggerActiveLineFlash(EditorState* state,
+                                       uint64_t now_ns,
+                                       uint32_t duration_ms) {
+    if (!state || duration_ms == 0u) return;
+    state->activeLineFlashUntilNs = now_ns + ((uint64_t)duration_ms * 1000000ULL);
+}
+
 
 void resetEditorState(EditorState* state) {
     if (!state) return;
@@ -47,6 +83,7 @@ void resetEditorState(EditorState* state) {
     state->scrollOffsetPx = 0.0f;
     state->scrollTargetPx = 0.0f;
     state->verticalPadding = EDITOR_CONTENT_TOP_PADDING;
+    state->activeLineFlashUntilNs = 0;
 
     state->lastMouseX = 0;
     state->lastMouseY = 0;

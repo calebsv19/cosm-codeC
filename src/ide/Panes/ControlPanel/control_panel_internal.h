@@ -57,6 +57,7 @@ typedef struct {
     UIPanelTextFieldButtonStripLayout search_strip_layout;
     SDL_Rect filter_header_rect;
     char search_query[CONTROL_PANEL_SEARCH_MAX];
+    char marker_focus_query[CONTROL_PANEL_SEARCH_MAX];
     int search_cursor;
     bool search_focused;
     bool search_enabled;
@@ -106,6 +107,8 @@ typedef struct {
 } ControlPanelControllerState;
 
 ControlPanelControllerState* control_panel_state(void);
+void control_panel_copy_startup_persist_state(ControlPanelControllerState* dst,
+                                              const ControlPanelControllerState* src);
 
 #define baseSymbolTree (control_panel_state()->tree.base_symbol_tree)
 #define baseUnitsTree (control_panel_state()->tree.base_units_tree)
@@ -121,6 +124,7 @@ ControlPanelControllerState* control_panel_state(void);
 #define searchStripLayout (control_panel_state()->ui.search_strip_layout)
 #define filterHeaderRect (control_panel_state()->ui.filter_header_rect)
 #define searchQuery (control_panel_state()->ui.search_query)
+#define markerFocusQuery (control_panel_state()->ui.marker_focus_query)
 #define searchCursor (control_panel_state()->ui.search_cursor)
 #define searchFocused (control_panel_state()->ui.search_focused)
 #define searchEnabled (control_panel_state()->ui.search_enabled)
@@ -158,6 +162,7 @@ ControlPanelControllerState* control_panel_state(void);
 #define cachedProjectRoot (control_panel_state()->cache.cached_project_root)
 
 void control_panel_mark_visible_tree_dirty(void);
+void control_panel_request_persist_state_save(void);
 void reset_symbol_scroll_to_top(void);
 bool control_panel_filters_are_default(void);
 unsigned int control_match_mask_all_bits(void);

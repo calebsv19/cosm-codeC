@@ -521,7 +521,10 @@ void handleEditorMouseClick(UIPane* pane, SDL_Event* event, EditorView* clickedV
                               event->button.clicks >= 2);
         if (isDoubleClick && mapped) {
             control_panel_set_search_enabled(false);
-            editorStateSetTopRow(state, (sourceRow > 2) ? sourceRow - 2 : 0);
+            editorStateFrameLineInUpperBand(state,
+                                            sourceRow,
+                                            editor_view_content_h(clickedView),
+                                            buffer->lineCount);
         }
         state->selecting = false;
         state->draggingWithMouse = false;
