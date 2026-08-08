@@ -1,6 +1,6 @@
 # IDE Current Architecture Status
 
-Last updated: 2026-06-17
+Last updated: 2026-08-08
 Audience: public/stable readers
 
 ## Summary
@@ -54,8 +54,17 @@ contract. Current UI work should consume existing IDE-owned stores and IPC
 surfaces instead of broadening the compiler ABI by default.
 
 The Errors panel and Control panel now have richer diagnostic/context/units
-consumers, and the Libraries panel has include-dependency graph views backed by
-shared graph/viewport helpers while keeping IDE-owned panel semantics.
+consumers. The Control tree uses typed payloads, stable row IDs, precise row
+hit testing, stable Active-scope file discovery, composed multi-target trees,
+persisted filter/session state, and source-owned Units navigation so row
+activation is independent of labels or stale user-data pointers. The Libraries
+panel has include-dependency graph views backed by shared graph/viewport
+helpers while keeping IDE-owned panel semantics.
+
+Editor navigation now uses a shared goto path for file/line/column targets:
+it places the cursor on the resolved location, frames long-file targets in the
+upper reading band, and renders subtle cursor-row feedback in the line-number
+gutter without changing the text layout.
 
 The Git tool panel keeps its command execution app-local but no longer uses
 shell-mediated `popen(...)`: branch, status, log, watcher, stage, and commit

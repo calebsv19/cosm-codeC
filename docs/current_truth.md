@@ -1,6 +1,6 @@
 # codeC Current Truth
 
-Last updated: 2026-07-04
+Last updated: 2026-08-08
 
 ## Program Identity
 - Repository/program directory: `ide`
@@ -77,6 +77,20 @@ Last updated: 2026-07-04
     unit attachments by symbol name, unit text/name, unit family, and dimension
     text through the existing right-panel search and Active/Project scope
     controls
+  - Control tree rows use typed payloads and stable row IDs for section, file,
+    symbol, unit, and empty-message rows; double-click activation resolves
+    those payloads before legacy fallbacks, so row opens no longer depend on
+    rendered labels or stale tree user data
+  - activating Control tree rows preserves the selected Target, Scope, Match,
+    Editor, Parse, and Units filters; persisted Control settings restore on
+    relaunch and are not reset by active-file refreshes
+  - Units row activation treats the owning units file as authoritative for
+    source navigation, preventing stale per-row source paths or SDK/header
+    symbol matches from redirecting project unit rows into unrelated headers
+  - editor goto/navigation opens the resolved file, places the cursor on the
+    resolved line/column, frames long-file targets into the upper reading band,
+    and gives the cursor row a subtle gutter marker, line-number tint, and
+    short goto flash
   - build graph summaries persist from `fisiCs.build_graph` artifacts and can
     be published through the `build_graph` IPC response
   - runtime memory-check sidecar summaries persist from
