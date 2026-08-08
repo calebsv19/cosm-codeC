@@ -164,10 +164,37 @@ test-errors-diagnostic-detail:
 test-control-panel-units-tree:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling Control panel units tree test..."
-	@$(CC) $(CFLAGS) tests/control_panel_units_tree_test.c src/ide/Panes/ControlPanel/control_panel_units_tree.c src/ide/UI/Trees/ui_tree_node.c src/core/Analysis/analysis_units_store.c $(ANALYSIS_ARTIFACT_IO_SRC) src/core/Analysis/analysis_symbols_store.c src/core/LoopKernel/mainthread_context.c -o $(TEST_BUILD_DIR)/control_panel_units_tree_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "Control panel units tree test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/control_panel_units_tree_test.c src/ide/Panes/ControlPanel/control_panel_units_tree.c src/ide/Panes/ControlPanel/control_tree_payload.c src/ide/UI/Trees/ui_tree_node.c src/core/Analysis/analysis_units_store.c $(ANALYSIS_ARTIFACT_IO_SRC) src/core/Analysis/analysis_symbols_store.c src/core/LoopKernel/mainthread_context.c -o $(TEST_BUILD_DIR)/control_panel_units_tree_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "Control panel units tree test compile failed."; exit 1)
 	@echo "Running Control panel units tree test..."
 	@$(TEST_BUILD_DIR)/control_panel_units_tree_test || (echo "Control panel units tree test failed."; exit 1)
 	@echo "Control panel units tree test passed."
+
+.PHONY: test-control-tree-payload
+test-control-tree-payload:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling Control tree payload test..."
+	@$(CC) $(CFLAGS) tests/control_tree_payload_test.c src/ide/Panes/ControlPanel/control_tree_payload.c src/ide/UI/Trees/ui_tree_node.c -o $(TEST_BUILD_DIR)/control_tree_payload_test $(LIB_DIRS) -lSDL2 || (echo "Control tree payload test compile failed."; exit 1)
+	@echo "Running Control tree payload test..."
+	@$(TEST_BUILD_DIR)/control_tree_payload_test || (echo "Control tree payload test failed."; exit 1)
+	@echo "Control tree payload test passed."
+
+.PHONY: test-control-panel-active-file-provider
+test-control-panel-active-file-provider:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling Control panel active file provider test..."
+	@$(CC) $(CFLAGS) tests/control_panel_active_file_provider_test.c src/ide/Panes/ControlPanel/control_panel_active_file.c -o $(TEST_BUILD_DIR)/control_panel_active_file_provider_test $(LIB_DIRS) -lSDL2 -lSDL2_ttf || (echo "Control panel active file provider test compile failed."; exit 1)
+	@echo "Running Control panel active file provider test..."
+	@$(TEST_BUILD_DIR)/control_panel_active_file_provider_test || (echo "Control panel active file provider test failed."; exit 1)
+	@echo "Control panel active file provider test passed."
+
+.PHONY: test-control-panel-composite-tree
+test-control-panel-composite-tree:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling Control panel composite tree test..."
+	@$(CC) $(CFLAGS) tests/control_panel_composite_tree_test.c src/ide/Panes/ControlPanel/control_panel_composite_tree.c src/ide/Panes/ControlPanel/control_tree_payload.c src/ide/UI/Trees/ui_tree_node.c -o $(TEST_BUILD_DIR)/control_panel_composite_tree_test $(LIB_DIRS) -lSDL2 || (echo "Control panel composite tree test compile failed."; exit 1)
+	@echo "Running Control panel composite tree test..."
+	@$(TEST_BUILD_DIR)/control_panel_composite_tree_test || (echo "Control panel composite tree test failed."; exit 1)
+	@echo "Control panel composite tree test passed."
 
 .PHONY: test-control-panel-unit-focus-mode
 test-control-panel-unit-focus-mode:
@@ -182,7 +209,7 @@ test-control-panel-unit-focus-mode:
 test-editor-units-projection:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling editor units projection test..."
-	@$(CC) $(CFLAGS) tests/editor_units_projection_test.c src/ide/Panes/Editor/editor_projection.c src/ide/Panes/ControlPanel/control_panel_units_tree.c src/ide/UI/Trees/ui_tree_node.c src/core/Analysis/analysis_units_store.c $(ANALYSIS_ARTIFACT_IO_SRC) src/core/Analysis/analysis_symbols_store.c src/core/LoopKernel/mainthread_context.c -o $(TEST_BUILD_DIR)/editor_units_projection_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "editor units projection test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/editor_units_projection_test.c src/ide/Panes/Editor/editor_projection.c src/ide/Panes/ControlPanel/control_panel_units_tree.c src/ide/Panes/ControlPanel/control_tree_payload.c src/ide/UI/Trees/ui_tree_node.c src/core/Analysis/analysis_units_store.c $(ANALYSIS_ARTIFACT_IO_SRC) src/core/Analysis/analysis_symbols_store.c src/core/LoopKernel/mainthread_context.c -o $(TEST_BUILD_DIR)/editor_units_projection_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "editor units projection test compile failed."; exit 1)
 	@echo "Running editor units projection test..."
 	@$(TEST_BUILD_DIR)/editor_units_projection_test || (echo "editor units projection test failed."; exit 1)
 	@echo "Editor units projection test passed."

@@ -3,6 +3,7 @@
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_units_store.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
+#include "ide/Panes/ControlPanel/control_tree_payload.h"
 #include "ide/UI/Trees/ui_tree_node.h"
 
 #include <assert.h>
@@ -88,10 +89,32 @@ int main(void) {
     assert(speedSym != NULL);
     assert(speedSym->stable_id == symbols[1].stable_id);
     assert(speedSym->start_line == 18);
+    const ControlTreeNodePayload* speedPayload = control_tree_node_payload(speedNode);
+    assert(speedPayload != NULL);
+    assert(speedPayload->kind == CONTROL_TREE_NODE_UNIT);
+    assert(strstr(speedPayload->stableId, "unit:") == speedPayload->stableId);
+    assert(strstr(speedPayload->stableId, "speed"));
+    assert(strstr(speedPayload->stableId, "m/s"));
+    assert(speedPayload->target.hasTarget);
+    assert(strcmp(speedPayload->target.path, filePath) == 0);
+    assert(speedPayload->target.line == 18);
+    assert(speedPayload->target.column == 9);
+    assert(speedPayload->focusMarkerAfterOpen);
+    assert(strcmp(speedPayload->markerQuery, "speed") == 0);
     char focusQuery[64];
     assert(control_panel_units_tree_node_focus_query(speedNode, focusQuery, sizeof(focusQuery)));
     assert(strcmp(focusQuery, "speed") == 0);
     assert(!control_panel_units_tree_node_focus_query(tree, focusQuery, sizeof(focusQuery)));
+    UITreeNode* legacyLabelOnlyNode = createTreeNode("legacyMass : kg",
+                                                     TREE_NODE_FILE,
+                                                     NODE_COLOR_DEFAULT,
+                                                     filePath,
+                                                     (void*)0x1);
+    assert(legacyLabelOnlyNode != NULL);
+    assert(!control_panel_units_tree_node_focus_query(legacyLabelOnlyNode,
+                                                      focusQuery,
+                                                      sizeof(focusQuery)));
+    freeTreeNodeRecursive(legacyLabelOnlyNode);
 
     const AnalysisUnitsAttachment* durationUnits =
         analysis_units_store_find_by_symbol_id(symbols[0].stable_id);
@@ -111,6 +134,11 @@ int main(void) {
     assert(filteredSpeedSym != NULL);
     assert(filteredSpeedSym != speedSym);
     assert(filteredSpeedSym->stable_id == symbols[1].stable_id);
+    const ControlTreeNodePayload* filteredSpeedPayload = control_tree_node_payload(filteredSpeedNode);
+    assert(filteredSpeedPayload != NULL);
+    assert(filteredSpeedPayload != speedPayload);
+    assert(strcmp(filteredSpeedPayload->stableId, speedPayload->stableId) == 0);
+    assert(filteredSpeedPayload->kind == CONTROL_TREE_NODE_UNIT);
     assert(count_label_contains(filtered, "durationSeconds") == 0);
     assert(find_label_contains(filtered, "empty.c") == NULL);
 
@@ -157,7 +185,57 @@ int main(void) {
     assert(preferredSym->file_path && strcmp(preferredSym->file_path, "/tmp/control_panel_units_tree/src/main.c") == 0);
     assert(preferredSym->start_line == 31);
     assert(preferredSym->start_col == 7);
+    const ControlTreeNodePayload* preferredPayload = control_tree_node_payload(preferredNode);
+    assert(preferredPayload != NULL);
+    assert(preferredPayload->kind == CONTROL_TREE_NODE_UNIT);
+    assert(preferredPayload->target.hasTarget);
+    assert(strcmp(preferredPayload->target.path, "/tmp/control_panel_units_tree/src/main.c") == 0);
+    assert(preferredPayload->target.line == 31);
+    assert(preferredPayload->target.column == 7);
+    assert(strstr(preferredPayload->stableId, "mass_a"));
+    assert(strstr(preferredPayload->stableId, "kg"));
     freeTreeNodeRecursive(preferredTree);
+
+    FisicsSymbol headerSymbol;
+    memset(&headerSymbol, 0, sizeof(headerSymbol));
+    headerSymbol.stable_id = 0x3333333333333333ULL;
+    headerSymbol.name = "badHeaderMass";
+    headerSymbol.file_path = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/AvailabilityInternal.h";
+    headerSymbol.kind = FISICS_SYMBOL_VARIABLE;
+    headerSymbol.start_line = 16;
+    headerSymbol.start_col = 12;
+    analysis_symbols_store_upsert(headerSymbol.file_path, &headerSymbol, 1);
+
+    FisicsUnitsAttachment badSourceUnit;
+    memset(&badSourceUnit, 0, sizeof(badSourceUnit));
+    badSourceUnit.symbol_stable_id = headerSymbol.stable_id;
+    badSourceUnit.has_symbol_stable_id = true;
+    badSourceUnit.symbol_name = "badHeaderMass";
+    badSourceUnit.source_file_path = headerSymbol.file_path;
+    badSourceUnit.start_line = 16;
+    badSourceUnit.start_col = 12;
+    badSourceUnit.dim_text = "kg";
+    badSourceUnit.resolved = true;
+    badSourceUnit.unit_symbol = "kg";
+    badSourceUnit.unit_name = "kilogram";
+    badSourceUnit.unit_family = "mass";
+    badSourceUnit.unit_resolved = true;
+    analysis_units_store_upsert(filePath, &badSourceUnit, 1, true);
+    UITreeNode* guardedTree = control_panel_build_units_tree(NULL, filePath);
+    assert(guardedTree != NULL);
+    UITreeNode* guardedNode = find_label_contains(guardedTree, "badHeaderMass");
+    assert(guardedNode != NULL);
+    const FisicsSymbol* guardedSym = (const FisicsSymbol*)guardedNode->userData;
+    assert(guardedSym != NULL);
+    assert(guardedSym->file_path && strcmp(guardedSym->file_path, filePath) == 0);
+    assert(guardedSym->start_line == 16);
+    const ControlTreeNodePayload* guardedPayload = control_tree_node_payload(guardedNode);
+    assert(guardedPayload != NULL);
+    assert(guardedPayload->kind == CONTROL_TREE_NODE_UNIT);
+    assert(guardedPayload->target.hasTarget);
+    assert(strcmp(guardedPayload->target.path, filePath) == 0);
+    assert(guardedPayload->target.line == 16);
+    freeTreeNodeRecursive(guardedTree);
 
     UITreeNode* nullLabelNode = createTreeNode(NULL, TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, NULL);
     assert(nullLabelNode != NULL);
@@ -192,6 +270,13 @@ int main(void) {
     assert(localSym->stable_id == 0);
     assert(localSym->file_path && strcmp(localSym->file_path, filePath) == 0);
     assert(localSym->start_line == 24);
+    const ControlTreeNodePayload* localPayload = control_tree_node_payload(localNode);
+    assert(localPayload != NULL);
+    assert(localPayload->kind == CONTROL_TREE_NODE_UNIT);
+    assert(localPayload->target.hasTarget);
+    assert(strcmp(localPayload->target.path, filePath) == 0);
+    assert(localPayload->target.line == 24);
+    assert(strstr(localPayload->stableId, "localMass"));
     assert(control_panel_units_tree_node_focus_query(localNode, focusQuery, sizeof(focusQuery)));
     assert(strcmp(focusQuery, "localMass") == 0);
     freeTreeNodeRecursive(localTree);

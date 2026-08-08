@@ -34,6 +34,8 @@ typedef struct UITreeNode {
     int depth;              // Visual indent level
     void* userData;         // Back-reference to original data (DirEntry, GitFileEntry)
     UITreeUserDataFreeFn userDataFreeFn;
+    void* payload;          // Optional owned row payload for stable UI identity/activation metadata
+    UITreeUserDataFreeFn payloadFreeFn;
 
     struct UITreeNode** children;
     int childCount;
@@ -44,6 +46,7 @@ typedef struct UITreeNode {
 UITreeNode* createTreeNode(const char* label, TreeNodeType type, TreeNodeColor color, const char* fullPath, void* 
 userData);
 void setTreeNodeUserDataFreeFn(UITreeNode* node, UITreeUserDataFreeFn fn);
+void setTreeNodePayload(UITreeNode* node, void* payload, UITreeUserDataFreeFn fn);
 void addChildNode(UITreeNode* parent, UITreeNode* child);
 void freeTreeNodeRecursive(UITreeNode* node);
 

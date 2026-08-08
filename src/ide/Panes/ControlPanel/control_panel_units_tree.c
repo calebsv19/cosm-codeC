@@ -9,6 +9,7 @@
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_units_store.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
+#include "ide/Panes/ControlPanel/control_tree_payload.h"
 #include "ide/UI/Trees/ui_tree_node.h"
 
 static const char* basename_from_path(const char* path) {
@@ -61,9 +62,10 @@ static void free_tree_symbol_user_data(void* ptr) {
 static FisicsSymbol* create_location_symbol_for_units(const AnalysisUnitsAttachment* units,
                                                       const char* filePath) {
     if (!units) return NULL;
-    const char* sourcePath = units->source_file_path && units->source_file_path[0]
-        ? units->source_file_path
-        : filePath;
+    const char* sourcePath = filePath;
+    if ((!sourcePath || !sourcePath[0]) && units->source_file_path && units->source_file_path[0]) {
+        sourcePath = units->source_file_path;
+    }
     if (!sourcePath || !sourcePath[0]) return NULL;
     FisicsSymbol* out = (FisicsSymbol*)calloc(1, sizeof(FisicsSymbol));
     if (!out) return NULL;
@@ -175,6 +177,52 @@ static const char* units_display_text(const AnalysisUnitsAttachment* units) {
     return "";
 }
 
+static void attach_payload_or_free(UITreeNode* node, ControlTreeNodePayload* payload) {
+    if (!payload) return;
+    if (!control_tree_node_set_payload(node, payload)) {
+        control_tree_payload_free(payload);
+    }
+}
+
+static void attach_section_payload(UITreeNode* node, const char* bucket) {
+    char stableId[CONTROL_TREE_PAYLOAD_STABLE_ID_MAX];
+    if (!control_tree_payload_format_section_id(stableId, sizeof(stableId), "units", bucket)) {
+        return;
+    }
+    attach_payload_or_free(node,
+                           control_tree_payload_create(CONTROL_TREE_NODE_SECTION,
+                                                       stableId,
+                                                       node ? node->label : "",
+                                                       node ? node->fullPath : NULL));
+}
+
+static void attach_file_payload(UITreeNode* node, const char* filePath) {
+    char stableId[CONTROL_TREE_PAYLOAD_STABLE_ID_MAX];
+    if (!control_tree_payload_format_file_id(stableId, sizeof(stableId), "units", filePath)) {
+        return;
+    }
+    ControlTreeNodePayload* payload = control_tree_payload_create(CONTROL_TREE_NODE_FILE,
+                                                                 stableId,
+                                                                 node ? node->label : "",
+                                                                 filePath);
+    if (payload) {
+        (void)control_tree_payload_set_target(payload, filePath, 0, 0);
+    }
+    attach_payload_or_free(node, payload);
+}
+
+static void attach_empty_payload(UITreeNode* node, const char* message) {
+    char stableId[CONTROL_TREE_PAYLOAD_STABLE_ID_MAX];
+    if (!control_tree_payload_format_empty_id(stableId, sizeof(stableId), "units", message)) {
+        return;
+    }
+    attach_payload_or_free(node,
+                           control_tree_payload_create(CONTROL_TREE_NODE_EMPTY,
+                                                       stableId,
+                                                       node ? node->label : message,
+                                                       NULL));
+}
+
 static bool path_is_active(const char* path, const char* activeFilePath) {
     return path && activeFilePath && strcmp(path, activeFilePath) == 0;
 }
@@ -278,17 +326,7 @@ static bool label_matches_unit_dimension(const char* label, unsigned int unitDim
 bool control_panel_units_tree_node_focus_query(const struct UITreeNode* node,
                                                char* outQuery,
                                                size_t outQuerySize) {
-    if (!outQuery || outQuerySize == 0) return false;
-    outQuery[0] = '\0';
-    if (!node || !node->userData || !node->label || !node->label[0]) return false;
-
-    const char* delimiter = strstr(node->label, " : ");
-    if (!delimiter || delimiter == node->label) return false;
-    size_t nameLen = (size_t)(delimiter - node->label);
-    if (nameLen >= outQuerySize) nameLen = outQuerySize - 1;
-    memcpy(outQuery, node->label, nameLen);
-    outQuery[nameLen] = '\0';
-    return outQuery[0] != '\0';
+    return control_tree_node_marker_query(node, outQuery, outQuerySize);
 }
 
 static UITreeNode* create_units_attachment_node(const AnalysisUnitsAttachment* units,
@@ -321,13 +359,14 @@ static UITreeNode* create_units_attachment_node(const AnalysisUnitsAttachment* u
     }
 
     FisicsSymbol* symCopy = NULL;
-    if (units->source_file_path || units->start_line > 0) {
+    if ((filePath && filePath[0]) || units->start_line > 0) {
         symCopy = create_location_symbol_for_units(units, filePath);
     }
     if (!symCopy && (units->has_symbol_stable_id || units->symbol_stable_id != 0)) {
         analysis_symbols_store_lock();
         const FisicsSymbol* sym = find_symbol_by_stable_id(units->symbol_stable_id);
-        if (sym) {
+        if (sym && (!filePath || !filePath[0] ||
+                    (sym->file_path && strcmp(sym->file_path, filePath) == 0))) {
             symCopy = clone_symbol_for_tree(sym);
         }
         analysis_symbols_store_unlock();
@@ -336,6 +375,35 @@ static UITreeNode* create_units_attachment_node(const AnalysisUnitsAttachment* u
     UITreeNode* node = createTreeNode(label, TREE_NODE_FILE, NODE_COLOR_DEFAULT, filePath, symCopy);
     if (symCopy) {
         setTreeNodeUserDataFreeFn(node, free_tree_symbol_user_data);
+    }
+    if (node) {
+        const char* targetPath = filePath && filePath[0] ? filePath : NULL;
+        if (!targetPath && symCopy && symCopy->file_path && symCopy->file_path[0]) {
+            targetPath = symCopy->file_path;
+        }
+        if (!targetPath && units->source_file_path && units->source_file_path[0]) {
+            targetPath = units->source_file_path;
+        }
+        int targetLine = symCopy ? symCopy->start_line : units->start_line;
+        int targetCol = symCopy ? symCopy->start_col : units->start_col;
+        char stableId[CONTROL_TREE_PAYLOAD_STABLE_ID_MAX];
+        if (control_tree_payload_format_unit_id(stableId,
+                                                sizeof(stableId),
+                                                targetPath,
+                                                targetLine,
+                                                targetCol,
+                                                name,
+                                                unitText)) {
+            ControlTreeNodePayload* payload = control_tree_payload_create(CONTROL_TREE_NODE_UNIT,
+                                                                         stableId,
+                                                                         label,
+                                                                         targetPath);
+            if (payload) {
+                (void)control_tree_payload_set_target(payload, targetPath, targetLine, targetCol);
+                (void)control_tree_payload_set_marker_query(payload, name);
+            }
+            attach_payload_or_free(node, payload);
+        }
     }
     return node;
 }
@@ -348,6 +416,7 @@ static bool append_units_for_file(UITreeNode* fileNode,
     if (!file || !file->attachments || file->count == 0) {
         if (appendEmptyMessage) {
             UITreeNode* empty = createTreeNode("No units", TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, NULL);
+            attach_empty_payload(empty, "No units");
             addChildNode(fileNode, empty);
         }
         return false;
@@ -362,6 +431,7 @@ static bool append_units_for_file(UITreeNode* fileNode,
     }
     if (!addedAny && appendEmptyMessage) {
         UITreeNode* empty = createTreeNode("No units", TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, NULL);
+        attach_empty_payload(empty, "No units");
         addChildNode(fileNode, empty);
     }
     return addedAny;
@@ -371,6 +441,7 @@ struct UITreeNode* control_panel_build_units_tree(const struct DirEntry* project
                                                   const char* activeFilePath) {
     UITreeNode* root = createTreeNode("Units", TREE_NODE_SECTION, NODE_COLOR_SECTION, NULL, NULL);
     if (!root) return NULL;
+    attach_section_payload(root, "root");
     root->isExpanded = true;
 
     const char* projectRootPath = projectRoot ? projectRoot->path : NULL;
@@ -380,6 +451,7 @@ struct UITreeNode* control_panel_build_units_tree(const struct DirEntry* project
         return NULL;
     }
     activeSection->isExpanded = true;
+    attach_section_payload(activeSection, "active");
 
     bool activeAdded = false;
     UITreeNode* projectSection = createTreeNode("Project Files", TREE_NODE_SECTION, NODE_COLOR_SECTION, NULL, NULL);
@@ -388,6 +460,7 @@ struct UITreeNode* control_panel_build_units_tree(const struct DirEntry* project
         return NULL;
     }
     projectSection->isExpanded = true;
+    attach_section_payload(projectSection, "project");
 
     analysis_units_store_lock();
     size_t fileCount = analysis_units_store_file_count();
@@ -402,6 +475,7 @@ struct UITreeNode* control_panel_build_units_tree(const struct DirEntry* project
         if (isActive) {
             UITreeNode* activeFileNode = createTreeNode(fileLabel, TREE_NODE_SECTION, NODE_COLOR_SECTION, file->path, NULL);
             if (activeFileNode) {
+                attach_file_payload(activeFileNode, file->path);
                 activeFileNode->isExpanded = true;
                 append_units_for_file(activeFileNode, file, file->path, true);
                 addChildNode(activeSection, activeFileNode);
@@ -412,6 +486,7 @@ struct UITreeNode* control_panel_build_units_tree(const struct DirEntry* project
         if (file->attachments && file->count > 0) {
             UITreeNode* projectFileNode = createTreeNode(fileLabel, TREE_NODE_SECTION, NODE_COLOR_SECTION, file->path, NULL);
             if (!projectFileNode) continue;
+            attach_file_payload(projectFileNode, file->path);
             projectFileNode->isExpanded = isActive;
             if (append_units_for_file(projectFileNode, file, file->path, false)) {
                 addChildNode(projectSection, projectFileNode);
@@ -428,10 +503,12 @@ struct UITreeNode* control_panel_build_units_tree(const struct DirEntry* project
                                            NODE_COLOR_DEFAULT,
                                            NULL,
                                            NULL);
+        attach_empty_payload(empty, activeFilePath && activeFilePath[0] ? "No units" : "No active file");
         addChildNode(activeSection, empty);
     }
     if (projectSection->childCount == 0) {
         UITreeNode* empty = createTreeNode("No project units", TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, NULL);
+        attach_empty_payload(empty, "No project units");
         addChildNode(projectSection, empty);
     }
 
@@ -477,6 +554,10 @@ static UITreeNode* clone_units_filtered_node(const UITreeNode* node,
     }
     if (symCopy) {
         setTreeNodeUserDataFreeFn(clone, free_tree_symbol_user_data);
+    }
+    const ControlTreeNodePayload* payload = control_tree_node_payload(node);
+    if (payload) {
+        attach_payload_or_free(clone, control_tree_payload_clone(payload));
     }
 
     bool kept = isLeafUnit ? selfMatches : (selfMatches || !query || !query[0]);

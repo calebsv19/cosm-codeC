@@ -8,6 +8,7 @@
 
 #include "core/Analysis/analysis_symbols_store.h"
 #include "app/GlobalInfo/project.h"
+#include "ide/Panes/ControlPanel/control_tree_payload.h"
 #include "ide/UI/Trees/ui_tree_node.h"
 
 static const char* basename_from_path(const char* path) {
@@ -29,6 +30,78 @@ static const char* kind_label(FisicsSymbolKind kind) {
         case FISICS_SYMBOL_MACRO: return "macro";
         default: return "symbol";
     }
+}
+
+static void attach_payload_or_free(UITreeNode* node, ControlTreeNodePayload* payload) {
+    if (!payload) return;
+    if (!control_tree_node_set_payload(node, payload)) {
+        control_tree_payload_free(payload);
+    }
+}
+
+static void attach_section_payload(UITreeNode* node, const char* bucket) {
+    char stableId[CONTROL_TREE_PAYLOAD_STABLE_ID_MAX];
+    if (!control_tree_payload_format_section_id(stableId, sizeof(stableId), "symbols", bucket)) {
+        return;
+    }
+    attach_payload_or_free(node,
+                           control_tree_payload_create(CONTROL_TREE_NODE_SECTION,
+                                                       stableId,
+                                                       node ? node->label : "",
+                                                       node ? node->fullPath : NULL));
+}
+
+static void attach_file_payload(UITreeNode* node, const char* filePath) {
+    char stableId[CONTROL_TREE_PAYLOAD_STABLE_ID_MAX];
+    if (!control_tree_payload_format_file_id(stableId, sizeof(stableId), "symbols", filePath)) {
+        return;
+    }
+    ControlTreeNodePayload* payload = control_tree_payload_create(CONTROL_TREE_NODE_FILE,
+                                                                 stableId,
+                                                                 node ? node->label : "",
+                                                                 filePath);
+    if (payload) {
+        (void)control_tree_payload_set_target(payload, filePath, 0, 0);
+    }
+    attach_payload_or_free(node, payload);
+}
+
+static void attach_symbol_payload(UITreeNode* node, const FisicsSymbol* sym, const char* fallbackPath) {
+    const char* path = (sym && sym->file_path && sym->file_path[0]) ? sym->file_path : fallbackPath;
+    const char* kind = kind_label(sym ? sym->kind : FISICS_SYMBOL_UNKNOWN);
+    const char* name = (sym && sym->name) ? sym->name : "";
+    int line = sym ? sym->start_line : 0;
+    int col = sym ? sym->start_col : 0;
+    char stableId[CONTROL_TREE_PAYLOAD_STABLE_ID_MAX];
+    if (!control_tree_payload_format_symbol_id(stableId,
+                                               sizeof(stableId),
+                                               path,
+                                               line,
+                                               col,
+                                               kind,
+                                               name)) {
+        return;
+    }
+    ControlTreeNodePayload* payload = control_tree_payload_create(CONTROL_TREE_NODE_SYMBOL,
+                                                                 stableId,
+                                                                 node ? node->label : "",
+                                                                 path);
+    if (payload) {
+        (void)control_tree_payload_set_target(payload, path, line, col);
+    }
+    attach_payload_or_free(node, payload);
+}
+
+static void attach_empty_payload(UITreeNode* node, const char* family, const char* message) {
+    char stableId[CONTROL_TREE_PAYLOAD_STABLE_ID_MAX];
+    if (!control_tree_payload_format_empty_id(stableId, sizeof(stableId), family, message)) {
+        return;
+    }
+    attach_payload_or_free(node,
+                           control_tree_payload_create(CONTROL_TREE_NODE_EMPTY,
+                                                       stableId,
+                                                       node ? node->label : message,
+                                                       NULL));
 }
 
 static bool text_contains_ci(const char* haystack, const char* needle) {
@@ -309,6 +382,10 @@ static UITreeNode* clone_filtered_node(const UITreeNode* node,
                                        node->fullPath,
                                        node->userData);
     if (!clone) return NULL;
+    const ControlTreeNodePayload* payload = control_tree_node_payload(node);
+    if (payload) {
+        attach_payload_or_free(clone, control_tree_payload_clone(payload));
+    }
 
     bool kept = selfMatches;
     bool descendantMatch = false;
@@ -470,6 +547,7 @@ static void append_symbols_to_file(UITreeNode* fileNode,
     if (!fileNode) return;
     if (!entry || entry->count == 0 || !entry->symbols) {
         UITreeNode* empty = createTreeNode("No symbols", TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, NULL);
+        attach_empty_payload(empty, "symbols", "No symbols");
         addChildNode(fileNode, empty);
         return;
     }
@@ -497,6 +575,7 @@ static void append_symbols_to_file(UITreeNode* fileNode,
         if (symCopy) {
             setTreeNodeUserDataFreeFn(symNode, free_tree_symbol_user_data);
         }
+        attach_symbol_payload(symNode, sym, filePath);
         symNode->isExpanded = false;
         {
             bool cachedExpanded = false;
@@ -537,6 +616,9 @@ static void append_symbols_to_file(UITreeNode* fileNode,
                     snprintf(paramLabel, sizeof(paramLabel), "<param>");
                 }
                 UITreeNode* paramNode = createTreeNode(paramLabel, TREE_NODE_FILE, NODE_COLOR_DEFAULT, filePath, NULL);
+                char emptyFamily[128];
+                snprintf(emptyFamily, sizeof(emptyFamily), "symbols-param:%s", sym->name ? sym->name : "symbol");
+                attach_empty_payload(paramNode, emptyFamily, paramLabel);
                 addChildNode(symNode, paramNode);
             }
         }
@@ -581,6 +663,7 @@ static void append_symbols_to_file(UITreeNode* fileNode,
         if (symCopy) {
             setTreeNodeUserDataFreeFn(childNode, free_tree_symbol_user_data);
         }
+        attach_symbol_payload(childNode, sym, filePath);
         addChildNode(parentNode, childNode);
     }
 
@@ -603,6 +686,7 @@ static UITreeNode* build_project_tree_node(const DirEntry* entry,
     if (entry->type == ENTRY_FILE) {
         UITreeNode* fileNode = createTreeNode(entry->name, TREE_NODE_SECTION, NODE_COLOR_DEFAULT, entry->path, NULL);
         if (!fileNode) return NULL;
+        attach_file_payload(fileNode, entry->path);
         bool cachedExpanded = false;
         char key[4096] = {0};
         if (expansion_key_for_path_node(TREE_NODE_SECTION, entry->path, key, sizeof(key)) &&
@@ -620,6 +704,7 @@ static UITreeNode* build_project_tree_node(const DirEntry* entry,
 
     UITreeNode* dirNode = createTreeNode(entry->name, TREE_NODE_FOLDER, NODE_COLOR_SECTION, entry->path, NULL);
     if (!dirNode) return NULL;
+    attach_section_payload(dirNode, entry->path ? entry->path : entry->name);
     bool cachedExpanded = false;
     char key[4096] = {0};
     if (expansion_key_for_path_node(TREE_NODE_FOLDER, entry->path, key, sizeof(key)) &&
@@ -649,10 +734,12 @@ struct UITreeNode* buildSymbolTreeForFile(const char* filePath,
                                           bool showMacros) {
     UITreeNode* root = createTreeNode("Symbols", TREE_NODE_SECTION, NODE_COLOR_SECTION, NULL, NULL);
     if (!root) return NULL;
+    attach_section_payload(root, "root");
     root->isExpanded = true;
 
     if (!filePath || !filePath[0]) {
         UITreeNode* empty = createTreeNode("No active file", TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, NULL);
+        attach_empty_payload(empty, "symbols", "No active file");
         addChildNode(root, empty);
         return root;
     }
@@ -661,10 +748,12 @@ struct UITreeNode* buildSymbolTreeForFile(const char* filePath,
     char fileLabel[256];
     snprintf(fileLabel, sizeof(fileLabel), "%s", base ? base : filePath);
     UITreeNode* fileNode = createTreeNode(fileLabel, TREE_NODE_SECTION, NODE_COLOR_SECTION, filePath, NULL);
+    attach_file_payload(fileNode, filePath);
     fileNode->isExpanded = true;
 
     if (!entry || entry->count == 0 || !entry->symbols) {
         UITreeNode* empty = createTreeNode("No symbols", TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, NULL);
+        attach_empty_payload(empty, "symbols", "No symbols");
         addChildNode(fileNode, empty);
         addChildNode(root, fileNode);
         return root;
@@ -682,6 +771,7 @@ struct UITreeNode* buildSymbolTreeForWorkspace(const DirEntry* projectRoot,
                                                bool showMacros) {
     UITreeNode* root = createTreeNode("Symbols", TREE_NODE_SECTION, NODE_COLOR_SECTION, NULL, NULL);
     if (!root) return NULL;
+    attach_section_payload(root, "root");
     root->isExpanded = true;
 
     const char* projectRootPath = projectRoot ? projectRoot->path : NULL;
@@ -690,6 +780,7 @@ struct UITreeNode* buildSymbolTreeForWorkspace(const DirEntry* projectRoot,
         freeTreeNodeRecursive(root);
         return NULL;
     }
+    attach_section_payload(activeSection, "active");
     {
         bool cachedExpanded = false;
         char key[512] = {0};
@@ -705,6 +796,7 @@ struct UITreeNode* buildSymbolTreeForWorkspace(const DirEntry* projectRoot,
         char label[512];
         build_file_label(label, sizeof(label), activeFilePath, projectRootPath);
         UITreeNode* fileNode = createTreeNode(label, TREE_NODE_SECTION, NODE_COLOR_SECTION, activeFilePath, NULL);
+        attach_file_payload(fileNode, activeFilePath);
         {
             bool cachedExpanded = false;
             char key[4096] = {0};
@@ -722,6 +814,7 @@ struct UITreeNode* buildSymbolTreeForWorkspace(const DirEntry* projectRoot,
         addChildNode(activeSection, fileNode);
     } else {
         UITreeNode* empty = createTreeNode("No active file", TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, NULL);
+        attach_empty_payload(empty, "symbols", "No active file");
         addChildNode(activeSection, empty);
     }
     addChildNode(root, activeSection);
@@ -731,6 +824,7 @@ struct UITreeNode* buildSymbolTreeForWorkspace(const DirEntry* projectRoot,
         freeTreeNodeRecursive(root);
         return NULL;
     }
+    attach_section_payload(projectSection, "project");
     {
         bool cachedExpanded = false;
         char key[512] = {0};
@@ -756,6 +850,7 @@ struct UITreeNode* buildSymbolTreeForWorkspace(const DirEntry* projectRoot,
 
     if (!addedAny) {
         UITreeNode* empty = createTreeNode("No project files", TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, NULL);
+        attach_empty_payload(empty, "symbols", "No project files");
         addChildNode(projectSection, empty);
     }
     addChildNode(root, projectSection);

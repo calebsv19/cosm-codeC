@@ -18,6 +18,8 @@ userData) {
     node->depth = 0;
     node->userData = userData;
     node->userDataFreeFn = NULL;
+    node->payload = NULL;
+    node->payloadFreeFn = NULL;
 
     node->children = NULL;
     node->childCount = 0;
@@ -29,6 +31,15 @@ userData) {
 void setTreeNodeUserDataFreeFn(UITreeNode* node, UITreeUserDataFreeFn fn) {
     if (!node) return;
     node->userDataFreeFn = fn;
+}
+
+void setTreeNodePayload(UITreeNode* node, void* payload, UITreeUserDataFreeFn fn) {
+    if (!node) return;
+    if (node->payload && node->payloadFreeFn) {
+        node->payloadFreeFn(node->payload);
+    }
+    node->payload = payload;
+    node->payloadFreeFn = fn;
 }
 
 static void update_tree_depth(UITreeNode* node, int depth) {
@@ -66,6 +77,10 @@ void freeTreeNodeRecursive(UITreeNode* node) {
     if (node->userData && node->userDataFreeFn) {
         node->userDataFreeFn(node->userData);
         node->userData = NULL;
+    }
+    if (node->payload && node->payloadFreeFn) {
+        node->payloadFreeFn(node->payload);
+        node->payload = NULL;
     }
     free((char*)node->label);
     free((char*)node->fullPath);
