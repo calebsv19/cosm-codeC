@@ -85,7 +85,11 @@ void control_panel_attach_controller(UIPane* pane) {
     ControlPanelControllerState* state = (ControlPanelControllerState*)malloc(sizeof(*state));
     if (!state) return;
 
+    bool hasBootstrapState = g_controlPanelBootstrapState.ui.filter_button_hits.items != NULL;
     control_panel_init_controller_state(state);
+    if (hasBootstrapState) {
+        control_panel_copy_startup_persist_state(state, &g_controlPanelBootstrapState);
+    }
     pane->controllerState = state;
     pane->destroyControllerState = control_panel_destroy_controller_state;
 }

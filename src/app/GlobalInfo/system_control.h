@@ -7,6 +7,7 @@
 int STARTING_WIDTH, STARTING_HEIGHT;
 
 bool initializeSystem(const char* argv0);
+bool ide_save_editor_session_now(void);
 void shutdownSystem(UIPane** panes, int paneCount);
 
 

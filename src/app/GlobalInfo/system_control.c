@@ -13,6 +13,7 @@
 
 #include "engine/Render/render_pipeline.h"
 #include "ide/Panes/Popup/popup_system.h"
+#include "ide/Panes/ControlPanel/control_panel.h"
 #include "ide/Panes/ToolPanels/Tasks/task_json_helper.h"
 #include "ide/Panes/ToolPanels/Tasks/tool_tasks.h"
 #include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
@@ -440,6 +441,7 @@ bool initializeSystem(const char* argv0) {
             }
         }
     }
+    control_panel_set_persist_request_callback(ide_save_editor_session_now);
 
     const WorkspaceBuildConfig* cfg = getWorkspaceBuildConfig();
     const char* buildArgs = (cfg && cfg->build_args[0]) ? cfg->build_args : NULL;
@@ -512,6 +514,14 @@ bool initializeSystem(const char* argv0) {
     return true;
 }
 
+bool ide_save_editor_session_now(void) {
+    IDECoreState* core = getCoreState();
+    if (!core || !core->persistentEditorView || !projectPath[0]) {
+        return false;
+    }
+    return editor_session_save(projectPath, core->persistentEditorView, core->activeEditorView);
+}
+
 void shutdownSystem(UIPane** panes, int paneCount) {
     // Always persist lightweight UI/build diagnostics state.
     build_diagnostics_save(projectPath);
@@ -539,10 +549,7 @@ void shutdownSystem(UIPane** panes, int paneCount) {
         analysis_snapshot_refresh_and_save(projectPath);
         include_graph_save(projectPath);
     }
-    IDECoreState* core = getCoreState();
-    if (core && core->persistentEditorView) {
-        editor_session_save(projectPath, core->persistentEditorView, core->activeEditorView);
-    }
+    (void)ide_save_editor_session_now();
 
     ide_ipc_stop();
 
