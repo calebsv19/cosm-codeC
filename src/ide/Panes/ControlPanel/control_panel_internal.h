@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "core/Analysis/analysis_symbols_store.h"
+#include "ide/Panes/ControlPanel/control_tree_payload.h"
 #include "ide/UI/Trees/ui_tree_node.h"
 #include "ide/UI/panel_text_edit.h"
 
@@ -28,6 +29,9 @@ enum {
 
 typedef struct {
     bool valid;
+    bool has_payload_stable_id;
+    ControlTreeNodeKind payload_kind;
+    char payload_stable_id[CONTROL_TREE_PAYLOAD_STABLE_ID_MAX];
     TreeNodeType type;
     char full_path[1024];
     char label[256];

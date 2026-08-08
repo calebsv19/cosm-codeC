@@ -3,6 +3,7 @@
 #include "core/CommandBus/command_bus.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
 #include "ide/Panes/ControlPanel/control_panel_adapter.h"
+#include "ide/Panes/ControlPanel/control_tree_payload.h"
 #include "ide/Panes/ControlPanel/control_panel_units_tree.h"
 #include "ide/Panes/ControlPanel/symbol_tree_adapter.h"
 #include "ide/Panes/panel_view_adapter.h"
@@ -51,21 +52,40 @@ static void control_panel_tree_activate(void* user_data) {
     bool focusUnitMarkers = control_panel_units_tree_node_focus_query(state->node,
                                                                       unitFocusQuery,
                                                                       sizeof(unitFocusQuery));
-    const FisicsSymbol* sym = (const FisicsSymbol*)state->node->userData;
+    ControlTreeActivationTarget target;
     bool opened = false;
-    if (sym && sym->file_path) {
+    const ControlTreeNodePayload* payload = control_tree_node_payload(state->node);
+    if (control_tree_node_activation_target(state->node, &target)) {
         opened = ui_open_path_at_location_in_best_editor_view(
-            sym->file_path,
-            sym->start_line,
-            sym->start_col
+            target.path,
+            target.line,
+            target.column
         );
-    } else if (state->node->fullPath && state->node->type != TREE_NODE_FOLDER) {
+    } else if (payload) {
+        return;
+    } else {
+        const FisicsSymbol* sym = (const FisicsSymbol*)state->node->userData;
+        if (sym && sym->file_path) {
+            opened = ui_open_path_at_location_in_best_editor_view(
+                sym->file_path,
+                sym->start_line,
+                sym->start_col
+            );
+        }
+    }
+
+    if (!opened && state->node->fullPath && state->node->type != TREE_NODE_FOLDER) {
         opened = ui_open_path_at_location_in_best_editor_view(state->node->fullPath, 0, 0);
     }
 
     if (opened && focusUnitMarkers) {
         (void)control_panel_focus_unit_marker_query(unitFocusQuery);
     }
+}
+
+static uintptr_t control_panel_tree_row_identity(const UITreeNode* node) {
+    uintptr_t stable = control_tree_node_stable_identity(node);
+    return stable ? stable : (uintptr_t)node;
 }
 
 static bool is_match_sub_button(ControlFilterButtonId id) {
@@ -214,18 +234,19 @@ void handleControlPanelMouseInput(UIPane* pane, SDL_Event* event) {
 
         UITreeNode* tree = control_panel_get_symbol_tree();
         if (tree) {
-            UITreeNode* hit = hitTestTreeNodeWithScroll(&listPane, tree, scroll, mx, my);
-            if (hit) {
+            UITreeNodeHitResult hitResult = {0};
+            if (hitTestTreeNodeWithScrollResult(&listPane, tree, scroll, mx, my, &hitResult) &&
+                hitResult.node) {
                 ControlPanelTreeActivationState activation = {
                     .root = tree,
-                    .node = hit
+                    .node = hitResult.node
                 };
                 (void)ui_row_activation_handle_primary(
                     &(UIRowActivationContext){
                         .double_click_tracker = &s_symbolDoubleClickTracker,
-                        .row_identity = (uintptr_t)hit,
+                        .row_identity = control_panel_tree_row_identity(hitResult.node),
                         .double_click_ms = UI_DOUBLE_CLICK_MS_DEFAULT,
-                        .clicked_prefix = treeNodePrefixHit(&listPane, hit, mx),
+                        .clicked_prefix = hitResult.clicked_prefix,
                         .additive_modifier = false,
                         .range_modifier = false,
                         .wants_drag_start = false,

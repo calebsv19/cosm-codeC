@@ -6,6 +6,7 @@
 #include "app/GlobalInfo/core_state.h"
 #include "ide/UI/scroll_manager.h"
 #include "ide/UI/row_surface.h"
+#include "ide/UI/Trees/tree_row_metrics.h"
 #include "ide/UI/ui_selection_style.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/UI/panel_metrics.h"
@@ -141,8 +142,6 @@ static void renderTreeRecursive(UITreeNode* node,
                                 bool selectAllVisual,
                                 int lineHeight) {
     if (!node || *y > maxY) return;
-    int indent = node->depth * ide_ui_tree_indent_width();
-    int drawX = x + indent;
     int drawY = *y;
 
     RenderContext* ctx = getRenderContext();
@@ -161,23 +160,27 @@ static void renderTreeRecursive(UITreeNode* node,
     TTF_Font* rowFont = tree_row_font();
     int textWidth = getTextWidthWithFont(line, rowFont);
     int textHeight = rowFont ? TTF_FontHeight(rowFont) : lineHeight;
-    if (textHeight < 1) textHeight = lineHeight;
-    int textY = drawY + ((lineHeight - textHeight) / 2);
-    SDL_Rect textBox = {
-        drawX - 6,
-        textY - 1,
-        textWidth + 12,
-        textHeight + 2
-    };
+    UITreeRowMetrics metrics;
+    if (!ui_tree_row_metrics_compute(&metrics,
+                                     0,
+                                     x,
+                                     node->depth,
+                                     ide_ui_tree_indent_width(),
+                                     drawY,
+                                     lineHeight,
+                                     textWidth,
+                                     textHeight,
+                                     getTextWidthWithFont("[-] ", rowFont))) {
+        return;
+    }
 
     bool isHovered = allowHover && (mouseY >= drawY && mouseY < drawY + lineHeight);
     if (isHovered) {
-        isHovered = (mouseX >= textBox.x && mouseX <= (textBox.x + textBox.w) &&
-                     mouseY >= textBox.y && mouseY <= (textBox.y + textBox.h));
+        isHovered = ui_tree_row_metrics_contains_text(&metrics, mouseX, mouseY);
     }
 
     bool selectedVisual = (node == selectedNode) || selectAllVisual;
-    UIRowSurfaceLayout rowSurface = ui_row_surface_layout_from_rect(textBox);
+    UIRowSurfaceLayout rowSurface = ui_row_surface_layout_from_rect(metrics.text_bounds);
     if (selectedVisual) {
         ui_row_surface_draw_selection_fill(renderer, &rowSurface);
         ui_row_surface_draw_selection_outline(renderer, &rowSurface);
@@ -195,7 +198,7 @@ static void renderTreeRecursive(UITreeNode* node,
         col = control_panel_symbol_tone_by_node(node);
     }
     SDL_SetRenderDrawColor(renderer, col.r, col.g, col.b, 255);
-    drawTextUTF8WithFontColor(drawX, textY, line, rowFont, col, false);
+    drawTextUTF8WithFontColor(metrics.draw_x, metrics.text_y, line, rowFont, col, false);
     *y += lineHeight;
 
     // Recurse into children if expanded
@@ -297,7 +300,6 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
     SDL_Rect clip = { pane->x, contentTop, pane->w - 8, viewportH };
     pushClipRect(&clip);
 
-    int x = pane->x + paddingX;
     float currentY = (float)contentTop - offset;
     int maxY = contentTop + viewportH;
 
@@ -328,9 +330,6 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
         if (drawY + lineHeight <= contentTop) {
             // Skip draw, but continue traversal (need depth info)
         } else if (drawY < maxY) {
-            int indent = n->depth * ide_ui_tree_indent_width();
-            int drawX = x + indent;
-
             RenderContext* ctx = getRenderContext();
             if (!ctx || !ctx->renderer) {
                 free(stack);
@@ -347,14 +346,20 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
             snprintf(line, sizeof(line), "%s%s", prefix, n->label ? n->label : "");
 
             int textWidth = getTextWidthWithFont(line, rowFont);
-            int textY = drawY + ((lineHeight - textHeight) / 2);
-            SDL_Rect textBox = {
-                drawX - 6,
-                textY - 1,
-                textWidth + 12,
-                textHeight + 2
-            };
-            UIRowSurfaceLayout rowSurface = ui_row_surface_layout_from_rect(textBox);
+            UITreeRowMetrics metrics;
+            if (!ui_tree_row_metrics_compute(&metrics,
+                                             pane->x,
+                                             paddingX,
+                                             n->depth,
+                                             ide_ui_tree_indent_width(),
+                                             drawY,
+                                             lineHeight,
+                                             textWidth,
+                                             textHeight,
+                                             getTextWidthWithFont("[-] ", rowFont))) {
+                continue;
+            }
+            UIRowSurfaceLayout rowSurface = ui_row_surface_layout_from_rect(metrics.text_bounds);
             UIRowSurfaceLayout visibleSurface = {0};
             bool rowVisible = ui_row_surface_clip(&rowSurface, &clip, &visibleSurface);
 
@@ -378,7 +383,7 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
                 col = control_panel_symbol_tone_by_node(n);
             }
             SDL_SetRenderDrawColor(renderer, col.r, col.g, col.b, 255);
-            drawTextUTF8WithFontColorClipped(drawX, textY, line, rowFont, col, false, &clip);
+            drawTextUTF8WithFontColorClipped(metrics.draw_x, metrics.text_y, line, rowFont, col, false, &clip);
         }
 
         if ((n->type == TREE_NODE_FOLDER || n->type == TREE_NODE_SECTION) && n->isExpanded) {
@@ -430,18 +435,29 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
     }
 }
 
-UITreeNode* hitTestTreeNodeWithScroll(UIPane* pane,
-                                      UITreeNode* root,
-                                      PaneScrollState* scroll,
-                                      int clickX,
-                                      int clickY) {
-    if (!pane || !root || !scroll) return NULL;
-    (void)clickX;
+bool hitTestTreeNodeWithScrollResult(UIPane* pane,
+                                     UITreeNode* root,
+                                     PaneScrollState* scroll,
+                                     int clickX,
+                                     int clickY,
+                                     UITreeNodeHitResult* out_result) {
+    if (!pane || !root || !scroll) return false;
+    if (out_result) *out_result = (UITreeNodeHitResult){0};
 
     const int lineHeight = tree_line_height_for_pane(pane);
     int paddingY = TREE_PANEL_PADDING_Y;
     int contentTop = pane->y + paddingY;
+    int viewportH = pane->h - (contentTop - pane->y);
+    if (viewportH < 0) viewportH = 0;
+    int viewportBottom = contentTop + viewportH;
+    if (clickY < contentTop || clickY >= viewportBottom) return false;
+
     float offset = scroll_state_get_offset(scroll);
+    SDL_Rect clip = { pane->x, contentTop, pane->w - 8, viewportH };
+    TTF_Font* rowFont = tree_row_font();
+    int textHeight = rowFont ? TTF_FontHeight(rowFont) : lineHeight;
+    if (textHeight < 1) textHeight = lineHeight;
+    int prefixTextWidth = getTextWidthWithFont("[-] ", rowFont);
 
     // Walk visible nodes with the same layout as renderTreePanelWithScroll
     UITreeNode** stack = NULL;
@@ -452,7 +468,7 @@ UITreeNode* hitTestTreeNodeWithScroll(UIPane* pane,
     stack[sp++] = root;
     int y = contentTop - (int)offset;
 
-    UITreeNode* hit = NULL;
+    UITreeNodeHitResult result = {0};
     while (sp > 0) {
         UITreeNode* n = stack[--sp];
         if (!n) continue;
@@ -460,8 +476,38 @@ UITreeNode* hitTestTreeNodeWithScroll(UIPane* pane,
         y += lineHeight;
 
         if (clickY >= drawY && clickY < drawY + lineHeight) {
-            hit = n;
-            break;
+            const char* prefix = "";
+            if (n->type == TREE_NODE_FOLDER || n->type == TREE_NODE_SECTION) {
+                prefix = n->isExpanded ? "[-] " : "[+] ";
+            }
+            char line[512];
+            snprintf(line, sizeof(line), "%s%s", prefix, n->label ? n->label : "");
+            int textWidth = getTextWidthWithFont(line, rowFont);
+            UITreeRowMetrics metrics;
+            if (ui_tree_row_metrics_compute(&metrics,
+                                            pane->x,
+                                            TREE_PANEL_PADDING_X,
+                                            n->depth,
+                                            ide_ui_tree_indent_width(),
+                                            drawY,
+                                            lineHeight,
+                                            textWidth,
+                                            textHeight,
+                                            prefixTextWidth)) {
+                UIRowSurfaceLayout rowSurface = ui_row_surface_layout_from_rect(metrics.text_bounds);
+                UIRowSurfaceLayout visibleSurface = {0};
+                bool rowVisible = ui_row_surface_clip(&rowSurface, &clip, &visibleSurface);
+                bool clickedText = rowVisible && ui_row_surface_contains(&visibleSurface, clickX, clickY);
+                if (clickedText) {
+                    result.node = n;
+                    result.clicked_text = true;
+                    result.clicked_prefix =
+                        (n->type == TREE_NODE_FOLDER || n->type == TREE_NODE_SECTION) &&
+                        ui_tree_row_metrics_contains_prefix(&metrics, clickX, clickY);
+                    result.text_bounds = visibleSurface.bounds;
+                    break;
+                }
+            }
         }
 
         if ((n->type == TREE_NODE_FOLDER || n->type == TREE_NODE_SECTION) && n->isExpanded) {
@@ -481,13 +527,22 @@ UITreeNode* hitTestTreeNodeWithScroll(UIPane* pane,
         }
     }
 
-    if (!hit) {
-        free(stack);
+    free(stack);
+    if (!result.node) return false;
+    if (out_result) *out_result = result;
+    return true;
+}
+
+UITreeNode* hitTestTreeNodeWithScroll(UIPane* pane,
+                                      UITreeNode* root,
+                                      PaneScrollState* scroll,
+                                      int clickX,
+                                      int clickY) {
+    UITreeNodeHitResult result = {0};
+    if (!hitTestTreeNodeWithScrollResult(pane, root, scroll, clickX, clickY, &result)) {
         return NULL;
     }
-
-    free(stack);
-    return hit;
+    return result.node;
 }
 
 bool treeNodePrefixHit(const UIPane* pane, const UITreeNode* node, int clickX) {

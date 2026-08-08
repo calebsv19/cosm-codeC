@@ -4,6 +4,7 @@
 #include "ide/UI/Trees/ui_tree_node.h"
 #include "ide/Panes/PaneInfo/pane.h"
 #include <SDL2/SDL.h>
+#include <stdbool.h>
 
 // Draw a full UITreeNode hierarchy in a panel at x/y
 void renderTreePanel(UIPane* pane, UITreeNode* root);
@@ -20,6 +21,19 @@ void clearTreeSelectionState(void);
 
 // Pass mouse inputs to track hover/select states
 void handleTreeMouseMove(int x, int y);
+typedef struct UITreeNodeHitResult {
+    UITreeNode* node;
+    bool clicked_prefix;
+    bool clicked_text;
+    SDL_Rect text_bounds;
+} UITreeNodeHitResult;
+
+bool hitTestTreeNodeWithScrollResult(UIPane* pane,
+                                     UITreeNode* root,
+                                     struct PaneScrollState* scroll,
+                                     int mouseX,
+                                     int mouseY,
+                                     UITreeNodeHitResult* out_result);
 UITreeNode* hitTestTreeNodeWithScroll(UIPane* pane,
                                       UITreeNode* root,
                                       struct PaneScrollState* scroll,

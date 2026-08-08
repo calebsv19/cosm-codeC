@@ -6,6 +6,8 @@
 
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_units_store.h"
+#include "ide/Panes/ControlPanel/control_panel_active_file.h"
+#include "ide/Panes/ControlPanel/control_panel_composite_tree.h"
 #include "ide/Panes/ControlPanel/symbol_tree_adapter.h"
 #include "ide/Panes/ControlPanel/control_panel_units_tree.h"
 #include "ide/UI/Trees/tree_renderer.h"
@@ -165,6 +167,15 @@ static void control_panel_capture_selection_snapshot(ControlPanelSelectionSnapsh
 
     snapshot->valid = true;
     snapshot->type = selected->type;
+    const ControlTreeNodePayload* payload = control_tree_node_payload(selected);
+    if (payload && payload->stableId[0]) {
+        snapshot->has_payload_stable_id = true;
+        snapshot->payload_kind = payload->kind;
+        snprintf(snapshot->payload_stable_id,
+                 sizeof(snapshot->payload_stable_id),
+                 "%s",
+                 payload->stableId);
+    }
     if (selected->fullPath) {
         snprintf(snapshot->full_path, sizeof(snapshot->full_path), "%s", selected->fullPath);
     }
@@ -183,6 +194,14 @@ static void control_panel_capture_selection_snapshot(ControlPanelSelectionSnapsh
 static bool control_panel_selection_snapshot_matches_node(const ControlPanelSelectionSnapshot* snapshot,
                                                           const UITreeNode* node) {
     if (!snapshot || !snapshot->valid || !node) return false;
+
+    if (snapshot->has_payload_stable_id) {
+        const ControlTreeNodePayload* payload = control_tree_node_payload(node);
+        return payload &&
+               payload->kind == snapshot->payload_kind &&
+               strcmp(payload->stableId, snapshot->payload_stable_id) == 0;
+    }
+
     if (node->type != snapshot->type) return false;
 
     if (snapshot->full_path[0]) {
@@ -230,6 +249,28 @@ static bool control_panel_tree_strings_equal(const char* a, const char* b) {
     return strcmp(a, b) == 0;
 }
 
+static bool control_panel_activation_targets_equal(const ControlTreeActivationTarget* a,
+                                                   const ControlTreeActivationTarget* b) {
+    if (!a || !b) return a == b;
+    if (a->hasTarget != b->hasTarget) return false;
+    if (a->line != b->line || a->column != b->column) return false;
+    return control_panel_tree_strings_equal(a->path, b->path);
+}
+
+static bool control_panel_tree_payloads_equal(const UITreeNode* a, const UITreeNode* b) {
+    const ControlTreeNodePayload* pa = control_tree_node_payload(a);
+    const ControlTreeNodePayload* pb = control_tree_node_payload(b);
+    if (pa == pb) return true;
+    if (!pa || !pb) return false;
+    return pa->kind == pb->kind &&
+           pa->focusMarkerAfterOpen == pb->focusMarkerAfterOpen &&
+           control_panel_tree_strings_equal(pa->stableId, pb->stableId) &&
+           control_panel_tree_strings_equal(pa->displayPath, pb->displayPath) &&
+           control_panel_tree_strings_equal(pa->label, pb->label) &&
+           control_panel_tree_strings_equal(pa->markerQuery, pb->markerQuery) &&
+           control_panel_activation_targets_equal(&pa->target, &pb->target);
+}
+
 static bool control_panel_tree_nodes_equivalent(const UITreeNode* a, const UITreeNode* b) {
     if (a == b) return true;
     if (!a || !b) return false;
@@ -242,6 +283,9 @@ static bool control_panel_tree_nodes_equivalent(const UITreeNode* a, const UITre
     }
     if (!control_panel_tree_strings_equal(a->label, b->label) ||
         !control_panel_tree_strings_equal(a->fullPath, b->fullPath)) {
+        return false;
+    }
+    if (!control_panel_tree_payloads_equal(a, b)) {
         return false;
     }
 
@@ -274,46 +318,6 @@ static void clear_visible_tree_only(void) {
         freeTreeNodeRecursive(visibleSymbolTree);
     }
     visibleSymbolTree = NULL;
-}
-
-static UITreeNode* build_empty_search_tree(const char* message) {
-    UITreeNode* root = createTreeNode("Symbols", TREE_NODE_SECTION, NODE_COLOR_SECTION, NULL, NULL);
-    if (!root) return NULL;
-    root->isExpanded = true;
-    UITreeNode* line = createTreeNode(message ? message : "No matches", TREE_NODE_FILE, NODE_COLOR_DEFAULT, NULL, NULL);
-    if (!line) {
-        freeTreeNodeRecursive(root);
-        return NULL;
-    }
-    addChildNode(root, line);
-    return root;
-}
-
-static UITreeNode* build_composite_control_tree(UITreeNode* symbolsTree,
-                                                bool symbolsTreeIsOwned,
-                                                UITreeNode* unitsTree,
-                                                bool unitsTreeIsOwned,
-                                                const char* emptyMessage) {
-    int childCount = (symbolsTree ? 1 : 0) + (unitsTree ? 1 : 0);
-    if (childCount == 0) {
-        return build_empty_search_tree(emptyMessage ? emptyMessage : "No matches");
-    }
-    if (childCount == 1) {
-        (void)symbolsTreeIsOwned;
-        (void)unitsTreeIsOwned;
-        return symbolsTree ? symbolsTree : unitsTree;
-    }
-
-    UITreeNode* root = createTreeNode("Control", TREE_NODE_SECTION, NODE_COLOR_SECTION, NULL, NULL);
-    if (!root) {
-        if (symbolsTreeIsOwned && symbolsTree) freeTreeNodeRecursive(symbolsTree);
-        if (unitsTreeIsOwned && unitsTree) freeTreeNodeRecursive(unitsTree);
-        return build_empty_search_tree(emptyMessage ? emptyMessage : "No matches");
-    }
-    root->isExpanded = true;
-    addChildNode(root, symbolsTree);
-    addChildNode(root, unitsTree);
-    return root;
 }
 
 bool isLiveParseEnabled() {
@@ -381,11 +385,8 @@ static size_t count_project_files(const DirEntry* entry, int depth) {
 }
 
 void control_panel_prepare_for_render(struct IDECoreState* core) {
-    OpenFile* active_file = NULL;
-    if (core && core->activeEditorView) {
-        active_file = getActiveOpenFile(core->activeEditorView);
-    }
-    control_panel_refresh_symbol_tree(projectRoot, active_file ? active_file->filePath : NULL);
+    const char* active_file_path = control_panel_resolve_active_file_path(core);
+    control_panel_refresh_symbol_tree(projectRoot, active_file_path);
     control_panel_rebuild_visible_tree_if_needed();
 }
 
@@ -408,7 +409,7 @@ static void control_panel_rebuild_visible_tree_if_needed(void) {
     UITreeNode* candidateTree = NULL;
     bool candidateIsBase = false;
     if (!targetSymbolsEnabled && !targetUnitsEnabled) {
-        candidateTree = build_empty_search_tree("No control targets enabled");
+        candidateTree = control_panel_build_empty_search_tree("No control targets enabled");
     } else {
         SymbolFilterMode symbolMode = SYMBOL_FILTER_MODE_SYMBOLS;
         SymbolFilterScope symbolScope = (searchScope == CONTROL_SEARCH_SCOPE_PROJECT_FILES)
@@ -453,14 +454,14 @@ static void control_panel_rebuild_visible_tree_if_needed(void) {
             }
         }
 
-        candidateTree = build_composite_control_tree(symbolCandidate,
-                                                     !symbolCandidateIsBase,
-                                                     unitsCandidate,
-                                                     !unitsCandidateIsBase,
-                                                     "No matches");
+        candidateTree = control_panel_build_composite_tree(symbolCandidate,
+                                                           !symbolCandidateIsBase,
+                                                           unitsCandidate,
+                                                           !unitsCandidateIsBase,
+                                                           "No matches");
         candidateIsBase = (candidateTree == baseSymbolTree || candidateTree == baseUnitsTree);
         if (!candidateTree) {
-            candidateTree = build_empty_search_tree("No matches");
+            candidateTree = control_panel_build_empty_search_tree("No matches");
         }
     }
 

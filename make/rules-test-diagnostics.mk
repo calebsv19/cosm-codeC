@@ -205,6 +205,15 @@ test-control-panel-unit-focus-mode:
 	@$(TEST_BUILD_DIR)/control_panel_unit_focus_mode_test || (echo "Control panel unit focus mode test failed."; exit 1)
 	@echo "Control panel unit focus mode test passed."
 
+.PHONY: test-tree-row-metrics
+test-tree-row-metrics:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling tree row metrics test..."
+	@$(CC) $(CFLAGS) tests/tree_row_metrics_test.c src/ide/UI/Trees/tree_row_metrics.c -o $(TEST_BUILD_DIR)/tree_row_metrics_test $(LIB_DIRS) -lSDL2 || (echo "tree row metrics test compile failed."; exit 1)
+	@echo "Running tree row metrics test..."
+	@$(TEST_BUILD_DIR)/tree_row_metrics_test || (echo "tree row metrics test failed."; exit 1)
+	@echo "Tree row metrics test passed."
+
 .PHONY: test-editor-units-projection
 test-editor-units-projection:
 	@mkdir -p $(TEST_BUILD_DIR)
