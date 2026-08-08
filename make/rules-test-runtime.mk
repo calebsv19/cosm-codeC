@@ -23,7 +23,7 @@ test-shared-theme-font-adapter:
 	@echo "IDE shared theme/font adapter test passed."
 
 .PHONY: test-ide-ui-button-adapter
-test-ide-ui-button-adapter: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
+test-ide-ui-button-adapter: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling IDE UI button adapter test..."
 	@$(CC) -std=c99 -Wall -Wextra -MMD -MP $(INC_DIRS) \
@@ -34,6 +34,7 @@ test-ide-ui-button-adapter: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $
 		$(KIT_UI_LIB) \
 		$(KIT_RENDER_LIB) \
 		$(VK_RENDERER_LIB) \
+		$(VK_RUNTIME_LIB) \
 		$(CORE_THEME_LIB) \
 		$(CORE_FONT_LIB) \
 		$(CORE_BASE_LIB) \

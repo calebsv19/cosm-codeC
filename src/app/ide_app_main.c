@@ -16,6 +16,7 @@
 #include "app/GlobalInfo/runtime_startup_defaults.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "app/GlobalInfo/visual_artifact_proof.h"
+#include "app/GlobalInfo/ide_vulkan_rollout.h"
 #include "engine/Render/timer_hud_adapter.h"
 
 //  UI STATE
@@ -490,6 +491,10 @@ void ide_app_shutdown(void) {
 
 int ide_app_main(int argc, char **argv) {
     int exit_code = IDE_WRAP_BOOTSTRAP_FAILED;
+
+    if (argc == 2 && strcmp(argv[1], "--vulkan-rollout-self-test") == 0) {
+        return ide_vulkan_rollout_self_test();
+    }
 
     g_ide_app_ctx.launch_args.argc = argc;
     g_ide_app_ctx.launch_args.argv = argv;

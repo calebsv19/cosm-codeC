@@ -29,7 +29,7 @@ $(SHARED_BUILD_DIR):
 	@mkdir -p $@
 
 define build_copy_static_lib
-$($(1)_LIB): FORCE | $(SHARED_BUILD_DIR)
+$($(1)_LIB): FORCE $(3) | $(SHARED_BUILD_DIR)
 	@$(MAKE) -C $($(1)_DIR) clean $(2)
 	@PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" PKG_CONFIG="$(PKG_CONFIG)" $(MAKE) -C $($(1)_DIR) CC="$(SHARED_CC)" $(2)
 	@cp "$($(1)_LIB_SRC)" "$$@"
@@ -50,11 +50,12 @@ $(eval $(call build_copy_static_lib,CORE_JOBS,))
 $(eval $(call build_copy_static_lib,CORE_WORKERS,))
 $(eval $(call build_copy_static_lib,CORE_WAKE,))
 $(eval $(call build_copy_static_lib,CORE_KERNEL,))
-$(eval $(call build_copy_static_lib,KIT_RENDER,KIT_RENDER_ENABLE_VK=1))
+$(eval $(call build_copy_static_lib,KIT_RENDER,KIT_RENDER_ENABLE_VK=1 CFLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I$(abspath $(VK_RUNTIME_DIR)/include)"))
 $(eval $(call build_copy_static_lib,KIT_UI,))
 $(eval $(call build_copy_static_lib,KIT_GRAPH_STRUCT,))
 $(eval $(call build_copy_static_lib,KIT_WORKSPACE_AUTHORING,))
-$(eval $(call build_copy_static_lib,VK_RENDERER,))
+$(eval $(call build_copy_static_lib,VK_RUNTIME,))
+$(eval $(call build_copy_static_lib,VK_RENDERER,VK_RUNTIME_ROOT="$(abspath $(VK_RUNTIME_DIR))",$(VK_RUNTIME_LIB)))
 
 $(FISICS_LIB): FORCE | $(SHARED_BUILD_DIR)
 	@test -n "$(LLVM_CONFIG)" || (echo "Missing target llvm-config for $(TARGET_TRIPLE); install llvm under $(TARGET_HOMEBREW_PREFIX)/opt/llvm" && exit 1)

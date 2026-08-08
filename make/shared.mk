@@ -2,6 +2,7 @@ SHARED_ROOT ?= third_party/codework_shared
 
 # Shared include/lib search paths
 VK_RENDERER_DIR := $(SHARED_ROOT)/vk_renderer
+VK_RUNTIME_DIR := $(SHARED_ROOT)/vk_runtime
 CORE_BASE_DIR := $(SHARED_ROOT)/core/core_base
 CORE_IO_DIR := $(SHARED_ROOT)/core/core_io
 CORE_DATA_DIR := $(SHARED_ROOT)/core/core_data
@@ -21,5 +22,5 @@ KIT_RENDER_DIR := $(SHARED_ROOT)/kit/kit_render
 KIT_UI_DIR := $(SHARED_ROOT)/kit/kit_ui
 KIT_GRAPH_STRUCT_DIR := $(SHARED_ROOT)/kit/kit_graph_struct
 KIT_WORKSPACE_AUTHORING_DIR := $(SHARED_ROOT)/kit/kit_workspace_authoring
-INC_DIRS := -I./src -I./include -I$(VK_RENDERER_DIR)/include -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_DATA_DIR)/include -I$(CORE_PACK_DIR)/include -I$(CORE_PANE_DIR)/include -I$(CORE_VIEWPORT2D_DIR)/include -I$(CORE_THEME_DIR)/include -I$(CORE_FONT_DIR)/include -I$(CORE_TIME_DIR)/include -I$(CORE_QUEUE_DIR)/include -I$(CORE_SCHED_DIR)/include -I$(CORE_JOBS_DIR)/include -I$(CORE_WORKERS_DIR)/include -I$(CORE_WAKE_DIR)/include -I$(CORE_KERNEL_DIR)/include -I$(KIT_RENDER_DIR)/include -I$(KIT_UI_DIR)/include -I$(KIT_GRAPH_STRUCT_DIR)/include -I$(KIT_WORKSPACE_AUTHORING_DIR)/include
+INC_DIRS := -I./src -I./include -I$(VK_RENDERER_DIR)/include -I$(VK_RUNTIME_DIR)/include -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_DATA_DIR)/include -I$(CORE_PACK_DIR)/include -I$(CORE_PANE_DIR)/include -I$(CORE_VIEWPORT2D_DIR)/include -I$(CORE_THEME_DIR)/include -I$(CORE_FONT_DIR)/include -I$(CORE_TIME_DIR)/include -I$(CORE_QUEUE_DIR)/include -I$(CORE_SCHED_DIR)/include -I$(CORE_JOBS_DIR)/include -I$(CORE_WORKERS_DIR)/include -I$(CORE_WAKE_DIR)/include -I$(CORE_KERNEL_DIR)/include -I$(KIT_RENDER_DIR)/include -I$(KIT_UI_DIR)/include -I$(KIT_GRAPH_STRUCT_DIR)/include -I$(KIT_WORKSPACE_AUTHORING_DIR)/include
 LIB_DIRS :=
