@@ -24,6 +24,12 @@ bridge, cache-manifest, startup-audit, package, and release work.
 4. The legacy editor runtime remains the fallback body behind the typed
    runtime-loop handoff.
 
+The presentation backend is the vendored `vk_renderer 1.3.1`, whose Vulkan
+instance/device/queue lifecycle is owned by vendored `vk_runtime 0.6.0`.
+Compatibility remains at the renderer boundary, so IDE pane, editor, input,
+and draw-command semantics do not own Vulkan lifecycle details. The IDE does
+not currently adopt the runtime compute, residency, or timing APIs.
+
 ## Analysis And Main-Thread Apply
 
 The March event-driven analysis model remains active:
@@ -72,6 +78,14 @@ commands are launched through a Git-panel argv process helper with child-side
 project-directory switching.
 
 ## Current Validation Lanes
+
+Vulkan-specific gates precede the broad application lanes:
+
+1. `make -C ide vulkan-rollout-contract`
+   - verifies the exact canonical shared snapshot and runtime/renderer versions
+2. `make -C ide -j1 vulkan-rollout-self-test`
+   - validation-enabled startup/readback/high-DPI/resize/recreate/capture/
+     restart proof
 
 Current baseline command lanes:
 

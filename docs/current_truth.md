@@ -49,6 +49,11 @@ Last updated: 2026-08-08
   - `src/app`, `src/core`, `src/ide`, `src/engine`, `src/Parser`
 - Dependency lane:
   - vendored shared subtree under `third_party/codework_shared/`
+  - the default presentation path links vendored `vk_renderer 1.3.1` and
+    `vk_runtime 0.6.0`; renderer instance/device/queue ownership aliases the
+    runtime lifecycle instead of creating a second Vulkan owner
+  - this adoption is presentation-only: IDE source does not call the runtime
+    compute, residency, or timing APIs
   - IDE button chrome resolves hover, selected, pressed, disabled, and focused
     state through vendored `kit_ui` via the app-local `ide_ui_button.*`
     adapter; pane-specific meaning and action dispatch remain IDE-owned
@@ -129,6 +134,15 @@ Last updated: 2026-08-08
   shell command strings.
 
 ## Verification Contract
+- Vulkan rollout proof:
+  - `make -C ide vulkan-rollout-contract` checks the exact canonical shared
+    source commit and vendored runtime/renderer versions
+  - `make -C ide -j1 vulkan-rollout-self-test` runs a display-backed,
+    validation-enabled lifecycle proof with startup readback, high-DPI extent
+    checks, resize/swapchain recreation, changed capture readback, and renderer
+    restart
+  - generated proof receipts and BMP captures live under ignored
+    `build/targets/<target-triple>/debug/vulkan-rollout/`
 - Proof-of-life ladder:
   - `make -C ide run-headless-smoke`
     - builds the app and runs `test-stable`
@@ -192,6 +206,10 @@ Last updated: 2026-08-08
 - Defaults vs runtime persistence split is maintained.
 
 ## Current Boundary
+- The IDE Vulkan presentation adoption is complete at the local proof and
+  packaged-desktop boundary. Preserve the runtime-owned renderer lifecycle and
+  automated validation/readback/resize/restart contract; do not infer compute
+  acceleration or begin another application rollout from this result.
 - Preserve workspace-root contract and wrapper diagnostics stability while helper extraction and pane-centralization follow-ups continue.
 - Treat structural-upgrade scaffolding as historical/archived; the live work is maintenance plus subsystem improvement, not another scaffold migration phase.
 - Workspace Authoring is at host-attach parity; real pane/module mutation should

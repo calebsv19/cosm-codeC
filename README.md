@@ -36,10 +36,12 @@ developed as part of a broader ecosystem for simulation, compiler development, a
   Project file browser with drag/open and a task list tool.  
   Input routed through `InputManager → CommandBus → handlers`.
 
-- **SDL-based rendering**  
-  SDL2/SDL_ttf renderer with custom clipping, scrollbars, and shared tree renderer.
-- **Optional Vulkan renderer layer**  
-  Drop-in Vulkan backend (`src/engine/Render/vk_renderer_ref`) that remaps `SDL_Render*` calls via macros.
+- **Shared Vulkan presentation backend**
+  SDL window/input and SDL_ttf text preparation feed the vendored
+  `vk_renderer 1.3.1` presentation layer. The renderer owns its Vulkan
+  lifecycle through `vk_runtime 0.6.0`; IDE pane/editor meaning remains
+  app-owned. This is presentation adoption only—the IDE does not use the
+  runtime compute APIs.
 - **Desktop packaging + release lane**
   `codeC` is packaged through a target-aware macOS app-bundle flow, including Intel `x86_64` artifact support and launcher/runtime resource hardening.
 
@@ -89,7 +91,7 @@ Expected final line: `package-desktop-self-test passed.`
 - `make`
 - `json-c`
 - `SDL2`, `SDL2_ttf`, `SDL2_image` (and optional `SDL2_mixer`)
-- Vulkan loader (`-lvulkan`) when Vulkan mode is enabled
+- Vulkan loader (`-lvulkan`) and a usable Vulkan implementation
 
 ### Workspace Layout Requirement
 
