@@ -1,6 +1,6 @@
 # codeC Current Truth
 
-Last updated: 2026-08-08
+Last updated: 2026-08-09
 
 ## Program Identity
 - Repository/program directory: `ide`
@@ -13,11 +13,18 @@ Last updated: 2026-08-08
 - Data-path contract is complete with workspace-root-first policy and startup fallback handling.
 - Wrapper wave lanes are complete through `W3` with typed runtime-loop adapter + diagnostics hardening.
 - Intel macOS `x86_64` desktop packaging is complete under the shared target-contract flow.
-- Workspace Authoring first host attach is complete:
+- Workspace Authoring WAP4 proving-host adoption is complete:
   - `Alt+C` then `Alt+V` enters/cancels authoring through `kit_workspace_authoring`
   - normal runtime does not show authoring HUD/reminder text
-  - active pane overlay uses shared overlay button geometry/hit testing with
-    IDE-owned pane labels
+  - Pane mode is an opaque authoring composition layer with a dedicated
+    Presentation Draft surface, so live pane hover, focus, drag, popup, and
+    transient runtime presentation are not visible beneath authoring
+  - the bounded presentation draft owns Tool Panel, Control Panel, Terminal,
+    and the existing seven Tool Panel views; Apply persists it, Esc restores
+    the entry baseline, and startup validates/reloads the persisted record
+  - `ide_files/workspace_authoring.wapp` exports/imports only that bounded
+    presentation projection; Preview remains a draft until Apply and malformed
+    WAPP input is rejected without mutating current state
   - shared full-screen Font/Theme overlay provides live theme, font-preset, and
     text-size preview
   - accepted-only persistence is active; `Apply` saves theme preset, font
