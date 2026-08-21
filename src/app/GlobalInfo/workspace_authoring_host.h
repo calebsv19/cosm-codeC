@@ -8,6 +8,8 @@
 
 #include "kit_workspace_authoring.h"
 #include "kit_workspace_authoring_ui.h"
+#include "core_workspace_authoring_session.h"
+#include "app/GlobalInfo/workspace_authoring_projection.h"
 
 typedef enum IDEWorkspaceAuthoringOverlayMode {
     IDE_WORKSPACE_AUTHORING_OVERLAY_PANES = 0,
@@ -15,6 +17,7 @@ typedef enum IDEWorkspaceAuthoringOverlayMode {
 } IDEWorkspaceAuthoringOverlayMode;
 
 typedef struct IDEWorkspaceAuthoringHost {
+    CoreWorkspaceAuthoringSession session;
     uint8_t active;
     uint8_t key_c_down;
     uint8_t key_v_down;
@@ -36,6 +39,9 @@ typedef struct IDEWorkspaceAuthoringHost {
     uint32_t add_stub_count;
     uint32_t font_theme_action_count;
     int baseline_font_zoom_step;
+    IDEWorkspaceAuthoringProjection baseline_presentation;
+    IDEWorkspaceAuthoringProjection draft_presentation;
+    uint8_t presentation_draft_ready;
     char baseline_theme_preset[64];
     char baseline_font_preset[64];
     char status_text[160];
@@ -54,5 +60,11 @@ bool ide_workspace_authoring_host_handle_sdl_event(IDEWorkspaceAuthoringHost *ho
 bool ide_workspace_authoring_host_apply_overlay_button(
     IDEWorkspaceAuthoringHost *host,
     KitWorkspaceAuthoringOverlayButtonId button_id);
+bool ide_workspace_authoring_host_toggle_presentation_field(IDEWorkspaceAuthoringHost *host,
+                                                            unsigned int field_index);
+bool ide_workspace_authoring_host_cycle_presentation_tool(IDEWorkspaceAuthoringHost *host,
+                                                          int delta);
+bool ide_workspace_authoring_host_export_profile(IDEWorkspaceAuthoringHost *host);
+bool ide_workspace_authoring_host_preview_profile(IDEWorkspaceAuthoringHost *host);
 
 #endif

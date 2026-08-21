@@ -15,6 +15,11 @@ static char cachedThemePreset[128];
 static char cachedFontPreset[128];
 static int cachedFontZoomStep = 0;
 static int cachedFontZoomStepSet = 0;
+static int cachedAuthoringToolPanelVisible = 1;
+static int cachedAuthoringControlPanelVisible = 1;
+static int cachedAuthoringTerminalVisible = 1;
+static int cachedAuthoringActiveTool = 0;
+static int cachedAuthoringPresentationSet = 0;
 static WorkspaceBuildConfig cachedBuildConfig;
 static int configLoaded = 0;
 
@@ -104,6 +109,12 @@ static int writeConfigContents(FILE* file) {
     rc &= fprintf(file, "theme_preset=%s\n", cachedThemePreset) >= 0;
     rc &= fprintf(file, "font_preset=%s\n", cachedFontPreset) >= 0;
     rc &= fprintf(file, "font_zoom_step=%d\n", cachedFontZoomStepSet ? cachedFontZoomStep : 0) >= 0;
+    if (cachedAuthoringPresentationSet) {
+        rc &= fprintf(file, "authoring_tool_panel_visible=%d\n", cachedAuthoringToolPanelVisible) >= 0;
+        rc &= fprintf(file, "authoring_control_panel_visible=%d\n", cachedAuthoringControlPanelVisible) >= 0;
+        rc &= fprintf(file, "authoring_terminal_visible=%d\n", cachedAuthoringTerminalVisible) >= 0;
+        rc &= fprintf(file, "authoring_active_tool=%d\n", cachedAuthoringActiveTool) >= 0;
+    }
     rc &= fprintf(file, "build_command=%s\n", cachedBuildConfig.build_command) >= 0;
     rc &= fprintf(file, "build_args=%s\n", cachedBuildConfig.build_args) >= 0;
     rc &= fprintf(file, "build_workdir=%s\n", cachedBuildConfig.build_working_dir) >= 0;
@@ -141,6 +152,11 @@ static void loadConfigFile(void) {
     cachedFontPreset[0] = '\0';
     cachedFontZoomStep = 0;
     cachedFontZoomStepSet = 0;
+    cachedAuthoringToolPanelVisible = 1;
+    cachedAuthoringControlPanelVisible = 1;
+    cachedAuthoringTerminalVisible = 1;
+    cachedAuthoringActiveTool = 0;
+    cachedAuthoringPresentationSet = 0;
     resetWorkspaceBuildConfigDefaults();
 
     char configPath[PATH_MAX];
@@ -184,6 +200,22 @@ static void loadConfigFile(void) {
             if (end != value) {
                 cachedFontZoomStep = (int)parsed;
                 cachedFontZoomStepSet = 1;
+            }
+        } else if (strncmp(line, "authoring_tool_panel_visible", keyLen) == 0) {
+            cachedAuthoringToolPanelVisible = strtol(value, NULL, 10) != 0;
+            cachedAuthoringPresentationSet = 1;
+        } else if (strncmp(line, "authoring_control_panel_visible", keyLen) == 0) {
+            cachedAuthoringControlPanelVisible = strtol(value, NULL, 10) != 0;
+            cachedAuthoringPresentationSet = 1;
+        } else if (strncmp(line, "authoring_terminal_visible", keyLen) == 0) {
+            cachedAuthoringTerminalVisible = strtol(value, NULL, 10) != 0;
+            cachedAuthoringPresentationSet = 1;
+        } else if (strncmp(line, "authoring_active_tool", keyLen) == 0) {
+            char *end = NULL;
+            long parsed = strtol(value, &end, 10);
+            if (end != value) {
+                cachedAuthoringActiveTool = (int)parsed;
+                cachedAuthoringPresentationSet = 1;
             }
         } else if (strncmp(line, "build_command", keyLen) == 0) {
             strncpy(cachedBuildConfig.build_command, value, sizeof(cachedBuildConfig.build_command) - 1);
@@ -349,6 +381,35 @@ void saveFontZoomStepPreference(int step) {
     loadConfigFile();
     cachedFontZoomStep = step;
     cachedFontZoomStepSet = 1;
+    writeConfigFile();
+}
+
+int loadWorkspaceAuthoringPresentationPreference(int *out_tool_panel_visible,
+                                                 int *out_control_panel_visible,
+                                                 int *out_terminal_visible,
+                                                 int *out_active_tool) {
+    loadConfigFile();
+    if (!out_tool_panel_visible || !out_control_panel_visible || !out_terminal_visible ||
+        !out_active_tool || !cachedAuthoringPresentationSet) {
+        return 0;
+    }
+    *out_tool_panel_visible = cachedAuthoringToolPanelVisible;
+    *out_control_panel_visible = cachedAuthoringControlPanelVisible;
+    *out_terminal_visible = cachedAuthoringTerminalVisible;
+    *out_active_tool = cachedAuthoringActiveTool;
+    return 1;
+}
+
+void saveWorkspaceAuthoringPresentationPreference(int tool_panel_visible,
+                                                  int control_panel_visible,
+                                                  int terminal_visible,
+                                                  int active_tool) {
+    loadConfigFile();
+    cachedAuthoringToolPanelVisible = tool_panel_visible != 0;
+    cachedAuthoringControlPanelVisible = control_panel_visible != 0;
+    cachedAuthoringTerminalVisible = terminal_visible != 0;
+    cachedAuthoringActiveTool = active_tool;
+    cachedAuthoringPresentationSet = 1;
     writeConfigFile();
 }
 

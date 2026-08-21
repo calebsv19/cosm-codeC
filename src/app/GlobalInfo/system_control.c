@@ -24,6 +24,7 @@
 #include "ide/Panes/Terminal/terminal.h"
 
 #include "workspace_prefs.h"
+#include "workspace_authoring_projection.h"
 #include "core/Watcher/file_watcher.h"
 #include "core/BuildSystem/build_system.h"
 #include "core/BuildSystem/build_diagnostics.h"
@@ -478,6 +479,23 @@ bool initializeSystem(const char* argv0) {
     initPluginSystem();
 
     initializeUIPanesIfNeeded();
+    int toolPanelVisible;
+    int controlPanelVisible;
+    int terminalVisible;
+    int activeTool;
+    if (loadWorkspaceAuthoringPresentationPreference(&toolPanelVisible,
+                                                     &controlPanelVisible,
+                                                     &terminalVisible,
+                                                     &activeTool)) {
+        IDEWorkspaceAuthoringProjection presentation = {
+            toolPanelVisible != 0,
+            controlPanelVisible != 0,
+            terminalVisible != 0,
+            (IconTool)activeTool};
+        if (!ide_workspace_authoring_projection_apply(&presentation, getUIState())) {
+            fprintf(stderr, "[WorkspacePrefs] Ignored invalid authoring presentation preference.\n");
+        }
+    }
     initFileWatcher();
 
     bool has_diag_cache = workspace_has_diagnostics_cache(projectPath);

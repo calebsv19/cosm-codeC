@@ -24,6 +24,17 @@ void saveFontPresetPreference(const char* preset_name);
 int loadFontZoomStepPreference(int* out_step);
 void saveFontZoomStepPreference(int step);
 
+/* IDE-local presentation projection. Kept out of shared core until more than
+ * one program proves the same persisted pane semantics. */
+int loadWorkspaceAuthoringPresentationPreference(int *out_tool_panel_visible,
+                                                 int *out_control_panel_visible,
+                                                 int *out_terminal_visible,
+                                                 int *out_active_tool);
+void saveWorkspaceAuthoringPresentationPreference(int tool_panel_visible,
+                                                  int control_panel_visible,
+                                                  int terminal_visible,
+                                                  int active_tool);
+
 const WorkspaceBuildConfig* getWorkspaceBuildConfig(void);
 void saveWorkspaceBuildConfig(const WorkspaceBuildConfig* config);
 void resetWorkspaceBuildConfigDefaults(void);

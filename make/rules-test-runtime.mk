@@ -107,6 +107,24 @@ test-workspace-context:
 	@$(TEST_BUILD_DIR)/workspace_context_test || (echo "workspace context test failed."; exit 1)
 	@echo "Workspace context test passed."
 
+.PHONY: test-workspace-authoring-projection
+test-workspace-authoring-projection:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling workspace authoring projection test..."
+	@$(CC) $(CFLAGS) $(INC_DIRS) tests/workspace_authoring_projection_test.c src/app/GlobalInfo/workspace_authoring_projection.c src/app/GlobalInfo/workspace_authoring_presentation_ui.c src/ide/Panes/IconBar/icon_bar.c -o $(WORKSPACE_AUTHORING_PROJECTION_TEST_OUT) $(LIB_DIRS) -lSDL2 || (echo "workspace authoring projection test compile failed."; exit 1)
+	@echo "Running workspace authoring projection test..."
+	@$(WORKSPACE_AUTHORING_PROJECTION_TEST_OUT) || (echo "workspace authoring projection test failed."; exit 1)
+	@echo "Workspace authoring projection test passed."
+
+.PHONY: test-workspace-authoring-profile
+test-workspace-authoring-profile:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling workspace authoring profile test..."
+	@$(CC) $(CFLAGS) $(INC_DIRS) tests/workspace_authoring_profile_test.c src/app/GlobalInfo/workspace_authoring_profile.c src/app/GlobalInfo/workspace_authoring_profile_path.c src/app/GlobalInfo/workspace_authoring_projection.c src/ide/Panes/IconBar/icon_bar.c $(CORE_PACK_DIR)/src/core_pack.c $(CORE_PANE_SNAPSHOT_DIR)/src/core_pane_snapshot.c $(CORE_PANE_MODULE_DIR)/src/core_pane_module.c $(CORE_BASE_DIR)/src/core_base.c -o $(WORKSPACE_AUTHORING_PROFILE_TEST_OUT) $(LIB_DIRS) -lSDL2 || (echo "workspace authoring profile test compile failed."; exit 1)
+	@echo "Running workspace authoring profile test..."
+	@$(WORKSPACE_AUTHORING_PROFILE_TEST_OUT) || (echo "workspace authoring profile test failed."; exit 1)
+	@echo "Workspace authoring profile test passed."
+
 .PHONY: test-terminal-grid-phase1
 test-terminal-grid-phase1:
 	@mkdir -p $(TEST_BUILD_DIR)

@@ -1,4 +1,7 @@
 #include "app/GlobalInfo/workspace_authoring_host.h"
+#include "app/GlobalInfo/workspace_authoring_presentation_ui.h"
+#include "app/GlobalInfo/workspace_authoring_profile_path.h"
+#include "app/GlobalInfo/workspace_authoring_session_adapter.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -74,84 +77,6 @@ static void authoring_note_consumed(IDEWorkspaceAuthoringHost *host, bool runtim
     }
 }
 
-static void authoring_enter(IDEWorkspaceAuthoringHost *host) {
-    if (!host) return;
-    if (!host->active) {
-        host->active = 1u;
-        host->overlay_mode = IDE_WORKSPACE_AUTHORING_OVERLAY_PANES;
-        host->enter_count += 1u;
-        host->baseline_font_zoom_step = ide_shared_font_zoom_step();
-        if (!ide_shared_theme_current_preset(host->baseline_theme_preset,
-                                             sizeof(host->baseline_theme_preset))) {
-            host->baseline_theme_preset[0] = '\0';
-        }
-        if (!ide_shared_font_current_preset(host->baseline_font_preset,
-                                            sizeof(host->baseline_font_preset))) {
-            host->baseline_font_preset[0] = '\0';
-        }
-    }
-    host->last_event_entered = 1u;
-    authoring_set_status(host, "Authoring active.");
-}
-
-static void authoring_apply(IDEWorkspaceAuthoringHost *host) {
-    char theme_preset[64] = {0};
-    char font_preset[64] = {0};
-    char zoom_step_buf[16];
-    int zoom_step;
-
-    if (!host) return;
-    if (host->active) {
-        zoom_step = ide_shared_font_zoom_step();
-        if (ide_shared_theme_current_preset(theme_preset, sizeof(theme_preset))) {
-            saveThemePresetPreference(theme_preset);
-        }
-        if (ide_shared_font_current_preset(font_preset, sizeof(font_preset))) {
-            saveFontPresetPreference(font_preset);
-        }
-        saveFontZoomStepPreference(zoom_step);
-        snprintf(zoom_step_buf, sizeof(zoom_step_buf), "%d", zoom_step);
-        setenv("IDE_FONT_ZOOM_STEP", zoom_step_buf, 1);
-
-        host->active = 0u;
-        host->apply_count += 1u;
-        host->last_event_accepted = 1u;
-    }
-    host->key_c_down = 0u;
-    host->key_v_down = 0u;
-    host->entry_chord_armed_key = KIT_WORKSPACE_AUTHORING_KEY_UNKNOWN;
-    host->overlay_mode = IDE_WORKSPACE_AUTHORING_OVERLAY_PANES;
-    host->last_event_exited = 1u;
-    authoring_set_status(host, "Authoring applied.");
-}
-
-static void authoring_cancel(IDEWorkspaceAuthoringHost *host) {
-    if (!host) return;
-    if (host->active) {
-        if (host->baseline_theme_preset[0]) {
-            (void)ide_shared_theme_set_preset(host->baseline_theme_preset);
-        }
-        if (host->baseline_font_preset[0]) {
-            (void)ide_shared_font_set_preset(host->baseline_font_preset);
-        }
-        (void)ide_shared_font_set_zoom_step(host->baseline_font_zoom_step);
-        authoring_refresh_after_font_theme_change(RENDER_INVALIDATION_THEME |
-                                                  RENDER_INVALIDATION_LAYOUT |
-                                                  RENDER_INVALIDATION_RESIZE |
-                                                  RENDER_INVALIDATION_CONTENT |
-                                                  RENDER_INVALIDATION_BACKGROUND);
-        host->active = 0u;
-        host->cancel_count += 1u;
-        host->last_event_canceled = 1u;
-    }
-    host->key_c_down = 0u;
-    host->key_v_down = 0u;
-    host->entry_chord_armed_key = KIT_WORKSPACE_AUTHORING_KEY_UNKNOWN;
-    host->overlay_mode = IDE_WORKSPACE_AUTHORING_OVERLAY_PANES;
-    host->last_event_exited = 1u;
-    authoring_set_status(host, "Authoring canceled.");
-}
-
 static void authoring_cycle_overlay(IDEWorkspaceAuthoringHost *host) {
     if (!host || !host->active) return;
     host->overlay_mode = host->overlay_mode == IDE_WORKSPACE_AUTHORING_OVERLAY_PANES
@@ -169,6 +94,7 @@ void ide_workspace_authoring_host_reset(IDEWorkspaceAuthoringHost *host) {
     memset(host, 0, sizeof(*host));
     host->entry_chord_armed_key = KIT_WORKSPACE_AUTHORING_KEY_UNKNOWN;
     host->overlay_mode = IDE_WORKSPACE_AUTHORING_OVERLAY_PANES;
+    ide_workspace_authoring_session_adapter_reset(host);
 }
 
 void ide_workspace_authoring_host_set_viewport(IDEWorkspaceAuthoringHost *host,
@@ -180,7 +106,7 @@ void ide_workspace_authoring_host_set_viewport(IDEWorkspaceAuthoringHost *host,
 }
 
 bool ide_workspace_authoring_host_active(const IDEWorkspaceAuthoringHost *host) {
-    return host && host->active;
+    return host && core_workspace_authoring_session_authoring_active(&host->session);
 }
 
 bool ide_workspace_authoring_host_pane_overlay_active(const IDEWorkspaceAuthoringHost *host) {
@@ -203,19 +129,84 @@ bool ide_workspace_authoring_host_apply_overlay_button(
             authoring_cycle_overlay(host);
             return true;
         case KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_APPLY:
-            authoring_apply(host);
+            (void)ide_workspace_authoring_session_adapter_apply(host);
             return true;
         case KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_CANCEL:
-            authoring_cancel(host);
+            (void)ide_workspace_authoring_session_adapter_cancel(host);
             return true;
         case KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_ADD:
             host->add_stub_count += 1u;
-            authoring_set_status(host, "Add pane/module is not wired in IDEWA1-S1.");
+            authoring_set_status(host, "Pane/module authoring is unavailable for this IDE session.");
             return true;
         case KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_NONE:
         default:
             return false;
     }
+}
+
+bool ide_workspace_authoring_host_toggle_presentation_field(IDEWorkspaceAuthoringHost *host,
+                                                            unsigned int field_index) {
+    IDEWorkspaceAuthoringProjection draft;
+    if (!host || !host->active || !host->presentation_draft_ready) return false;
+    draft = host->draft_presentation;
+    switch (field_index) {
+        case 1u: draft.tool_panel_visible = !draft.tool_panel_visible; break;
+        case 2u: draft.control_panel_visible = !draft.control_panel_visible; break;
+        case 3u: draft.terminal_visible = !draft.terminal_visible; break;
+        default: return false;
+    }
+    return ide_workspace_authoring_session_adapter_preview_presentation(host, &draft);
+}
+
+bool ide_workspace_authoring_host_cycle_presentation_tool(IDEWorkspaceAuthoringHost *host,
+                                                          int delta) {
+    IDEWorkspaceAuthoringProjection draft;
+    int next;
+    if (!host || !host->active || !host->presentation_draft_ready || delta == 0) return false;
+    draft = host->draft_presentation;
+    next = (int)draft.active_tool + delta;
+    while (next < ICON_PROJECT_FILES) next += ICON_COUNT;
+    while (next >= ICON_COUNT) next -= ICON_COUNT;
+    draft.active_tool = (IconTool)next;
+    return ide_workspace_authoring_session_adapter_preview_presentation(host, &draft);
+}
+
+bool ide_workspace_authoring_host_export_profile(IDEWorkspaceAuthoringHost *host) {
+    char path[PATH_MAX];
+    IDEWorkspaceAuthoringProfileResult result;
+    if (!host || !host->active || !host->presentation_draft_ready ||
+        !ide_workspace_authoring_profile_default_path(getWorkspacePath(), path, sizeof(path))) {
+        authoring_set_status(host, "WAPP export needs an active workspace.");
+        return false;
+    }
+    result = ide_workspace_authoring_profile_export_file(path, &host->draft_presentation);
+    if (result != IDE_WORKSPACE_AUTHORING_PROFILE_OK) {
+        authoring_set_status(host, ide_workspace_authoring_profile_result_string(result));
+        requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
+        return false;
+    }
+    authoring_set_status(host, "WAPP saved: ide_files/workspace_authoring.wapp");
+    requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
+    return true;
+}
+
+bool ide_workspace_authoring_host_preview_profile(IDEWorkspaceAuthoringHost *host) {
+    char path[PATH_MAX];
+    IDEWorkspaceAuthoringProfileResult result;
+    if (!host || !host->active ||
+        !ide_workspace_authoring_profile_default_path(getWorkspacePath(), path, sizeof(path))) {
+        authoring_set_status(host, "WAPP preview needs an active workspace.");
+        return false;
+    }
+    result = ide_workspace_authoring_session_adapter_preview_profile_file(host, path);
+    if (result != IDE_WORKSPACE_AUTHORING_PROFILE_OK) {
+        authoring_set_status(host, ide_workspace_authoring_profile_result_string(result));
+        requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
+        return false;
+    }
+    authoring_set_status(host, "WAPP preview loaded; Apply commits, Esc restores.");
+    requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
+    return true;
 }
 
 static bool authoring_apply_font_theme_action(IDEWorkspaceAuthoringHost *host,
@@ -298,8 +289,42 @@ static bool authoring_handle_overlay_click(IDEWorkspaceAuthoringHost *host, int 
         ide_workspace_authoring_host_pane_overlay_active(host) ? 1 : 0,
         buttons,
         (uint32_t)(sizeof(buttons) / sizeof(buttons[0])));
+    if (count > 3u) count = 3u;
     hit = kit_workspace_authoring_ui_overlay_hit_test(buttons, count, (float)x, (float)y);
     return ide_workspace_authoring_host_apply_overlay_button(host, hit);
+}
+
+static bool authoring_handle_presentation_click(IDEWorkspaceAuthoringHost *host, int x, int y) {
+    IDEWorkspaceAuthoringPresentationControl controls[
+        IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_COUNT];
+    IDEWorkspaceAuthoringPresentationControlId hit;
+    uint32_t count;
+
+    if (!host || !ide_workspace_authoring_host_pane_overlay_active(host)) return false;
+    count = ide_workspace_authoring_presentation_build_controls((int)host->viewport_width,
+                                                                  &host->draft_presentation,
+                                                                  controls,
+                                                                  IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_COUNT);
+    hit = ide_workspace_authoring_presentation_hit_test(controls, count, x, y);
+    switch (hit) {
+        case IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_TOOL_PANEL:
+            return ide_workspace_authoring_host_toggle_presentation_field(host, 1u);
+        case IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_CONTROL_PANEL:
+            return ide_workspace_authoring_host_toggle_presentation_field(host, 2u);
+        case IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_TERMINAL:
+            return ide_workspace_authoring_host_toggle_presentation_field(host, 3u);
+        case IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_TOOL_PREVIOUS:
+            return ide_workspace_authoring_host_cycle_presentation_tool(host, -1);
+        case IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_TOOL_NEXT:
+            return ide_workspace_authoring_host_cycle_presentation_tool(host, 1);
+        case IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_EXPORT_PROFILE:
+            return ide_workspace_authoring_host_export_profile(host);
+        case IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_PREVIEW_PROFILE:
+            return ide_workspace_authoring_host_preview_profile(host);
+        case IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_NONE:
+        default:
+            return false;
+    }
 }
 
 static bool authoring_handle_font_theme_click(IDEWorkspaceAuthoringHost *host, int x, int y) {
@@ -351,6 +376,14 @@ bool ide_workspace_authoring_host_handle_sdl_event(IDEWorkspaceAuthoringHost *ho
         if (key == KIT_WORKSPACE_AUTHORING_KEY_C) host->key_c_down = 0u;
         if (key == KIT_WORKSPACE_AUTHORING_KEY_V) host->key_v_down = 0u;
         return false;
+    }
+
+    if (host->active &&
+        event->type == SDL_MOUSEBUTTONDOWN &&
+        event->button.button == SDL_BUTTON_LEFT &&
+        authoring_handle_presentation_click(host, event->button.x, event->button.y)) {
+        authoring_note_consumed(host, true);
+        return true;
     }
 
     if (host->active &&
@@ -409,9 +442,9 @@ bool ide_workspace_authoring_host_handle_sdl_event(IDEWorkspaceAuthoringHost *ho
 
     if (chord_pair_pressed) {
         if (host->active) {
-            authoring_cancel(host);
+            (void)ide_workspace_authoring_session_adapter_cancel(host);
         } else {
-            authoring_enter(host);
+            (void)ide_workspace_authoring_session_adapter_enter(host);
         }
         host->entry_chord_armed_key = KIT_WORKSPACE_AUTHORING_KEY_UNKNOWN;
         authoring_note_consumed(host, false);
@@ -432,13 +465,28 @@ bool ide_workspace_authoring_host_handle_sdl_event(IDEWorkspaceAuthoringHost *ho
         authoring_note_consumed(host, true);
         return true;
     }
+    if (host->overlay_mode == IDE_WORKSPACE_AUTHORING_OVERLAY_PANES) {
+        if (event->key.keysym.sym == SDLK_1 || event->key.keysym.sym == SDLK_2 ||
+            event->key.keysym.sym == SDLK_3) {
+            (void)ide_workspace_authoring_host_toggle_presentation_field(
+                host, (unsigned int)(event->key.keysym.sym - SDLK_0));
+            authoring_note_consumed(host, true);
+            return true;
+        }
+        if (event->key.keysym.sym == SDLK_LEFT || event->key.keysym.sym == SDLK_RIGHT) {
+            (void)ide_workspace_authoring_host_cycle_presentation_tool(
+                host, event->key.keysym.sym == SDLK_LEFT ? -1 : 1);
+            authoring_note_consumed(host, true);
+            return true;
+        }
+    }
     if (key == KIT_WORKSPACE_AUTHORING_KEY_ENTER) {
-        authoring_apply(host);
+        (void)ide_workspace_authoring_session_adapter_apply(host);
         authoring_note_consumed(host, true);
         return true;
     }
     if (key == KIT_WORKSPACE_AUTHORING_KEY_ESCAPE) {
-        authoring_cancel(host);
+        (void)ide_workspace_authoring_session_adapter_cancel(host);
         authoring_note_consumed(host, true);
         return true;
     }

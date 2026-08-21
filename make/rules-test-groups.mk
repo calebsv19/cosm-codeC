@@ -14,7 +14,7 @@ test-list:
 	@echo "Phase 5 gate:     test-phase4 + test-fast"
 
 .PHONY: test-fast
-test-fast: $(TEST_SMOKE_TARGETS)
+test-fast: $(TEST_SMOKE_TARGETS) test-workspace-authoring-projection
 	@echo "test-fast completed."
 
 .PHONY: test-idebridge

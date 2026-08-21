@@ -7,6 +7,7 @@
 
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/workspace_authoring_host.h"
+#include "app/GlobalInfo/workspace_authoring_presentation_ui.h"
 #include "engine/Render/render_font.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_pipeline.h"
@@ -191,9 +192,30 @@ static void authoring_draw_controls(SDL_Renderer *renderer,
         ide_workspace_authoring_host_pane_overlay_active(host) ? 1 : 0,
         buttons,
         (uint32_t)(sizeof(buttons) / sizeof(buttons[0])));
+    if (count > 3u) count = 3u;
     for (i = 0u; i < count; ++i) {
         authoring_draw_button(renderer, palette, &buttons[i], mouse_x, mouse_y, mouse_pressed);
     }
+}
+
+/*
+ * Authoring is a modal composition layer.  A translucent dimmer still lets
+ * hover, focus, popup, and drag affordances read as active underneath it.
+ */
+static void authoring_draw_modal_backdrop(SDL_Renderer *renderer,
+                                          const IDEThemePalette *palette,
+                                          int viewport_width,
+                                          int viewport_height) {
+    SDL_Rect screen;
+
+    if (!renderer || !palette || viewport_width <= 0 || viewport_height <= 0) return;
+    screen = (SDL_Rect){0, 0, viewport_width, viewport_height};
+    SDL_SetRenderDrawColor(renderer,
+                           palette->app_background.r,
+                           palette->app_background.g,
+                           palette->app_background.b,
+                           255);
+    SDL_RenderFillRect(renderer, &screen);
 }
 
 static void authoring_draw_pane_readout(SDL_Renderer *renderer,
@@ -201,11 +223,22 @@ static void authoring_draw_pane_readout(SDL_Renderer *renderer,
                                         const IDEThemePalette *palette,
                                         UIPane **panes,
                                         int pane_count) {
+    IDEWorkspaceAuthoringPresentationControl controls[
+        IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_COUNT];
+    uint32_t control_count;
+    int mouse_x = 0;
+    int mouse_y = 0;
+    Uint32 mouse_buttons;
+    bool mouse_pressed;
+    char selection[128];
     int i;
     char label[256];
+    SDL_Rect surface;
 
     if (!renderer || !host || !palette || !panes) return;
 
+    mouse_buttons = SDL_GetMouseState(&mouse_x, &mouse_y);
+    mouse_pressed = (mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
     for (i = 0; i < pane_count; ++i) {
         UIPane *pane = panes[i];
         SDL_Rect rect;
@@ -247,11 +280,64 @@ static void authoring_draw_pane_readout(SDL_Renderer *renderer,
         authoring_draw_text(renderer, tag.x + 6, tag.y + 3, palette->text_primary, label);
     }
 
+    /* Draw this after the observation labels, so the authoring controls are
+     * unmistakably above the paused program geometry. */
+    surface = (SDL_Rect){8, 46, (int)host->viewport_width - 16, 132};
+    if (surface.w > 0) {
+        SDL_SetRenderDrawColor(renderer,
+                               palette->modal_fill.r,
+                               palette->modal_fill.g,
+                               palette->modal_fill.b,
+                               255);
+        SDL_RenderFillRect(renderer, &surface);
+        SDL_SetRenderDrawColor(renderer,
+                               palette->modal_border.r,
+                               palette->modal_border.g,
+                               palette->modal_border.b,
+                               255);
+        SDL_RenderDrawRect(renderer, &surface);
+        authoring_draw_text_tier(renderer,
+                                 16,
+                                 54,
+                                 palette->text_primary,
+                                 CORE_FONT_TEXT_SIZE_BASIC,
+                                 "Workspace Authoring — Presentation Draft");
+        authoring_draw_text(renderer,
+                            16,
+                            68,
+                            palette->text_muted,
+                            "Runtime interaction is paused. These controls edit the draft only.");
+    }
+    control_count = ide_workspace_authoring_presentation_build_controls(
+        (int)host->viewport_width,
+        &host->draft_presentation,
+        controls,
+        IDE_WORKSPACE_AUTHORING_PRESENTATION_CONTROL_COUNT);
+    for (i = 0; i < (int)control_count; ++i) {
+        SDL_Rect control_rect = {controls[i].x, controls[i].y, controls[i].width, controls[i].height};
+        ui_panel_compact_button_render(renderer,
+                                       &(UIPanelCompactButtonSpec){
+                                           .rect = control_rect,
+                                           .label = controls[i].label,
+                                           .hovered = ui_panel_rect_contains(&control_rect, mouse_x, mouse_y),
+                                           .active = controls[i].active != 0u,
+                                           .pressed = ui_panel_rect_contains(&control_rect, mouse_x, mouse_y) && mouse_pressed,
+                                           .disabled = false,
+                                           .outlined = false,
+                                           .use_custom_fill = false,
+                                           .use_custom_outline = false,
+                                           .tier = CORE_FONT_TEXT_SIZE_CAPTION
+                                       });
+    }
+    snprintf(selection, sizeof(selection), "Tool view: %s", ide_workspace_authoring_presentation_tool_label(
+        host->draft_presentation.active_tool));
+    authoring_draw_text(renderer, 16, 154, palette->text_muted, selection);
+
     if (host->status_text[0]) {
-        authoring_draw_text(renderer, 16, 52, palette->text_muted, host->status_text);
+        authoring_draw_text(renderer, 16, 166, palette->text_muted, host->status_text);
     } else {
-        authoring_draw_text(renderer, 16, 52, palette->text_muted,
-                            "Tab switches authoring overlay. Enter applies. Esc cancels.");
+        authoring_draw_text(renderer, 16, 166, palette->text_muted,
+                            "Pane authoring preview: choose visibility, Tool Panel view, or Save/Preview the workspace WAPP. Enter applies; Esc restores.");
     }
 }
 
@@ -287,7 +373,6 @@ static void authoring_draw_font_theme_overlay(SDL_Renderer *renderer,
                                               int viewport_width,
                                               int viewport_height) {
     KitWorkspaceAuthoringFontThemeLayout layout;
-    SDL_Rect screen;
     SDL_Rect panel;
     char font_detail[160];
     char size_detail[160];
@@ -303,14 +388,6 @@ static void authoring_draw_font_theme_overlay(SDL_Renderer *renderer,
     bool mouse_pressed = (mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
 
     if (!renderer || !host || !palette) return;
-    SDL_SetRenderDrawColor(renderer,
-                           palette->app_background.r,
-                           palette->app_background.g,
-                           palette->app_background.b,
-                           238);
-    screen = (SDL_Rect){0, 0, viewport_width, viewport_height};
-    SDL_RenderFillRect(renderer, &screen);
-
     if (!authoring_build_font_theme_layout(viewport_width, viewport_height, &layout)) {
         authoring_draw_text(renderer, 24, 72, palette->text_primary, "Font/Theme layout unavailable.");
         return;
@@ -482,7 +559,7 @@ void ide_workspace_authoring_overlay_render(IDECoreState *core,
                                               (uint32_t)viewport_width,
                                               (uint32_t)viewport_height);
     renderer = (SDL_Renderer *)ctx->renderer;
-    authoring_draw_controls(renderer, &core->workspaceAuthoring, &palette, viewport_width);
+    authoring_draw_modal_backdrop(renderer, &palette, viewport_width, viewport_height);
     if (ide_workspace_authoring_host_pane_overlay_active(&core->workspaceAuthoring)) {
         authoring_draw_pane_readout(renderer,
                                     &core->workspaceAuthoring,
@@ -496,4 +573,5 @@ void ide_workspace_authoring_overlay_render(IDECoreState *core,
                                           viewport_width,
                                           viewport_height);
     }
+    authoring_draw_controls(renderer, &core->workspaceAuthoring, &palette, viewport_width);
 }
