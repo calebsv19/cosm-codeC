@@ -111,7 +111,7 @@ while IFS= read -r current_file; do
     done
 done <"$QUEUE_FILE"
 
-for required in libMoltenVK.dylib libvulkan.1.dylib; do
+for required in ${PACKAGE_REQUIRED_DYLIBS:-libMoltenVK.dylib libvulkan.1.dylib}; do
     if dep_src="$(resolve_search_root_dep "$required" 2>/dev/null)"; then
         dep_dst="$FRAMEWORKS_DIR/$required"
         if [ ! -f "$dep_dst" ]; then
@@ -120,6 +120,30 @@ for required in libMoltenVK.dylib libvulkan.1.dylib; do
         fi
         "$INSTALL_NAME_TOOL_BIN" -id "@loader_path/$required" "$dep_dst" || true
     fi
+done
+
+# A Homebrew dylib can retain an @rpath dependency even after its target has
+# been copied into the bundle. Resolve those references against the bundled
+# sibling explicitly: @rpath is not a valid packaged-app contract here.
+for bundled_dylib in "$FRAMEWORKS_DIR"/*.dylib; do
+    [ -f "$bundled_dylib" ] || continue
+    rpath_deps="$("$OTOOL_BIN" -L "$bundled_dylib" | "$AWK_BIN" 'NR>1 {print $1}' | "$GREP_BIN" -E '^@rpath/' || true)"
+    [ -n "$rpath_deps" ] || continue
+    echo "$rpath_deps" | while IFS= read -r dep; do
+        [ -n "$dep" ] || continue
+        dep_base="$("$BASENAME_BIN" "$dep")"
+        dep_dst="$FRAMEWORKS_DIR/$dep_base"
+        if [ ! -f "$dep_dst" ]; then
+            if ! dep_src="$(resolve_search_root_dep "$dep_base" 2>/dev/null)"; then
+                echo "error: unresolved bundled @rpath dependency $dep for $bundled_dylib" >&2
+                exit 1
+            fi
+            "$CP_BIN" -fL "$dep_src" "$dep_dst"
+            "$CHMOD_BIN" u+w "$dep_dst"
+            "$INSTALL_NAME_TOOL_BIN" -id "@loader_path/$dep_base" "$dep_dst" || true
+        fi
+        "$INSTALL_NAME_TOOL_BIN" -change "$dep" "@loader_path/$dep_base" "$bundled_dylib"
+    done
 done
 
 exit 0

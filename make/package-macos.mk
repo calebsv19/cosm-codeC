@@ -2,6 +2,7 @@
 package-build-lane:
 	@echo "Building package binaries for toolchain $(PACKAGE_TOOLCHAIN)..."
 	@$(MAKE) BUILD_PROFILE="$(PACKAGE_BUILD_PROFILE)" FISICS_SANITIZED=0 BUILD_TOOLCHAIN="$(PACKAGE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(PACKAGE_BIN)" "$(PACKAGE_IDEBRIDGE_BIN)"
+	@$(MAKE) -C $(FISICS_DIR) BUILD_PROFILE=unsanitized CC="$(HOST_CC) $(ARCH_FLAGS)" LLVM_CONFIG="$(LLVM_CONFIG)" fisics
 
 package-desktop: package-build-lane
 	@echo "Preparing app bundle layout..."
@@ -10,10 +11,12 @@ package-desktop: package-build-lane
 	@cp $(PACKAGE_INFO_PLIST_SRC) $(PACKAGE_CONTENTS_DIR)/Info.plist
 	@cp $(PACKAGE_BIN) $(PACKAGE_MACOS_DIR)/ide-bin
 	@cp $(PACKAGE_IDEBRIDGE_BIN) $(PACKAGE_MACOS_DIR)/idebridge
+	@cp $(PACKAGE_FISICS_BIN) $(PACKAGE_MACOS_DIR)/fisics
 	@cp $(PACKAGE_LAUNCHER_SRC) $(PACKAGE_MACOS_DIR)/ide-launcher
-	@chmod +x $(PACKAGE_MACOS_DIR)/ide-launcher $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_MACOS_DIR)/idebridge
-	@PACKAGE_DEP_SEARCH_ROOTS="$(TARGET_DEP_SEARCH_ROOTS)" $(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_FRAMEWORKS_DIR)
-	@PACKAGE_DEP_SEARCH_ROOTS="$(TARGET_DEP_SEARCH_ROOTS)" $(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/idebridge $(PACKAGE_FRAMEWORKS_DIR)
+	@chmod +x $(PACKAGE_MACOS_DIR)/ide-launcher $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_MACOS_DIR)/idebridge $(PACKAGE_MACOS_DIR)/fisics
+	@PACKAGE_DEP_SEARCH_ROOTS="$(PACKAGE_DEP_SEARCH_ROOTS)" PACKAGE_REQUIRED_DYLIBS="$(PACKAGE_REQUIRED_DYLIBS)" $(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_FRAMEWORKS_DIR)
+	@PACKAGE_DEP_SEARCH_ROOTS="$(PACKAGE_DEP_SEARCH_ROOTS)" PACKAGE_REQUIRED_DYLIBS="$(PACKAGE_REQUIRED_DYLIBS)" $(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/idebridge $(PACKAGE_FRAMEWORKS_DIR)
+	@PACKAGE_DEP_SEARCH_ROOTS="$(PACKAGE_DEP_SEARCH_ROOTS)" PACKAGE_REQUIRED_DYLIBS="$(PACKAGE_REQUIRED_DYLIBS)" $(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/fisics $(PACKAGE_FRAMEWORKS_DIR)
 	@mkdir -p $(PACKAGE_RESOURCES_DIR)/include
 	@cp -R include/fonts $(PACKAGE_RESOURCES_DIR)/include/
 	@mkdir -p $(PACKAGE_RESOURCES_DIR)/shared/assets
@@ -43,6 +46,7 @@ package-desktop-sign-adhoc:
 	done
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/ide-bin"
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/idebridge"
+	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/fisics"
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/ide-launcher"
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_APP_DIR)"
 	@codesign --verify --deep --strict "$(PACKAGE_APP_DIR)"
@@ -65,9 +69,24 @@ package-desktop-smoke: package-desktop
 	@test -x $(PACKAGE_MACOS_DIR)/ide-launcher || (echo "Missing launcher"; exit 1)
 	@test -x $(PACKAGE_MACOS_DIR)/ide-bin || (echo "Missing ide-bin"; exit 1)
 	@test -x $(PACKAGE_MACOS_DIR)/idebridge || (echo "Missing idebridge"; exit 1)
+	@test -x $(PACKAGE_MACOS_DIR)/fisics || (echo "Missing bundled fisiCs compiler"; exit 1)
 	@test -f $(PACKAGE_CONTENTS_DIR)/Info.plist || (echo "Missing Info.plist"; exit 1)
 	@test -f $(PACKAGE_FRAMEWORKS_DIR)/libvulkan.1.dylib || (echo "Missing bundled libvulkan"; exit 1)
 	@test -f $(PACKAGE_FRAMEWORKS_DIR)/libMoltenVK.dylib || (echo "Missing bundled libMoltenVK"; exit 1)
+	@test -f $(PACKAGE_FRAMEWORKS_DIR)/libLLVM.dylib || (echo "Missing bundled libLLVM"; exit 1)
+	@otool -L "$(PACKAGE_MACOS_DIR)/ide-bin" | awk 'NR > 1 { print $$1 }' | while IFS= read -r dependency; do \
+		case "$$dependency" in \
+			@executable_path/../Frameworks/*) \
+				name="$${dependency##*/}"; \
+				test -f "$(PACKAGE_FRAMEWORKS_DIR)/$$name" || { echo "Missing direct bundled dependency: $$name"; exit 1; };; \
+		esac; \
+	done
+	@for dylib in "$(PACKAGE_FRAMEWORKS_DIR)"/*.dylib; do \
+		[ -f "$$dylib" ] || continue; \
+		if otool -L "$$dylib" | awk 'NR > 1 { print $$1 }' | grep -q '^@rpath/'; then \
+			echo "Unresolved @rpath dependency in bundled dylib: $$dylib"; exit 1; \
+		fi; \
+	done
 	@if [ -f "$(PACKAGE_APP_ICON_SRC)" ] || [ -d "$(PACKAGE_APP_ICONSET_SRC)" ]; then \
 		test -f "$(PACKAGE_BUNDLED_ICON_PATH)" || (echo "Missing bundled AppIcon.icns"; exit 1); \
 	fi

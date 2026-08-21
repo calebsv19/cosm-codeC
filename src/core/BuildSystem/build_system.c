@@ -5,6 +5,7 @@
 #include "ide/Panes/ToolPanels/BuildOutput/build_output_panel_state.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/workspace_prefs.h"
+#include "app/GlobalInfo/runtime_paths.h"
 #include "core/BuildSystem/build_diagnostics.h"
 #include "core/BuildSystem/build_trust_notice.h"
 
@@ -17,6 +18,7 @@
 #include <dirent.h>
 #include <time.h>
 #include <limits.h>
+#include <unistd.h>
 
 static BuildStatus currentStatus = BUILD_STATUS_IDLE;
 static char buildLog[8192];  // Optional buffer for saving logs
@@ -33,6 +35,42 @@ static bool has_makefile(const char* dir) {
     if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) return true;
     snprintf(path, sizeof(path), "%s/makefile", dir);
     if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) return true;
+    return false;
+}
+
+static bool has_fisics_manifest(const char* dir) {
+    char path[PATH_MAX];
+    struct stat st;
+    if (!dir || !*dir) return false;
+    snprintf(path, sizeof(path), "%s/project.fisics.json", dir);
+    return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static bool resolve_fisics_compiler(char* out_path, size_t out_path_size) {
+    const char* override_path = getenv("IDE_FISICS_COMPILER");
+    const char* executable_dir;
+    char candidate[PATH_MAX];
+
+    if (!out_path || out_path_size == 0) return false;
+    out_path[0] = '\0';
+    if (override_path && override_path[0] && access(override_path, X_OK) == 0) {
+        snprintf(out_path, out_path_size, "%s", override_path);
+        return true;
+    }
+
+    executable_dir = ide_runtime_executable_dir();
+    if (executable_dir && executable_dir[0] &&
+        snprintf(candidate, sizeof(candidate), "%s/fisics", executable_dir) < (int)sizeof(candidate) &&
+        access(candidate, X_OK) == 0) {
+        snprintf(out_path, out_path_size, "%s", candidate);
+        return true;
+    }
+
+    if (ide_runtime_probe_resource_path("../fisiCs/fisics", candidate, sizeof(candidate)) &&
+        access(candidate, X_OK) == 0) {
+        snprintf(out_path, out_path_size, "%s", candidate);
+        return true;
+    }
     return false;
 }
 
@@ -207,7 +245,27 @@ void triggerBuild(void) {
 
     if (!customCommand) {
         bool useMake = has_makefile(projectPath);
-        if (useMake) {
+        bool useFisicsManifest = has_fisics_manifest(projectPath);
+        if (useFisicsManifest) {
+            char fisics_compiler[PATH_MAX];
+            commandSource = "fisics_manifest";
+            snprintf(resolvedOutputDir, sizeof(resolvedOutputDir), "%s/build/fisics", projectPath);
+            outputDirForArtifacts = resolvedOutputDir;
+            if (!resolve_fisics_compiler(fisics_compiler, sizeof(fisics_compiler))) {
+                const char* error = "[BuildSystem] FisiCs manifest detected, but no bundled FisiCs compiler is available. Set IDE_FISICS_COMPILER to an executable override.\n";
+                printToTerminal(error);
+                currentStatus = BUILD_STATUS_FAILED;
+                return;
+            }
+            snprintf(commandForShell, sizeof(commandForShell), "\"%s\" --build-manifest project.fisics.json", fisics_compiler);
+            snprintf(commandForPopen, sizeof(commandForPopen),
+                     "cd \"%s\" && \"%s\" --build-manifest project.fisics.json 2>&1",
+                     projectPath, fisics_compiler);
+            usePopenFallback = true;
+            char msg[PATH_MAX + 128];
+            snprintf(msg, sizeof(msg), "[BuildSystem] FisiCs manifest build: %s\n", fisics_compiler);
+            printToTerminal(msg);
+        } else if (useMake) {
             commandSource = "default_make";
             snprintf(commandForShell, sizeof(commandForShell), "make");
             snprintf(commandForPopen, sizeof(commandForPopen),

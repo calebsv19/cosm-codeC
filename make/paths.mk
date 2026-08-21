@@ -68,6 +68,7 @@ LLVM_CONFIG := $(TARGET_LLVM_CONFIG)
 LLVM_CFLAGS := $(if $(LLVM_CONFIG),$(shell $(LLVM_CONFIG) --cflags),)
 LLVM_LDFLAGS := $(if $(LLVM_CONFIG),$(shell $(LLVM_CONFIG) --ldflags),)
 LLVM_LIBS := $(if $(LLVM_CONFIG),$(shell $(LLVM_CONFIG) --libs core),)
+LLVM_PACKAGE_ROOT := $(if $(LLVM_CONFIG),$(abspath $(dir $(LLVM_CONFIG))/..),)
 ifeq ($(strip $(LLVM_CONFIG)),)
 $(warning llvm-config not found for target lane; Fisics frontend/IDE linking may fail.)
 endif
@@ -105,11 +106,18 @@ PACKAGE_BUNDLED_ICON_PATH := $(PACKAGE_RESOURCES_DIR)/$(PACKAGE_APP_ICON_FILE)
 PACKAGE_INFO_PLIST_SRC := tools/packaging/macos/Info.plist
 PACKAGE_LAUNCHER_SRC := tools/packaging/macos/ide-launcher
 PACKAGE_DYLIB_BUNDLER := tools/packaging/macos/bundle-dylibs.sh
+# Keep the standard Homebrew roots when extending the bundler with LLVM. An
+# empty initial value would otherwise suppress bundle-dylibs.sh's defaults and
+# leave transitive @rpath dependencies (for example JPEG XL/WebP siblings)
+# unresolved in the app.
+PACKAGE_DEP_SEARCH_ROOTS := /opt/homebrew:/usr/local$(if $(LLVM_PACKAGE_ROOT),:$(LLVM_PACKAGE_ROOT),)
+PACKAGE_REQUIRED_DYLIBS := libMoltenVK.dylib libvulkan.1.dylib libLLVM.dylib
 PACKAGE_BUILD_PROFILE ?= perf
 PACKAGE_BUILD_DIR := $(TARGET_BUILD_ROOT)/$(PACKAGE_BUILD_PROFILE)
 PACKAGE_TOOLCHAIN_BUILD_ROOT := $(PACKAGE_BUILD_DIR)/toolchains
 PACKAGE_BIN := $(PACKAGE_TOOLCHAIN_BUILD_ROOT)/$(PACKAGE_TOOLCHAIN)/bin/ide
 PACKAGE_IDEBRIDGE_BIN := $(PACKAGE_BUILD_DIR)/tools/idebridge
+PACKAGE_FISICS_BIN := $(FISICS_DIR)/fisics
 DESKTOP_APP_DIR ?= $(HOME)/Desktop/$(PACKAGE_APP_NAME)
 PACKAGE_ADHOC_SIGN_IDENTITY ?= -
 RELEASE_VERSION_FILE ?= VERSION
