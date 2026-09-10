@@ -140,3 +140,9 @@ Intel target packaging note:
 
 - `make ... TARGET_ARCH=x86_64` now emits Intel artifact names in the form `codeC-<version>-macOS-x86_64-stable.*`
 - dependency resolution for the Intel lane prefers `/usr/local` where appropriate during bundle closure
+
+## Isolated release preparation
+
+`release-artifact-disposable RELEASE_ROOT=build/release-authenticated/<job-id>` creates a new contained app, ZIP, checksum and source manifest. `release-package-self-test` retains the standard package checks while isolating `IDE_RUNTIME_DIR` and `IDE_LOG_DIR`; it does not install the app.
+
+The IDE builds its pinned fisiCs frontend and packaged compiler under its own target/profile build directory. It never runs the sibling compiler clean target. Compiler input changes or a different pinned revision stop the build; test-only compiler work is excluded from build inputs. Update the pinned revision in `make/rules-fisics-dependency.mk` deliberately when adopting a compiler revision.

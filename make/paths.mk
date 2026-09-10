@@ -58,10 +58,6 @@ FISICS_FRONTEND_ARCHIVE_SRC := $(FISICS_LIB_UNSANITIZED_SRC)
 FISICS_FRONTEND_TARGET := frontend-unsanitized
 FISICS_FRONTEND_BUILD_PROFILE := unsanitized
 endif
-ifeq ($(wildcard $(FISICS_FRONTEND_ARCHIVE_SRC)),)
-$(warning Fisics frontend library not found at $(FISICS_FRONTEND_ARCHIVE_SRC); build may fail until it is built.)
-endif
-
 # LLVM (for Fisics frontend)
 TARGET_LLVM_CONFIG ?= $(if $(wildcard $(TARGET_HOMEBREW_PREFIX)/opt/llvm/bin/llvm-config),$(TARGET_HOMEBREW_PREFIX)/opt/llvm/bin/llvm-config,$(if $(filter $(TARGET_ARCH),$(HOST_ARCH)),$(if $(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/opt/llvm/bin/llvm-config),$(TARGET_ALT_HOMEBREW_PREFIX)/opt/llvm/bin/llvm-config,$(shell command -v llvm-config 2>/dev/null)),))
 LLVM_CONFIG := $(TARGET_LLVM_CONFIG)
@@ -117,7 +113,7 @@ PACKAGE_BUILD_DIR := $(TARGET_BUILD_ROOT)/$(PACKAGE_BUILD_PROFILE)
 PACKAGE_TOOLCHAIN_BUILD_ROOT := $(PACKAGE_BUILD_DIR)/toolchains
 PACKAGE_BIN := $(PACKAGE_TOOLCHAIN_BUILD_ROOT)/$(PACKAGE_TOOLCHAIN)/bin/ide
 PACKAGE_IDEBRIDGE_BIN := $(PACKAGE_BUILD_DIR)/tools/idebridge
-PACKAGE_FISICS_BIN := $(FISICS_DIR)/fisics
+PACKAGE_FISICS_BIN = $(PACKAGE_BUILD_DIR)/fisics-dependency/$(FISICS_SOURCE_HEAD)/fisics
 DESKTOP_APP_DIR ?= $(HOME)/Desktop/$(PACKAGE_APP_NAME)
 PACKAGE_ADHOC_SIGN_IDENTITY ?= -
 RELEASE_VERSION_FILE ?= VERSION

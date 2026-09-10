@@ -21,3 +21,5 @@ include make/rules-test-loop-events.mk
 include make/rules-test-diagnostics.mk
 
 -include $(DEP_FILES)
+
+include make/release-disposable.mk

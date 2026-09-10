@@ -1,14 +1,15 @@
 .PHONY: package-build-lane
 package-build-lane:
 	@echo "Building package binaries for toolchain $(PACKAGE_TOOLCHAIN)..."
-	@$(MAKE) BUILD_PROFILE="$(PACKAGE_BUILD_PROFILE)" FISICS_SANITIZED=0 BUILD_TOOLCHAIN="$(PACKAGE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(PACKAGE_BIN)" "$(PACKAGE_IDEBRIDGE_BIN)"
-	@$(MAKE) -C $(FISICS_DIR) BUILD_PROFILE=unsanitized CC="$(HOST_CC) $(ARCH_FLAGS)" LLVM_CONFIG="$(LLVM_CONFIG)" fisics
+	@$(MAKE) BUILD_PROFILE="$(PACKAGE_BUILD_PROFILE)" FISICS_SANITIZED=0 BUILD_TOOLCHAIN="$(PACKAGE_TOOLCHAIN)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(PACKAGE_BIN)" "$(PACKAGE_IDEBRIDGE_BIN)" fisics-package-compiler
 
 package-desktop: package-build-lane
 	@echo "Preparing app bundle layout..."
 	@rm -rf $(PACKAGE_APP_DIR)
 	@mkdir -p $(PACKAGE_MACOS_DIR) $(PACKAGE_RESOURCES_DIR) $(PACKAGE_FRAMEWORKS_DIR)
 	@cp $(PACKAGE_INFO_PLIST_SRC) $(PACKAGE_CONTENTS_DIR)/Info.plist
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(RELEASE_VERSION)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(RELEASE_VERSION)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
 	@cp $(PACKAGE_BIN) $(PACKAGE_MACOS_DIR)/ide-bin
 	@cp $(PACKAGE_IDEBRIDGE_BIN) $(PACKAGE_MACOS_DIR)/idebridge
 	@cp $(PACKAGE_FISICS_BIN) $(PACKAGE_MACOS_DIR)/fisics

@@ -62,7 +62,7 @@ test-fisics-contract-compatibility:
 	@echo "fisiCs contract compatibility test passed."
 
 .PHONY: test-fisics-frontend-contract-integration
-test-fisics-frontend-contract-integration:
+test-fisics-frontend-contract-integration: $(FISICS_LIB)
 	@mkdir -p $(TEST_BUILD_DIR)
 	@test -f "$(FISICS_FRONTEND_ARCHIVE_SRC)" || (echo "real fisiCs frontend archive missing: $(FISICS_FRONTEND_ARCHIVE_SRC)"; exit 1)
 	@echo "Compiling real fisiCs frontend contract integration test..."

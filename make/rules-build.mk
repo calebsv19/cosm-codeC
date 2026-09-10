@@ -60,11 +60,7 @@ $(eval $(call build_copy_static_lib,KIT_WORKSPACE_AUTHORING,))
 $(eval $(call build_copy_static_lib,VK_RUNTIME,))
 $(eval $(call build_copy_static_lib,VK_RENDERER,VK_RUNTIME_ROOT="$(abspath $(VK_RUNTIME_DIR))",$(VK_RUNTIME_LIB)))
 
-$(FISICS_LIB): FORCE | $(SHARED_BUILD_DIR)
-	@test -n "$(LLVM_CONFIG)" || (echo "Missing target llvm-config for $(TARGET_TRIPLE); install llvm under $(TARGET_HOMEBREW_PREFIX)/opt/llvm" && exit 1)
-	@$(MAKE) -C $(FISICS_DIR) BUILD_PROFILE="$(FISICS_FRONTEND_BUILD_PROFILE)" clean
-	@$(MAKE) -C $(FISICS_DIR) BUILD_PROFILE="$(FISICS_FRONTEND_BUILD_PROFILE)" CC="$(HOST_CC) $(ARCH_FLAGS)" LLVM_CONFIG="$(LLVM_CONFIG)" $(FISICS_FRONTEND_TARGET)
-	@cp "$(FISICS_FRONTEND_ARCHIVE_SRC)" "$@"
+include make/rules-fisics-dependency.mk
 
 $(APP_BIN_DIR) $(COMPILER_STAMP_DIR):
 	@mkdir -p $@
