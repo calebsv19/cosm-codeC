@@ -33,6 +33,7 @@ typedef struct {
     uint64_t stamp;
 } AnalysisMemoryReportSnapshot;
 
+// snapshot_at returns a borrowed view valid only while this lock is held.
 void analysis_memory_report_store_lock(void);
 void analysis_memory_report_store_unlock(void);
 

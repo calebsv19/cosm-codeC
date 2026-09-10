@@ -9,6 +9,7 @@
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
 #include "core/Analysis/analysis_units_store.h"
+#include "core/Analysis/analysis_provenance_store.h"
 #include "core/Analysis/include_graph.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/fisics_frontend_guard.h"
@@ -249,6 +250,13 @@ void ide_analyze_buffer_for_file(const char* filePath, const char* contents, siz
     const FisicsUnitsAttachment* units = units_enabled ? result.units_attachments : NULL;
     size_t units_count = units_enabled ? result.units_attachment_count : 0u;
 
+    analysis_provenance_store_upsert(filePath,
+                                     contents,
+                                     length,
+                                     &result.contract,
+                                     fisics_contract_effective_capabilities(&result),
+                                     degraded_contract,
+                                     contract_warning);
     analysis_store_upsert(filePath, result.diagnostics, result.diag_count);
     analysis_symbols_store_upsert(filePath, symbols, symbol_count);
     analysis_token_store_upsert(filePath, tokens, token_count);

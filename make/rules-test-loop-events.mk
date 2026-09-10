@@ -38,7 +38,7 @@ test-loop-events-dispatch-integration:
 test-fisics-bridge-events-regression:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling fisics bridge events regression test..."
-	@$(CC) $(CFLAGS) tests/fisics_bridge_events_regression_test.c src/core/Analysis/fisics_bridge.c src/core/LoopEvents/event_queue.c src/core/Analysis/analysis_store.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/analysis_token_store.c src/core/Analysis/analysis_units_store.c $(ANALYSIS_ARTIFACT_IO_SRC) src/core/Diagnostics/diagnostics_engine.c src/core/LoopKernel/mainthread_context.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/fisics_bridge_events_regression_test $(LIB_DIRS) -ljson-c -lSDL2 || (echo "fisics bridge events regression test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/fisics_bridge_events_regression_test.c src/core/Analysis/fisics_bridge.c src/core/LoopEvents/event_queue.c src/core/Analysis/analysis_store.c src/core/Analysis/analysis_symbols_store.c src/core/Analysis/analysis_token_store.c src/core/Analysis/analysis_units_store.c src/core/Analysis/analysis_provenance_store.c $(ANALYSIS_ARTIFACT_IO_SRC) src/core/Diagnostics/diagnostics_engine.c src/core/LoopKernel/mainthread_context.c $(CORE_QUEUE_DIR)/src/core_queue.c -o $(TEST_BUILD_DIR)/fisics_bridge_events_regression_test $(LIB_DIRS) -ljson-c -lSDL2 -lpthread || (echo "fisics bridge events regression test compile failed."; exit 1)
 	@echo "Running fisics bridge events regression test..."
 	@$(TEST_BUILD_DIR)/fisics_bridge_events_regression_test || (echo "fisics bridge events regression test failed."; exit 1)
 	@echo "Fisics bridge events regression test passed."

@@ -2,6 +2,7 @@
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/analysis_symbols_store.h"
+#include "core/Analysis/analysis_provenance_store.h"
 #include "core/Analysis/fisics_contract_validation.h"
 
 #include <json-c/json.h>
@@ -176,6 +177,50 @@ static int expect_symbol_parent_stable_id(const char* response,
     return rc;
 }
 
+static int expect_analysis_state(const char* response,
+                                 const char* expected_file,
+                                 const char* expected_state) {
+    json_object* root = json_tokener_parse(response);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root) json_object_put(root);
+        return -1;
+    }
+    json_object *ok=NULL,*result=NULL,*records=NULL;
+    int rc = -1;
+    if (json_object_object_get_ex(root, "ok", &ok) && json_object_get_boolean(ok) &&
+        json_object_object_get_ex(root, "result", &result) && result &&
+        json_object_object_get_ex(result, "records", &records) &&
+        json_object_is_type(records, json_type_array)) {
+        size_t count = json_object_array_length(records);
+        for (size_t i = 0; i < count; ++i) {
+            json_object* record = json_object_array_get_idx(records, i);
+            json_object *file=NULL,*state=NULL,*source_match=NULL;
+            if (!record ||
+                !json_object_object_get_ex(record, "file", &file) ||
+                !json_object_object_get_ex(record, "state", &state) ||
+                !json_object_object_get_ex(record, "source_match", &source_match)) continue;
+            if (strcmp(json_object_get_string(file), expected_file) == 0 &&
+                strcmp(json_object_get_string(state), expected_state) == 0 &&
+                json_object_get_boolean(source_match)) {
+                rc = 0;
+                break;
+            }
+        }
+    }
+    json_object_put(root);
+    return rc;
+}
+
+static uint64_t phase6_source_hash(const char* text) {
+    const uint64_t prime = 1099511628211ULL;
+    uint64_t hash = 1469598103934665603ULL;
+    for (size_t i = 0; text && text[i]; ++i) {
+        hash ^= (unsigned char)text[i];
+        hash *= prime;
+    }
+    return hash;
+}
+
 static int write_file(const char* path, const char* text) {
     FILE* f = fopen(path, "wb");
     if (!f) return -1;
@@ -217,7 +262,8 @@ int main(void) {
 
     char main_c[1024];
     snprintf(main_c, sizeof(main_c), "%s/main.c", src_dir);
-    if (write_file(main_c, "#include <stdio.h>\nint main(){return 0;}\n") != 0) return 1;
+    const char* main_source = "#include <stdio.h>\nint main(){return 0;}\n";
+    if (write_file(main_c, main_source) != 0) return 1;
 
     char makefile_path[1024];
     snprintf(makefile_path, sizeof(makefile_path), "%s/Makefile", workspace);
@@ -253,6 +299,35 @@ int main(void) {
     phase6_symbols[1].is_definition = true;
 
     analysis_symbols_store_upsert(main_c, phase6_symbols, 2);
+
+    FisicsAnalysisContract provenance_contract = {0};
+    snprintf(provenance_contract.contract_id,
+             sizeof(provenance_contract.contract_id),
+             "%s",
+             IDE_FISICS_CONTRACT_ID);
+    provenance_contract.contract_major = 1;
+    provenance_contract.contract_minor = 7;
+    snprintf(provenance_contract.producer_name,
+             sizeof(provenance_contract.producer_name),
+             "%s",
+             "fisiCs");
+    snprintf(provenance_contract.producer_version,
+             sizeof(provenance_contract.producer_version),
+             "%s",
+             "phase6");
+    provenance_contract.source_length = strlen(main_source);
+    provenance_contract.source_hash = phase6_source_hash(main_source);
+    provenance_contract.capabilities = FISICS_CONTRACT_CAP_DIAGNOSTICS |
+                                       FISICS_CONTRACT_CAP_INCLUDES |
+                                       FISICS_CONTRACT_CAP_SYMBOLS |
+                                       FISICS_CONTRACT_CAP_TOKENS;
+    analysis_provenance_store_upsert(main_c,
+                                     main_source,
+                                     strlen(main_source),
+                                     &provenance_contract,
+                                     provenance_contract.capabilities,
+                                     false,
+                                     NULL);
 
     FisicsSymbol fallback_symbol;
     memset(&fallback_symbol, 0, sizeof(fallback_symbol));
@@ -357,6 +432,12 @@ int main(void) {
     }
     if (expect_symbol_parent_stable_id(response, "value", "0x1111111111111111") != 0) {
         fprintf(stderr, "symbols missing expected parent_stable_id: %s\n", response);
+        ide_ipc_stop();
+        return 1;
+    }
+    if (send_then_recv(socket_path, "{\"id\":\"a1\",\"proto\":1,\"cmd\":\"analysis_state\",\"args\":{\"file\":\"src/main.c\"}}", false, response, sizeof(response)) != 0 ||
+        expect_analysis_state(response, main_c, "current") != 0) {
+        fprintf(stderr, "analysis_state failed: %s\n", response);
         ide_ipc_stop();
         return 1;
     }

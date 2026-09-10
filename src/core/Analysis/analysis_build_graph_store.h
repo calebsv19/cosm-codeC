@@ -50,6 +50,7 @@ typedef struct {
     uint64_t stamp;
 } AnalysisBuildGraphSnapshot;
 
+// snapshot_at returns a borrowed view valid only while this lock is held.
 void analysis_build_graph_store_lock(void);
 void analysis_build_graph_store_unlock(void);
 

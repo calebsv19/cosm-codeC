@@ -49,7 +49,8 @@ typedef struct {
 void library_index_reset(void);                 // Clear all buckets/headers/usages
 void library_index_begin(const char* project_root); // Set project root used for relative paths
 void library_index_finalize(void);              // Sort headers/usages after population
-// Synchronization helpers (call to guard reads during background analysis).
+// Synchronization helpers. Query pointers are borrowed and remain valid only
+// until this lock is released; consumers must copy/project before unlocking.
 void library_index_lock(void);
 void library_index_unlock(void);
 // Persistence (ide_files/library_index.json). Safe to call even if no data exists.

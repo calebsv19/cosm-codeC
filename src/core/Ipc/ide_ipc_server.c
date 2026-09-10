@@ -382,6 +382,13 @@ static char* handle_request_payload(const char* payload) {
         pthread_mutex_unlock(&g_server.lock);
         json_object* result = ide_ipc_build_memory_reports_result(j_args, project_root);
         out = ide_ipc_build_response_json(req_id, true, result, NULL);
+    } else if (strcmp(cmd, "analysis_state") == 0) {
+        pthread_mutex_lock(&g_server.lock);
+        char project_root[sizeof(g_server.project_root)];
+        str_copy(project_root, sizeof(project_root), g_server.project_root);
+        pthread_mutex_unlock(&g_server.lock);
+        json_object* result = ide_ipc_build_analysis_state_result(j_args, project_root);
+        out = ide_ipc_build_response_json(req_id, true, result, NULL);
     } else if (strcmp(cmd, "search") == 0) {
         pthread_mutex_lock(&g_server.lock);
         char project_root[sizeof(g_server.project_root)];

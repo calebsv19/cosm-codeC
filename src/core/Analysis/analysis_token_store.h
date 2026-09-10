@@ -17,6 +17,12 @@ typedef struct {
     uint64_t stamp;
 } AnalysisFileTokens;
 
+// Borrowed views returned by file_at remain valid only while this lock is held.
+// Writers and persistence use the same lock. Consumers should copy/project data
+// while locked, then release it before rendering, IPC transport, or other work.
+void analysis_token_store_lock(void);
+void analysis_token_store_unlock(void);
+
 void analysis_token_store_clear(void);
 
 void analysis_token_store_upsert(const char* filePath,

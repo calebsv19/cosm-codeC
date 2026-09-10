@@ -23,14 +23,15 @@ void analysis_store_upsert(const char* filePath,
                            size_t diagCount);
 void analysis_store_remove(const char* filePath);
 
-// Synchronization helpers (lock around multi-step reads in UI).
+// Synchronization helpers. file_at returns a borrowed view that remains valid
+// only while this lock is held. Copy/project it before unlocking.
 void analysis_store_lock(void);
 void analysis_store_unlock(void);
 
 // Count of files with diagnostics.
 size_t analysis_store_file_count(void);
 
-// Access a file entry by index (recency-ordered: 0 = newest). Returns NULL if out of range.
+// Access a borrowed file entry by index (recency-ordered: 0 = newest).
 const AnalysisFileDiagnostics* analysis_store_file_at(size_t idx);
 uint64_t analysis_store_combined_stamp(void);
 uint64_t analysis_store_published_stamp(void);

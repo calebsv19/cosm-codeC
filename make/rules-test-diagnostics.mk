@@ -34,6 +34,43 @@ test-analysis-units-store:
 	@$(TEST_BUILD_DIR)/analysis_units_store_test || (echo "analysis units store test failed."; exit 1)
 	@echo "Analysis units store test passed."
 
+.PHONY: test-analysis-provenance-store
+test-analysis-provenance-store:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling analysis provenance store test..."
+	@$(CC) $(CFLAGS) tests/analysis_provenance_store_test.c $(TEST_FIXTURE_UTILS_SRC) src/core/Analysis/analysis_provenance_store.c $(ANALYSIS_ARTIFACT_IO_SRC) -o $(TEST_BUILD_DIR)/analysis_provenance_store_test $(LIB_DIRS) -ljson-c -lpthread || (echo "analysis provenance store test compile failed."; exit 1)
+	@echo "Running analysis provenance store test..."
+	@$(TEST_BUILD_DIR)/analysis_provenance_store_test || (echo "analysis provenance store test failed."; exit 1)
+	@echo "Analysis provenance store test passed."
+
+.PHONY: test-analysis-copyout-concurrency
+test-analysis-copyout-concurrency:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling analysis copy-out concurrency test..."
+	@$(CC) $(CFLAGS) tests/analysis_copyout_concurrency_test.c src/core/Analysis/analysis_provenance_store.c src/core/Analysis/analysis_token_store.c $(ANALYSIS_ARTIFACT_IO_SRC) -o $(TEST_BUILD_DIR)/analysis_copyout_concurrency_test $(LIB_DIRS) -ljson-c -lpthread || (echo "analysis copy-out concurrency test compile failed."; exit 1)
+	@echo "Running analysis copy-out concurrency test..."
+	@$(TEST_BUILD_DIR)/analysis_copyout_concurrency_test || (echo "analysis copy-out concurrency test failed."; exit 1)
+	@echo "Analysis copy-out concurrency test passed."
+
+.PHONY: test-fisics-contract-compatibility
+test-fisics-contract-compatibility:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@echo "Compiling fisiCs contract compatibility test..."
+	@$(CC) $(CFLAGS) tests/fisics_contract_compatibility_test.c -o $(TEST_BUILD_DIR)/fisics_contract_compatibility_test $(LIB_DIRS) || (echo "fisiCs contract compatibility test compile failed."; exit 1)
+	@echo "Running fisiCs contract compatibility test..."
+	@$(TEST_BUILD_DIR)/fisics_contract_compatibility_test || (echo "fisiCs contract compatibility test failed."; exit 1)
+	@echo "fisiCs contract compatibility test passed."
+
+.PHONY: test-fisics-frontend-contract-integration
+test-fisics-frontend-contract-integration:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@test -f "$(FISICS_FRONTEND_ARCHIVE_SRC)" || (echo "real fisiCs frontend archive missing: $(FISICS_FRONTEND_ARCHIVE_SRC)"; exit 1)
+	@echo "Compiling real fisiCs frontend contract integration test..."
+	@$(HOST_CC) $(ARCH_FLAGS) $(CFLAGS) tests/fisics_frontend_contract_integration_test.c "$(FISICS_FRONTEND_ARCHIVE_SRC)" -o $(TEST_BUILD_DIR)/fisics_frontend_contract_integration_test $(LLVM_LDFLAGS) $(LLVM_LIBS) || (echo "real fisiCs frontend contract integration test compile failed."; exit 1)
+	@echo "Running real fisiCs frontend contract integration test..."
+	@$(TEST_BUILD_DIR)/fisics_frontend_contract_integration_test || (echo "real fisiCs frontend contract integration test failed."; exit 1)
+	@echo "Real fisiCs frontend contract integration test passed."
+
 .PHONY: test-analysis-cache-manifest
 test-analysis-cache-manifest:
 	@mkdir -p $(TEST_BUILD_DIR)
@@ -74,7 +111,7 @@ test-analysis-incremental-policy:
 test-analysis-token-store-persistence:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling analysis token store persistence test..."
-	@$(CC) $(CFLAGS) -DANALYSIS_TOKEN_STORE_PERSIST_LIMIT_BYTES=1024 tests/analysis_token_store_persistence_test.c $(TEST_FIXTURE_UTILS_SRC) src/core/Analysis/analysis_token_store.c $(ANALYSIS_ARTIFACT_IO_SRC) -o $(TEST_BUILD_DIR)/analysis_token_store_persistence_test $(LIB_DIRS) -ljson-c || (echo "analysis token store persistence test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) -DANALYSIS_TOKEN_STORE_PERSIST_LIMIT_BYTES=1024 tests/analysis_token_store_persistence_test.c $(TEST_FIXTURE_UTILS_SRC) src/core/Analysis/analysis_token_store.c $(ANALYSIS_ARTIFACT_IO_SRC) -o $(TEST_BUILD_DIR)/analysis_token_store_persistence_test $(LIB_DIRS) -ljson-c -lpthread || (echo "analysis token store persistence test compile failed."; exit 1)
 	@echo "Running analysis token store persistence test..."
 	@$(TEST_BUILD_DIR)/analysis_token_store_persistence_test || (echo "analysis token store persistence test failed."; exit 1)
 	@echo "Analysis token store persistence test passed."

@@ -15,6 +15,7 @@
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "core/Analysis/analysis_status.h"
+#include "core/Analysis/analysis_provenance_store.h"
 
 #include <SDL2/SDL.h>
 #include <string.h>
@@ -25,6 +26,7 @@ typedef struct {
 } FilterButtonSpec;
 
 static void control_panel_format_header_status(const AnalysisStatusSnapshot* snap,
+                                               const AnalysisProvenanceSummary* provenance,
                                                char* out,
                                                size_t out_cap) {
     if (!out || out_cap == 0) return;
@@ -38,6 +40,15 @@ static void control_panel_format_header_status(const AnalysisStatusSnapshot* sna
     if (snap->updating) {
         snprintf(out, out_cap, "Updating");
         return;
+    }
+    if (provenance && provenance->total_count > 0) {
+        switch (provenance->worst_state) {
+            case ANALYSIS_AUTHORITY_FATAL: snprintf(out, out_cap, "Fatal results"); return;
+            case ANALYSIS_AUTHORITY_DEGRADED: snprintf(out, out_cap, "Degraded"); return;
+            case ANALYSIS_AUTHORITY_PARTIAL: snprintf(out, out_cap, "Partial"); return;
+            case ANALYSIS_AUTHORITY_STALE: snprintf(out, out_cap, "Stale"); return;
+            case ANALYSIS_AUTHORITY_CURRENT: snprintf(out, out_cap, "Current"); return;
+        }
     }
     if (snap->status == ANALYSIS_STATUS_FRESH) {
         snprintf(out, out_cap, "Loaded");
@@ -82,6 +93,7 @@ static void control_panel_format_secondary_summary(const AnalysisStatusSnapshot*
 }
 
 static void control_panel_format_status_lines(const AnalysisStatusSnapshot* snap,
+                                              const AnalysisProvenanceSummary* provenance,
                                               int progress_completed,
                                               int progress_total,
                                               char* line1,
@@ -117,7 +129,18 @@ static void control_panel_format_status_lines(const AnalysisStatusSnapshot* snap
     } else {
         snprintf(line1, line1_cap, "Status: idle");
     }
-    control_panel_format_secondary_summary(snap, line2, line2_cap, true);
+    if (provenance && provenance->total_count > 0) {
+        snprintf(line2,
+                 line2_cap,
+                 "Authority: cur:%zu stale:%zu part:%zu deg:%zu fatal:%zu",
+                 provenance->current_count,
+                 provenance->stale_count,
+                 provenance->partial_count,
+                 provenance->degraded_count,
+                 provenance->fatal_count);
+    } else {
+        control_panel_format_secondary_summary(snap, line2, line2_cap, true);
+    }
 }
 
 static const char* control_panel_startup_intent_label(AnalysisStartupRefreshIntent intent) {
@@ -250,12 +273,14 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     // Panel title
     drawTextWithTier(x, tool_panel_info_line_y(pane, 0), pane->title, CORE_FONT_TEXT_SIZE_HEADER);
     AnalysisStatusSnapshot snap = {0};
+    AnalysisProvenanceSummary provenance = {0};
     int progressCompleted = 0;
     int progressTotal = 0;
     analysis_status_snapshot(&snap);
+    analysis_provenance_store_summary(&provenance);
     analysis_status_get_progress(&progressCompleted, &progressTotal);
     char headerStatus[64] = {0};
-    control_panel_format_header_status(&snap, headerStatus, sizeof(headerStatus));
+    control_panel_format_header_status(&snap, &provenance, headerStatus, sizeof(headerStatus));
     if (headerStatus[0]) {
         int tw = getTextWidth(headerStatus);
         int tx = pane->x + pane->w - tw - 16;
@@ -274,6 +299,7 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     char loadLine1[192] = {0};
     char loadLine2[256] = {0};
     control_panel_format_status_lines(&snap,
+                                      &provenance,
                                       progressCompleted,
                                       progressTotal,
                                       statusLine1,

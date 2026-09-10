@@ -34,6 +34,7 @@ typedef struct {
     uint64_t stamp;
 } AnalysisFileUnits;
 
+// file_at/find return borrowed views valid only while this lock is held.
 void analysis_units_store_lock(void);
 void analysis_units_store_unlock(void);
 

@@ -1,6 +1,6 @@
 # codeC Current Truth
 
-Last updated: 2026-08-09
+Last updated: 2026-08-25
 
 ## Program Identity
 - Repository/program directory: `ide`
@@ -30,7 +30,9 @@ Last updated: 2026-08-09
   - accepted-only persistence is active; `Apply` saves theme preset, font
     preset, and text-size step, while cancel/toggle-off restores the entry
     baseline without saving
-- Public release version is now `0.3.0`.
+- Repository source version is `0.4.0`; a current release-candidate or
+  installed-app claim still requires fresh package/sign/notarize/readback
+  evidence.
 - The Libraries tool panel now has a first dependency-view mode over the
   compiler include graph:
   - `Headers` keeps the existing bucketed header/index view
@@ -56,7 +58,7 @@ Last updated: 2026-08-09
   - `src/app`, `src/core`, `src/ide`, `src/engine`, `src/Parser`
 - Dependency lane:
   - vendored shared subtree under `third_party/codework_shared/`
-  - the default presentation path links vendored `vk_renderer 1.3.1` and
+  - the default presentation path links vendored `vk_renderer 1.3.2` and
     `vk_runtime 0.6.0`; renderer instance/device/queue ownership aliases the
     runtime lifecycle instead of creating a second Vulkan owner
   - this adoption is presentation-only: IDE source does not call the runtime
@@ -108,6 +110,15 @@ Last updated: 2026-08-09
   - runtime memory-check sidecar summaries persist from
     `memory_check_report_v1` artifacts and can be published through the
     `memory_reports` IPC response
+  - analysis-store borrowed views now have one documented lifetime rule:
+    diagnostics, symbols, tokens, units, include/library data, build graphs,
+    and memory reports are copied into owned IPC/UI projections while the
+    owning lock is held; token reads/writes/persistence are synchronized and
+    provenance exposes a coherent bulk records/summary/stamp copy-out
+  - stable headless coverage links the real frontend archive to prove the
+    current contract lanes and partial/fatal behavior, and separately exercises
+    supported major-1 capability evolution plus concurrent copy-out behavior;
+    all fixture artifacts remain test-only
   - mutating IPC edit requests require the session auth token, peer UID checks
     where supported, workspace-confined existing file paths, bounded unified
     diff resources, and hash verification by default; explicit
@@ -171,6 +182,8 @@ Last updated: 2026-08-09
   - `make -C ide clean && make -C ide`
   - `make -C ide run-headless-smoke`:
     aggregate non-interactive smoke coverage
+    - includes the real frontend contract integration, major-1 compatibility,
+      and analysis copy-out concurrency fixtures
   - `make -C ide visual-harness`:
     build-only readiness; does not execute the interactive editor shell
   - `make -C ide visual-artifact`:
@@ -227,6 +240,17 @@ Last updated: 2026-08-09
   memory-check reports are available as IDE-owned stores and IPC query
   surfaces. The next bridge-related work should be planned as UI/presentation
   slices that consume these stores, not as more compiler ABI work.
+- The IDE retains a per-file analysis provenance/authority envelope from the
+  frontend's producer/contract identity, source hash/length, capabilities, and
+  partial/fatal status. The IDE-owned store persists generation, source/cache
+  match, effective capabilities, and degraded reason; cached records restore
+  as stale until fresh analysis proves source identity. `analysis_state` IPC
+  and the Control panel expose `current`, `stale`, `partial`, `degraded`, and
+  `fatal` state. This completed IDEPRO-S1 without changing the frontend ABI.
+- Declaration/symbol units are current contract behavior. Expression units,
+  semantic reference edges, and compact type facts remain future additive,
+  capability-gated compiler surfaces; exporting internal compiler AST/IR is
+  not the intended boundary.
 - The dependency graph is a first visual bridge over include edges only. It
   uses `kit_graph_struct` for wide-layout/hit math and app-local compact
   sidepane layout for narrow widths; compact layout uses stable content-space

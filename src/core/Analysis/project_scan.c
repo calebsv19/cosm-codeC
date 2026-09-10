@@ -13,6 +13,7 @@
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
 #include "core/Analysis/analysis_units_store.h"
+#include "core/Analysis/analysis_provenance_store.h"
 #include "core/Analysis/analysis_status.h"
 #include "core/Analysis/include_graph.h"
 #include "core/Analysis/include_path_resolver.h"
@@ -360,6 +361,13 @@ static void analyze_buffer_with_active_flags(const char* file_path,
     const FisicsUnitsAttachment* units = units_enabled ? res.units_attachments : NULL;
     size_t units_count = units_enabled ? res.units_attachment_count : 0u;
 
+    analysis_provenance_store_upsert(file_path,
+                                     buf,
+                                     len,
+                                     &res.contract,
+                                     fisics_contract_effective_capabilities(&res),
+                                     degraded_contract,
+                                     contract_warning);
     analysis_store_upsert(file_path, res.diagnostics, res.diag_count);
     analysis_symbols_store_upsert(file_path, symbols, symbol_count);
     analysis_token_store_upsert(file_path, tokens, token_count);
@@ -472,6 +480,7 @@ void analysis_scan_workspace(const char* root) {
     if (!root || !*root) return;
     analysis_store_clear();
     analysis_units_store_clear();
+    analysis_provenance_store_clear();
     g_contract_warning_emitted = false;
     g_symbol_capability_warning_emitted = false;
     g_token_capability_warning_emitted = false;
@@ -491,12 +500,14 @@ void analysis_scan_workspace(const char* root) {
     analysis_symbols_store_save(root);
     analysis_token_store_save(root);
     analysis_units_store_save(root);
+    analysis_provenance_store_save(root);
 }
 
 void analysis_scan_workspace_with_flags(const char* root, const BuildFlagSet* flags, bool update_engine) {
     if (!root || !*root || !flags) return;
     analysis_store_clear();
     analysis_units_store_clear();
+    analysis_provenance_store_clear();
     include_graph_clear();
     g_contract_warning_emitted = false;
     g_symbol_capability_warning_emitted = false;
@@ -519,6 +530,7 @@ void analysis_scan_workspace_with_flags(const char* root, const BuildFlagSet* fl
     analysis_symbols_store_save(root);
     analysis_token_store_save(root);
     analysis_units_store_save(root);
+    analysis_provenance_store_save(root);
     include_graph_save(root);
 }
 
@@ -551,6 +563,7 @@ void analysis_scan_files_with_flags(const char* root,
             analysis_symbols_store_remove(path);
             analysis_token_store_remove(path);
             analysis_units_store_remove(path);
+            analysis_provenance_store_remove(path);
             include_graph_remove_source(path);
             library_index_remove_source(path);
             continue;
@@ -570,6 +583,7 @@ void analysis_scan_files_with_flags(const char* root,
         analysis_symbols_store_save(root);
         analysis_token_store_save(root);
         analysis_units_store_save(root);
+        analysis_provenance_store_save(root);
         include_graph_save(root);
         library_index_save(root);
     }
@@ -607,6 +621,7 @@ void analysis_scan_buffer_with_flags(const char* root,
         analysis_symbols_store_save(root);
         analysis_token_store_save(root);
         analysis_units_store_save(root);
+        analysis_provenance_store_save(root);
         include_graph_save(root);
         library_index_save(root);
     }

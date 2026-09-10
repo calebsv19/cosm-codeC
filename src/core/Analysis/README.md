@@ -33,6 +33,32 @@ Artifacts are persisted under `<workspace>/ide_files/`. On startup the IDE
 loads whatever still matches the current workspace/build fingerprint, then
 schedules a fresh analysis pass to reconcile the cache with disk.
 
+## Store read and artifact lifetime contract
+
+Analysis stores use one uniform consumer rule:
+
+1. A `*_file_at`, `*_snapshot_at`, `*_get_*`, `*_find_*`, or include-graph
+   entry is a borrowed view. It may be dereferenced only while the owning
+   store's lock is held.
+2. IPC and UI code must convert borrowed views into caller-owned JSON, tree,
+   row, marker, or other copy-out records before releasing the lock. Rendering,
+   transport, and deferred callbacks use only that owned projection.
+3. A store that exposes fixed-size value records may instead provide an
+   explicit bulk copy API. `analysis_provenance_store_copy_snapshot` returns
+   records, summary, and stamp from one lock acquisition; its records are freed
+   by `analysis_provenance_store_free_snapshot`.
+4. Writers and persistence paths take the same store lock. Token spans follow
+   this rule as of IDEPRO-S2; they are no longer an unlocked exception.
+5. Locks protect one store's lifetime. They do not claim a cross-store atomic
+   transaction. Main-thread result apply remains the publication boundary, and
+   provenance identifies authority when adjacent lanes are observed across a
+   refresh.
+
+The deliberate copy-out pattern keeps store locks short-lived at the consumer
+boundary without adding a second persisted cache or retaining whole frontend
+results. Test fixtures are compiled only under `build/.../tests`; their source
+and generated payloads are not part of the app source list or package resources.
+
 Contract boundary note:
 
 - The IDE consumes `fisiCs` analysis data through a versioned contract lane (`fisiCs.analysis.contract`).

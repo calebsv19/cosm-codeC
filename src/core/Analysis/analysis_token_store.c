@@ -2,6 +2,7 @@
 
 #include <json-c/json.h>
 #include <stdbool.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,15 @@ static AnalysisFileTokens* g_files = NULL;
 static size_t g_file_count = 0;
 static size_t g_file_cap = 0;
 static uint64_t g_stamp_counter = 0;
+static pthread_mutex_t g_token_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void analysis_token_store_lock(void) {
+    pthread_mutex_lock(&g_token_mutex);
+}
+
+void analysis_token_store_unlock(void) {
+    pthread_mutex_unlock(&g_token_mutex);
+}
 
 static void free_token_entry(AnalysisFileTokens* f) {
     if (!f) return;
@@ -25,6 +35,7 @@ static void free_token_entry(AnalysisFileTokens* f) {
 }
 
 void analysis_token_store_clear(void) {
+    analysis_token_store_lock();
     for (size_t i = 0; i < g_file_count; ++i) {
         free_token_entry(&g_files[i]);
     }
@@ -33,6 +44,7 @@ void analysis_token_store_clear(void) {
     g_file_count = 0;
     g_file_cap = 0;
     g_stamp_counter = 0;
+    analysis_token_store_unlock();
 }
 
 static char* dup_str(const char* s) {
@@ -48,6 +60,7 @@ void analysis_token_store_upsert(const char* filePath,
                                  const FisicsTokenSpan* spans,
                                  size_t spanCount) {
     if (!filePath) return;
+    analysis_token_store_lock();
 
     size_t existing = (size_t)-1;
     for (size_t i = 0; i < g_file_count; ++i) {
@@ -67,7 +80,10 @@ void analysis_token_store_upsert(const char* filePath,
     if (g_file_count >= g_file_cap) {
         size_t newCap = g_file_cap ? g_file_cap * 2 : 8;
         AnalysisFileTokens* tmp = realloc(g_files, newCap * sizeof(AnalysisFileTokens));
-        if (!tmp) return;
+        if (!tmp) {
+            analysis_token_store_unlock();
+            return;
+        }
         g_files = tmp;
         g_file_cap = newCap;
     }
@@ -81,6 +97,7 @@ void analysis_token_store_upsert(const char* filePath,
         entry.spans = (FisicsTokenSpan*)malloc(spanCount * sizeof(FisicsTokenSpan));
         if (!entry.spans) {
             free(entry.path);
+            analysis_token_store_unlock();
             return;
         }
         memcpy(entry.spans, spans, spanCount * sizeof(FisicsTokenSpan));
@@ -91,10 +108,12 @@ void analysis_token_store_upsert(const char* filePath,
     }
     g_files[0] = entry;
     g_file_count++;
+    analysis_token_store_unlock();
 }
 
 void analysis_token_store_remove(const char* filePath) {
     if (!filePath) return;
+    analysis_token_store_lock();
     size_t existing = (size_t)-1;
     for (size_t i = 0; i < g_file_count; ++i) {
         if (g_files[i].path && strcmp(g_files[i].path, filePath) == 0) {
@@ -102,15 +121,20 @@ void analysis_token_store_remove(const char* filePath) {
             break;
         }
     }
-    if (existing == (size_t)-1) return;
+    if (existing == (size_t)-1) {
+        analysis_token_store_unlock();
+        return;
+    }
     free_token_entry(&g_files[existing]);
     for (size_t j = existing + 1; j < g_file_count; ++j) {
         g_files[j - 1] = g_files[j];
     }
     g_file_count--;
+    analysis_token_store_unlock();
 }
 
 size_t analysis_token_store_file_count(void) {
+    // Caller must hold analysis_token_store_lock for a coherent multi-step read.
     return g_file_count;
 }
 
@@ -129,6 +153,7 @@ void analysis_token_store_save(const char* workspaceRoot) {
 
     FILE* out = fopen(tmpPath, "w");
     if (!out) return;
+    analysis_token_store_lock();
     size_t written = 0;
     bool ok = true;
 #define WRITE_LIMITED_LITERAL(lit) \
@@ -190,6 +215,7 @@ void analysis_token_store_save(const char* workspaceRoot) {
     if (fclose(out) != 0) {
         ok = false;
     }
+    analysis_token_store_unlock();
 
     if (!ok) {
         unlink(tmpPath);

@@ -14,6 +14,7 @@ typedef struct {
 
 void include_graph_clear(void);
 void include_graph_remove_source(const char* source_path);
+// entry_at returns a borrowed view valid only while this lock is held.
 void include_graph_lock(void);
 void include_graph_unlock(void);
 

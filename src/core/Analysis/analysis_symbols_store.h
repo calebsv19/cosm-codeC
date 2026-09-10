@@ -14,6 +14,7 @@ typedef struct {
 } AnalysisFileSymbols;
 
 // Guards symbol-store read/write access across render/main and analysis threads.
+// file_at returns a borrowed view valid only until this lock is released.
 void analysis_symbols_store_lock(void);
 void analysis_symbols_store_unlock(void);
 

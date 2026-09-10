@@ -20,7 +20,7 @@ setup helpers.
 | `idebridge_phase3_check.c` | Runtime check for phase-3 IPC commands: includes graph payload, structured search results, and build success/failure result contracts. |
 | `idebridge_phase4_check.c` | Runtime check for phase-4 patch apply contract: success apply payload shape, hash-mismatch rejection, explicit single-file `--no_hash_check` acceptance with `hash_policy`, malformed diff policy rejection, and unchecked multi-file policy rejection. |
 | `idebridge_phase5_check.c` | Runtime check for phase-5 UX/scale behavior: `--socket` override routing, invalid-socket exit taxonomy, `--spill_file` JSON output, and `XDG_CACHE_HOME` socket-root compatibility. |
-| `idebridge_phase6_check.c` | Integration regression check for request routing across critical commands (`ping`, `diag`, `symbols`, `includes`, `search`, `build`, `open`, `edit`) plus malformed JSON and unknown command failure contracts. |
+| `idebridge_phase6_check.c` | Integration regression check for request routing across critical commands (`ping`, `diag`, `symbols`, `analysis_state`, `includes`, `search`, `build`, `open`, `edit`) plus malformed JSON and unknown command failure contracts. |
 | `idebridge_diag_pack_export_check.c` | Runtime check for `core_pack` diagnostics snapshot export contract (`IDHD` summary chunk + `IDJS` payload chunk) used by `idebridge diag-pack`. |
 | `idebridge_diag_core_data_export_check.c` | Runtime check for `core_data` diagnostics snapshot contract (`ide_diagnostics_summary_v1`, `ide_diagnostics_rows_v1`) used by `idebridge diag-dataset`. |
 | `idebridge_error_format_test.c` | R3 check for stable non-JSON idebridge error lines with `stage`, `code`, `message`, and optional `detail` fields. |
@@ -46,6 +46,10 @@ setup helpers.
 | `mainthread_context_scope_regression_test.c` | Phase 5.4 regression check that debug non-owner scope helpers allow sanctioned non-owner guarded paths without violating owner-thread assertions. |
 | `loop_diag_config_regression_test.c` | Phase 5.4 regression check for structured loop diagnostics env parsing contract (`IDE_LOOP_DIAG_FORMAT`, `IDE_LOOP_DIAG_JSON`, `IDE_EVENT_DIAG_LOG`, and wait override bounds). |
 | `diagnostics_artifact_io_test.c` | R3 diagnostics artifact IO check for save/load status reports, first-run missing file handling, invalid JSON/root shape, malformed rows, and oversized artifacts. |
+| `analysis_provenance_store_test.c` | IDEPRO-S1 authority-envelope check covering current, stale, partial, degraded, and fatal classification, generation/removal behavior, source identity, persistence, and cache restore as stale. |
+| `analysis_copyout_concurrency_test.c` | IDEPRO-S2 concurrent token writer/guarded-reader exercise plus proof that a bulk provenance snapshot remains immutable after its source store is cleared. |
+| `fisics_contract_compatibility_test.c` | IDEPRO-S2 synthetic compatibility matrix for inferred 1.0/1.2/1.3 capabilities, explicit 1.4+ flags, current units lanes, and unsupported-major degradation. |
+| `fisics_frontend_contract_integration_test.c` | IDEPRO-S2 test-only integration against the real frontend archive, covering diagnostics, symbols, tokens, resolved/unresolved includes, parent stable IDs, units attachments/capabilities, and partial/fatal state. |
 | `errors_filter_test.c` | Errors panel query matching check across message, file, hint, category, code, and stage fields. |
 | `errors_units_detail_test.c` | Errors panel units-detail check for diagnostic context dimension rows and optional symbol unit attachments. |
 | `errors_context_detail_test.c` | Errors panel context-detail check for include stack, macro trace, detail rows, and navigation targets from diagnostic context JSON. |

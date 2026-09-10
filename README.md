@@ -38,7 +38,7 @@ developed as part of a broader ecosystem for simulation, compiler development, a
 
 - **Shared Vulkan presentation backend**
   SDL window/input and SDL_ttf text preparation feed the vendored
-  `vk_renderer 1.3.1` presentation layer. The renderer owns its Vulkan
+  `vk_renderer 1.3.2` presentation layer. The renderer owns its Vulkan
   lifecycle through `vk_runtime 0.6.0`; IDE pane/editor meaning remains
   app-owned. This is presentation adoption only—the IDE does not use the
   runtime compute APIs.
@@ -149,9 +149,13 @@ Startup workspace precedence is:
 If the stored workspace is unavailable, codeC warns and falls back to the next
 valid default workspace root instead of reusing the broken path.
 
-Current release version:
+Current repository source version:
 
-- `0.3.0`
+- `0.4.0`
+
+This source version is not, by itself, proof of a current signed/notarized
+release artifact or installed application. Use the release verification lane
+for that readback.
 
 ### Shared Subtree Update Workflow
 

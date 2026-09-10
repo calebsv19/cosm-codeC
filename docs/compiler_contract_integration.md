@@ -107,6 +107,78 @@ matching symbols. This is a consumer publication surface for unit/dimension
 inspectors; expression-side units metadata remains outside the current public
 contract.
 
+## Analysis Authority And Provenance Boundary
+
+The frontend contract already emits producer name/version, contract version,
+source hash/length, capability flags, and `partial` / `fatal` result state.
+The IDE now retains that per-file envelope in the IDE-owned
+`analysis_provenance` store alongside the existing diagnostics, symbols,
+tokens, units, and graph stores. Each record carries the advertised and
+effective capabilities, compatibility/degraded reason, analysis generation,
+source-match result, and whether it was restored from cache.
+
+Authority state is classified as `current`, `stale`, `partial`, `degraded`, or
+`fatal`. A persisted record is deliberately restored as `stale` until a fresh
+analysis result proves that its source hash and length match the analyzed
+buffer. Full and incremental scans update or remove records with their other
+analysis payloads, while live-buffer analysis publishes the same envelope.
+
+The read-only IPC command `analysis_state` returns a workspace summary and
+copied per-file records, with an optional `args.file` filter. The Control panel
+shows the worst current authority state and per-state counts, so row presence
+is no longer presented as proof that cached compiler facts are authoritative.
+The persisted artifact is `ide_files/analysis_provenance.json` with schema
+`ide.analysis_provenance` version 1.
+
+This is an IDE storage/publication refinement over fields that already exist;
+it did not require a compiler ABI change.
+
+## Snapshot And Concurrency Boundary
+
+IDEPRO-S2 makes the analysis-store lifetime rule explicit and uniform. Store
+index/get/find functions expose borrowed views only while the owning store lock
+is held. IPC and UI consumers copy those views into owned JSON, tree, row,
+marker, or other projection records before releasing the lock; rendering and
+transport never retain store pointers. Compiler diagnostics IPC now projects
+directly from the guarded analysis store instead of traversing the mutable
+legacy diagnostics singleton. The token store now applies the same lock to
+writes, multi-step reads, and persistence, closing the one previously unlocked
+compiler lane.
+
+Provenance uses a bulk copy-out API so records, summary counts, and the store
+stamp come from one lock acquisition. This is per-store snapshot consistency,
+not a new cross-store transaction or cache layer: main-thread apply remains the
+publication boundary and provenance remains the authority signal across a
+refresh.
+
+Contract proof is part of the stable headless gate:
+
+- a test-only executable links the real `libfisics_frontend` archive and proves
+  diagnostics, symbols, tokens, resolved and unresolved includes, parent stable
+  IDs, units attachments/capabilities, and valid versus partial/fatal state;
+- a synthetic compatibility matrix proves inferred capabilities for contract
+  1.0, 1.2, and 1.3, explicit flags from 1.4 onward, current units capabilities,
+  and safe degradation for an unsupported major;
+- a concurrent writer/reader test proves guarded token views and immutable
+  provenance copy-out after source-store mutation.
+
+These fixtures compile only under `build/.../tests`. They are absent from the
+application source list and package resources, and no frontend ABI changed.
+
+## Planned Semantic Growth Boundary
+
+Future compiler growth should be capability-gated and consumer-oriented:
+
+1. expression units facts bound to stable file spans and optional owning
+   symbol identity;
+2. reference edges for read, write, call, type-use, definition, and macro-use
+   relationships;
+3. compact canonical type facts for symbol and expression inspection.
+
+The compiler's internal AST/IR is not a planned IDE contract. Include edges
+remain the current compiler dependency graph, while `fisiCs.build_graph`
+remains a separate sidecar for translation units and planned build actions.
+
 ## Sidecar Artifact Publication Lanes
 
 Some bridge data is intentionally outside `fisiCs.analysis.contract` and is

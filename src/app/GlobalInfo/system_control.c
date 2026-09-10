@@ -33,6 +33,7 @@
 #include "core/Analysis/analysis_store.h"
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
+#include "core/Analysis/analysis_provenance_store.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/analysis_cache.h"
 #include "core/Analysis/analysis_cache_manifest.h"
@@ -465,6 +466,7 @@ bool initializeSystem(const char* argv0) {
     if (!loadedTokens) {
         analysis_token_store_load(projectPath);
     }
+    analysis_provenance_store_load(projectPath);
     if (analysis_cache_load_library(projectPath, buildArgs)) {
         loadedCache = true;
     }
@@ -556,6 +558,7 @@ void shutdownSystem(UIPane** panes, int paneCount) {
         analysis_store_save(projectPath);
         analysis_symbols_store_save(projectPath);
         analysis_token_store_save(projectPath);
+        analysis_provenance_store_save(projectPath);
         library_index_save(projectPath);
         BuildFlagSet tmpFlags = {0};
         gather_build_flags(projectPath, buildArgs, &tmpFlags);

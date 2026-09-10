@@ -2,6 +2,8 @@
 
 #include "core/Analysis/analysis_build_graph_store.h"
 #include "core/Analysis/analysis_memory_report_store.h"
+#include "core/Analysis/analysis_provenance_store.h"
+#include "core/Analysis/analysis_store.h"
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
 #include "core/Analysis/analysis_units_store.h"
@@ -50,6 +52,99 @@ static const char* token_kind_name(FisicsTokenKind kind) {
         case FISICS_TOK_WHITESPACE: return "whitespace";
         default: return "unknown";
     }
+}
+
+static const char* normalize_or_project_path(const char* input,
+                                             const char* project_root,
+                                             char* out,
+                                             size_t out_cap);
+
+static json_object* provenance_record_to_json(const AnalysisProvenanceRecord* record) {
+    if (!record) return NULL;
+    json_object* obj = json_object_new_object();
+    char source_hash[19];
+    char advertised_capabilities[19];
+    char effective_capabilities[19];
+    snprintf(source_hash, sizeof(source_hash), "0x%016llx",
+             (unsigned long long)record->source_hash);
+    snprintf(advertised_capabilities, sizeof(advertised_capabilities), "0x%016llx",
+             (unsigned long long)record->advertised_capabilities);
+    snprintf(effective_capabilities, sizeof(effective_capabilities), "0x%016llx",
+             (unsigned long long)record->effective_capabilities);
+    json_object_object_add(obj, "file", json_object_new_string(record->file_path));
+    json_object_object_add(obj, "state", json_object_new_string(analysis_authority_state_name(record->state)));
+    json_object_object_add(obj, "reason", json_object_new_string(analysis_provenance_state_reason(record)));
+    json_object_object_add(obj, "contract_id", json_object_new_string(record->contract_id));
+    json_object_object_add(obj, "contract_major", json_object_new_int(record->contract_major));
+    json_object_object_add(obj, "contract_minor", json_object_new_int(record->contract_minor));
+    json_object_object_add(obj, "contract_patch", json_object_new_int(record->contract_patch));
+    json_object_object_add(obj, "producer_name", json_object_new_string(record->producer_name));
+    json_object_object_add(obj, "producer_version", json_object_new_string(record->producer_version));
+    json_object_object_add(obj, "mode", json_object_new_string(record->mode == FISICS_ANALYSIS_MODE_STRICT
+                                                                 ? "strict" : "lenient"));
+    json_object_object_add(obj, "partial", json_object_new_boolean(record->partial));
+    json_object_object_add(obj, "fatal", json_object_new_boolean(record->fatal));
+    json_object_object_add(obj, "degraded", json_object_new_boolean(record->degraded));
+    json_object_object_add(obj, "degraded_reason", json_object_new_string(record->degraded_reason));
+    json_object_object_add(obj, "source_hash", json_object_new_string(source_hash));
+    json_object_object_add(obj, "source_length", json_object_new_int64((long long)record->source_length));
+    json_object_object_add(obj, "source_match", json_object_new_boolean(record->source_match));
+    json_object_object_add(obj, "loaded_from_cache", json_object_new_boolean(record->loaded_from_cache));
+    json_object_object_add(obj, "advertised_capabilities", json_object_new_string(advertised_capabilities));
+    json_object_object_add(obj, "effective_capabilities", json_object_new_string(effective_capabilities));
+    json_object_object_add(obj, "capability_flags_present", json_object_new_boolean(record->capability_flags_present));
+    json_object_object_add(obj, "generation", json_object_new_int64((long long)record->generation));
+    json_object_object_add(obj, "observed_at_unix_ms", json_object_new_int64((long long)record->observed_at_unix_ms));
+    json_object_object_add(obj, "stamp", json_object_new_int64((long long)record->stamp));
+    return obj;
+}
+
+json_object* ide_ipc_build_analysis_state_result(json_object* args, const char* project_root) {
+    char file_filter[ANALYSIS_PROVENANCE_PATH_CAP] = {0};
+    if (args) {
+        json_object* jfile = NULL;
+        if (json_object_object_get_ex(args, "file", &jfile) &&
+            jfile && json_object_is_type(jfile, json_type_string)) {
+            normalize_or_project_path(json_object_get_string(jfile),
+                                      project_root,
+                                      file_filter,
+                                      sizeof(file_filter));
+        }
+    }
+
+    AnalysisProvenanceRecord* snapshot = NULL;
+    size_t snapshot_count = 0;
+    AnalysisProvenanceSummary summary = {0};
+    uint64_t snapshot_stamp = 0;
+    (void)analysis_provenance_store_copy_snapshot(&snapshot,
+                                                  &snapshot_count,
+                                                  &summary,
+                                                  &snapshot_stamp);
+    json_object* result = json_object_new_object();
+    json_object* summary_obj = json_object_new_object();
+    json_object_object_add(summary_obj, "total", json_object_new_int64((long long)summary.total_count));
+    json_object_object_add(summary_obj, "current", json_object_new_int64((long long)summary.current_count));
+    json_object_object_add(summary_obj, "stale", json_object_new_int64((long long)summary.stale_count));
+    json_object_object_add(summary_obj, "partial", json_object_new_int64((long long)summary.partial_count));
+    json_object_object_add(summary_obj, "degraded", json_object_new_int64((long long)summary.degraded_count));
+    json_object_object_add(summary_obj, "fatal", json_object_new_int64((long long)summary.fatal_count));
+    json_object_object_add(summary_obj, "worst_state",
+                           json_object_new_string(analysis_authority_state_name(summary.worst_state)));
+    json_object_object_add(result, "summary", summary_obj);
+
+    json_object* records = json_object_new_array();
+    for (size_t i = 0; i < snapshot_count; ++i) {
+        const AnalysisProvenanceRecord* record = &snapshot[i];
+        if (file_filter[0] && strcmp(record->file_path, file_filter) != 0) continue;
+        json_object_array_add(records, provenance_record_to_json(record));
+    }
+    analysis_provenance_store_free_snapshot(snapshot);
+    json_object_object_add(result, "records", records);
+    json_object_object_add(result, "returned_count",
+                           json_object_new_int64((long long)json_object_array_length(records)));
+    json_object_object_add(result, "store_stamp",
+                           json_object_new_int64((long long)snapshot_stamp));
+    return result;
 }
 
 static void symbol_stable_id_hex(uint64_t value, char out[19]) {
@@ -248,48 +343,55 @@ json_object* ide_ipc_build_diag_result(json_object* args, const char* project_ro
         returned++;
     }
 
-    int diag_count = getDiagnosticCount();
-    for (int i = 0; i < diag_count; ++i) {
-        const Diagnostic* dg = getDiagnosticAt(i);
-        if (!dg) continue;
-        total++;
-        if (dg->severity == DIAG_SEVERITY_ERROR) err++;
-        else if (dg->severity == DIAG_SEVERITY_WARNING) warn++;
-        else info++;
+    // The analysis store is the authoritative compiler-diagnostic source. Build
+    // a caller-owned JSON projection while its borrowed views are guarded.
+    analysis_store_lock();
+    size_t analysis_file_count = analysis_store_file_count();
+    for (size_t fi = 0; fi < analysis_file_count; ++fi) {
+        const AnalysisFileDiagnostics* file = analysis_store_file_at(fi);
+        if (!file) continue;
+        for (int i = 0; i < file->count; ++i) {
+            const Diagnostic* dg = &file->diags[i];
+            total++;
+            if (dg->severity == DIAG_SEVERITY_ERROR) err++;
+            else if (dg->severity == DIAG_SEVERITY_WARNING) warn++;
+            else info++;
 
-        if (max_items >= 0 && returned >= max_items) continue;
-        DiagTaxonomySeverity sev = DIAG_TAXONOMY_INFO;
-        if (dg->severity == DIAG_SEVERITY_ERROR) sev = DIAG_TAXONOMY_ERROR;
-        else if (dg->severity == DIAG_SEVERITY_WARNING) sev = DIAG_TAXONOMY_WARNING;
-        json_object* d = json_object_new_object();
-        json_object_object_add(d, "file", json_object_new_string(dg->filePath ? dg->filePath : ""));
-        json_object_object_add(d, "line", json_object_new_int(dg->line));
-        json_object_object_add(d, "col", json_object_new_int(dg->column));
-        json_object_object_add(d, "endLine", json_object_new_int(dg->line));
-        int length = dg->length > 0 ? dg->length : 1;
-        json_object_object_add(d, "endCol", json_object_new_int(dg->column + length));
-        json_object_object_add(d, "length", json_object_new_int(length));
-        json_object_object_add(d, "message", json_object_new_string(dg->message ? dg->message : ""));
-        if (dg->hint && dg->hint[0]) {
-            json_object_object_add(d, "hint", json_object_new_string(dg->hint));
+            if (max_items >= 0 && returned >= max_items) continue;
+            DiagTaxonomySeverity sev = DIAG_TAXONOMY_INFO;
+            if (dg->severity == DIAG_SEVERITY_ERROR) sev = DIAG_TAXONOMY_ERROR;
+            else if (dg->severity == DIAG_SEVERITY_WARNING) sev = DIAG_TAXONOMY_WARNING;
+            json_object* d = json_object_new_object();
+            json_object_object_add(d, "file", json_object_new_string(dg->filePath ? dg->filePath : ""));
+            json_object_object_add(d, "line", json_object_new_int(dg->line));
+            json_object_object_add(d, "col", json_object_new_int(dg->column));
+            json_object_object_add(d, "endLine", json_object_new_int(dg->line));
+            int length = dg->length > 0 ? dg->length : 1;
+            json_object_object_add(d, "endCol", json_object_new_int(dg->column + length));
+            json_object_object_add(d, "length", json_object_new_int(length));
+            json_object_object_add(d, "message", json_object_new_string(dg->message ? dg->message : ""));
+            if (dg->hint && dg->hint[0]) {
+                json_object_object_add(d, "hint", json_object_new_string(dg->hint));
+            }
+            char code_text[32];
+            snprintf(code_text, sizeof(code_text), "%d", dg->codeId);
+            add_diag_taxonomy_fields(d,
+                                     sev,
+                                     diagnostic_category_name(dg->category),
+                                     dg->codeId ? code_text : "",
+                                     dg->codeId,
+                                     dg->codeName ? dg->codeName : diagnostic_code_name(dg->codeId),
+                                     dg->stage ? dg->stage : diagnostic_stage_name(dg->codeId));
+            add_diag_explanation_field(d,
+                                       dg->codeId,
+                                       dg->codeName ? dg->codeName : diagnostic_code_name(dg->codeId));
+            add_diag_context_fields(d, dg);
+            json_object_object_add(d, "source", json_object_new_string("analysis"));
+            json_object_array_add(arr, d);
+            returned++;
         }
-        char code_text[32];
-        snprintf(code_text, sizeof(code_text), "%d", dg->codeId);
-        add_diag_taxonomy_fields(d,
-                                 sev,
-                                 diagnostic_category_name(dg->category),
-                                 dg->codeId ? code_text : "",
-                                 dg->codeId,
-                                 dg->codeName ? dg->codeName : diagnostic_code_name(dg->codeId),
-                                 dg->stage ? dg->stage : diagnostic_stage_name(dg->codeId));
-        add_diag_explanation_field(d,
-                                   dg->codeId,
-                                   dg->codeName ? dg->codeName : diagnostic_code_name(dg->codeId));
-        add_diag_context_fields(d, dg);
-        json_object_object_add(d, "source", json_object_new_string("analysis"));
-        json_object_array_add(arr, d);
-        returned++;
     }
+    analysis_store_unlock();
 
     json_object_object_add(summary, "total", json_object_new_int(total));
     json_object_object_add(summary, "error", json_object_new_int(err));
@@ -425,6 +527,7 @@ json_object* ide_ipc_build_token_result(json_object* args, const char* project_r
 
     int total = 0;
     int returned = 0;
+    analysis_token_store_lock();
     size_t file_count = analysis_token_store_file_count();
     for (size_t fi = 0; fi < file_count; ++fi) {
         const AnalysisFileTokens* file_entry = analysis_token_store_file_at(fi);
@@ -447,6 +550,7 @@ json_object* ide_ipc_build_token_result(json_object* args, const char* project_r
             returned++;
         }
     }
+    analysis_token_store_unlock();
 
     json_object_object_add(result, "tokens", arr);
     json_object_object_add(result, "total_count", json_object_new_int(total));
