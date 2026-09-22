@@ -147,7 +147,7 @@ test-analysis-refresh-view:
 test-diagnostic-explanations-cache:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling diagnostic explanations cache test..."
-	@$(CC) $(CFLAGS) tests/diagnostic_explanations_cache_test.c src/core/Diagnostics/diagnostic_explanations.c ../fisiCs/src/Compiler/diagnostic_metadata.c -o $(TEST_BUILD_DIR)/diagnostic_explanations_cache_test $(LIB_DIRS) -ljson-c || (echo "diagnostic explanations cache test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/diagnostic_explanations_cache_test.c src/core/Diagnostics/diagnostic_explanations.c $(FISICS_DIR)/src/Compiler/diagnostic_metadata.c -o $(TEST_BUILD_DIR)/diagnostic_explanations_cache_test $(LIB_DIRS) -ljson-c || (echo "diagnostic explanations cache test compile failed."; exit 1)
 	@echo "Running diagnostic explanations cache test..."
 	@$(TEST_BUILD_DIR)/diagnostic_explanations_cache_test || (echo "diagnostic explanations cache test failed."; exit 1)
 	@echo "Diagnostic explanations cache test passed."
@@ -192,7 +192,7 @@ test-errors-context-detail:
 test-errors-diagnostic-detail:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling Errors panel diagnostic detail test..."
-	@$(CC) $(CFLAGS) tests/errors_diagnostic_detail_test.c src/ide/Panes/ToolPanels/Errors/errors_diagnostic_detail.c src/ide/Panes/ToolPanels/Errors/errors_context_detail.c src/ide/Panes/ToolPanels/Errors/errors_units_detail.c src/core/Diagnostics/diagnostic_context.c src/core/Diagnostics/diagnostic_explanations.c src/core/Diagnostics/diagnostics_engine.c src/core/Analysis/analysis_units_store.c $(ANALYSIS_ARTIFACT_IO_SRC) src/core/LoopKernel/mainthread_context.c ../fisiCs/src/Compiler/diagnostic_metadata.c -o $(TEST_BUILD_DIR)/errors_diagnostic_detail_test $(LIB_DIRS) -ljson-c -lSDL2 -lpthread || (echo "Errors panel diagnostic detail test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/errors_diagnostic_detail_test.c src/ide/Panes/ToolPanels/Errors/errors_diagnostic_detail.c src/ide/Panes/ToolPanels/Errors/errors_context_detail.c src/ide/Panes/ToolPanels/Errors/errors_units_detail.c src/core/Diagnostics/diagnostic_context.c src/core/Diagnostics/diagnostic_explanations.c src/core/Diagnostics/diagnostics_engine.c src/core/Analysis/analysis_units_store.c $(ANALYSIS_ARTIFACT_IO_SRC) src/core/LoopKernel/mainthread_context.c $(FISICS_DIR)/src/Compiler/diagnostic_metadata.c -o $(TEST_BUILD_DIR)/errors_diagnostic_detail_test $(LIB_DIRS) -ljson-c -lSDL2 -lpthread || (echo "Errors panel diagnostic detail test compile failed."; exit 1)
 	@echo "Running Errors panel diagnostic detail test..."
 	@$(TEST_BUILD_DIR)/errors_diagnostic_detail_test || (echo "Errors panel diagnostic detail test failed."; exit 1)
 	@echo "Errors panel diagnostic detail test passed."

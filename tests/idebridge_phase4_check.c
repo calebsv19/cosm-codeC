@@ -69,11 +69,24 @@ static int connect_socket(const char* socket_path) {
     return fd;
 }
 
-static int send_then_pump_recv(const char* socket_path, const char* req, char* out, size_t out_cap) {
+static int send_then_pump_recv_with_disk_change(const char* socket_path,
+                                                 const char* req,
+                                                 const char* change_path,
+                                                 char* out, size_t out_cap) {
     int fd = connect_socket(socket_path);
     if (fd < 0) return -1;
     write(fd, req, strlen(req));
     write(fd, "\n", 1);
+
+    if (change_path) {
+        // The worker has time to verify the original hash and queue the edit.
+        // Changing the file before the main-thread pump must still reject it.
+        usleep(100000);
+        FILE* changed = fopen(change_path, "w");
+        if (!changed) { close(fd); return -1; }
+        fputs("int x = 99;\n", changed);
+        fclose(changed);
+    }
 
     for (int i = 0; i < 200; ++i) {
         ide_ipc_pump();
@@ -95,6 +108,11 @@ static int send_then_pump_recv(const char* socket_path, const char* req, char* o
     while (used > 0 && (out[used - 1] == '\n' || out[used - 1] == '\r')) used--;
     out[used] = '\0';
     return 0;
+}
+
+static int send_then_pump_recv(const char* socket_path, const char* req,
+                               char* out, size_t out_cap) {
+    return send_then_pump_recv_with_disk_change(socket_path, req, NULL, out, out_cap);
 }
 
 static int expect_ok(const char* response) {
@@ -278,6 +296,20 @@ int main(void) {
     }
     if (expect_error_code(response, "edit_policy_violation") != 0) {
         fprintf(stderr, "edit malformed diff not rejected by policy: %s\n", response);
+        ide_ipc_stop();
+        return 1;
+    }
+
+    char req_race[8192];
+    snprintf(req_race, sizeof(req_race),
+             "{\"id\":\"e-race\",\"proto\":1,\"cmd\":\"edit\",\"auth_token\":\"%s\",\"args\":{\"op\":\"apply\",\"diff\":\"%s\",\"check_hash\":true,\"hashes\":{\"src/a.c\":\"%s\"}}}",
+             auth_token,
+             "--- a/src/a.c\\n+++ b/src/a.c\\n@@ -1,1 +1,1 @@\\n-int x = 1;\\n+int x = 2;\\n",
+             hash);
+    if (send_then_pump_recv_with_disk_change(socket_path, req_race, file_a,
+                                              response, sizeof(response)) != 0 ||
+        expect_error_code(response, "edit_failed") != 0) {
+        fprintf(stderr, "edit changed after preflight was not rejected: %s\n", response);
         ide_ipc_stop();
         return 1;
     }

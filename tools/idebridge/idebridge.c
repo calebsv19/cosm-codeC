@@ -15,6 +15,7 @@
 #include "core/Diagnostics/diagnostics_core_data_export.h"
 #include "idebridge_error_format.h"
 #include "idebridge_file_utils.h"
+#include "idebridge_type.h"
 
 #define IDEBRIDGE_PROTO 1
 
@@ -71,6 +72,10 @@ static void print_usage(FILE* out) {
             "  idebridge [global_options] includes [--json] [--graph]\n"
             "  idebridge [global_options] search <pattern> [--json] [--regex] [--max N] [--files path1,path2,...]\n"
             "  idebridge [global_options] build [--json] [--profile debug|perf]\n"
+            "  idebridge [global_options] present --text <text> [--json]\n"
+            "  idebridge [global_options] type --path <file> --expected_before_fnv64 <hash> "
+            "--expected_after_fnv64 <hash> --expected_text <text> --replacement_text <text> "
+            "--start_line N --start_column N --end_line N --end_column N --cadence_ms N [--json]\n"
             "  idebridge [global_options] edit --apply <diff_file> [--no_hash_check] [--json]\n\n"
             "Global options:\n"
             "  --socket <path>      override IDE socket path (instead of MYIDE_SOCKET)\n"
@@ -674,7 +679,8 @@ static int run_includes(bool json_output, bool graph, const CliGlobalOptions* op
     return IDEBRIDGE_EXIT_OK;
 }
 
-static int run_edit_apply(bool json_output, const char* diff_file, bool no_hash_check, const CliGlobalOptions* opts) {
+static int run_edit_apply(bool json_output, const char* diff_file, bool no_hash_check,
+                          const char* expected_fnv64, const CliGlobalOptions* opts) {
     if (!diff_file || !*diff_file) {
         fprintf(stderr, "idebridge: edit --apply requires a diff file path\n");
         return IDEBRIDGE_EXIT_USAGE;
@@ -696,6 +702,13 @@ static int run_edit_apply(bool json_output, const char* diff_file, bool no_hash_
         const char* root = getenv("MYIDE_PROJECT_ROOT");
         char paths[128][1024];
         int n = idebridge_collect_diff_paths(diff_text, paths, 128);
+        if (expected_fnv64 && n != 1) {
+            free(diff_text);
+            json_object_put(hashes);
+            json_object_put(args);
+            fprintf(stderr, "idebridge: expected hash requires exactly one target\n");
+            return IDEBRIDGE_EXIT_USAGE;
+        }
         for (int i = 0; i < n; ++i) {
             char abs[1024];
             if (paths[i][0] == '/') snprintf(abs, sizeof(abs), "%s", paths[i]);
@@ -712,6 +725,13 @@ static int run_edit_apply(bool json_output, const char* diff_file, bool no_hash_
             }
             char hex[32];
             snprintf(hex, sizeof(hex), "%016llx", h);
+            if (expected_fnv64 && strcmp(expected_fnv64, hex) != 0) {
+                free(diff_text);
+                json_object_put(hashes);
+                json_object_put(args);
+                fprintf(stderr, "idebridge: target changed since caller review\n");
+                return IDEBRIDGE_EXIT_USAGE;
+            }
             json_object_object_add(hashes, paths[i], json_object_new_string(hex));
         }
     }
@@ -831,6 +851,46 @@ static int run_build(bool json_output, const char* profile, const CliGlobalOptio
     return (exit_code == 0) ? IDEBRIDGE_EXIT_OK : IDEBRIDGE_EXIT_SERVER;
 }
 
+static int run_present(bool json_output, const char* text, const CliGlobalOptions* opts) {
+    if (!text || !text[0] || strlen(text) > 4096) {
+        fprintf(stderr, "idebridge: present requires 1-4096 text bytes\n");
+        return IDEBRIDGE_EXIT_USAGE;
+    }
+    json_object* args = json_object_new_object();
+    json_object_object_add(args, "text", json_object_new_string(text));
+    char* response_text = NULL;
+    json_object* root = NULL;
+    int rc = send_request("present", args, opts, &response_text, &root);
+    if (rc != IDEBRIDGE_EXIT_OK) return rc;
+    json_object* result = NULL;
+    rc = print_or_validate_response(json_output, response_text, root, &result);
+    if (rc != IDEBRIDGE_EXIT_OK || json_output) return rc;
+    printf("presented: %s bytes\n", result ? json_object_to_json_string_ext(result, JSON_C_TO_STRING_PLAIN) : "{}");
+    json_object_put(root);
+    free(response_text);
+    return IDEBRIDGE_EXIT_OK;
+}
+
+static int run_type(bool json_output, const IdebridgeTypeOptions* type, const CliGlobalOptions* opts) {
+    json_object* args = idebridge_type_build_args(type);
+    if (!args) {
+        fprintf(stderr, "idebridge: type requires a checked file, range, text, and 16-500 ms cadence\n");
+        return IDEBRIDGE_EXIT_USAGE;
+    }
+
+    char* response_text = NULL;
+    json_object* root = NULL;
+    int rc = send_request("type", args, opts, &response_text, &root);
+    if (rc != IDEBRIDGE_EXIT_OK) return rc;
+    json_object* result = NULL;
+    rc = print_or_validate_response(json_output, response_text, root, &result);
+    if (rc != IDEBRIDGE_EXIT_OK || json_output) return rc;
+    printf("typed: %s\n", result ? json_object_to_json_string_ext(result, JSON_C_TO_STRING_PLAIN) : "{}");
+    json_object_put(root);
+    free(response_text);
+    return IDEBRIDGE_EXIT_OK;
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         print_usage(stderr);
@@ -851,6 +911,9 @@ int main(int argc, char** argv) {
     const char* edit_apply_file = NULL;
     const char* out_path = NULL;
     bool no_hash_check = false;
+    const char* expected_fnv64 = NULL;
+    const char* present_text = NULL;
+    IdebridgeTypeOptions type_options = {0};
     CliGlobalOptions opts = {
         .socket_override = NULL,
         .token_override = NULL,
@@ -859,6 +922,14 @@ int main(int argc, char** argv) {
     };
 
     for (int i = 2; i < argc; ++i) {
+        if (strcmp(cmd, "type") == 0) {
+            int parsed = idebridge_type_parse_option(argv[i], argc, argv, &i, &type_options);
+            if (parsed > 0) continue;
+            if (parsed < 0) {
+                fprintf(stderr, "idebridge: %s requires a value\n", argv[i]);
+                return IDEBRIDGE_EXIT_USAGE;
+            }
+        }
         if (strcmp(argv[i], "--json") == 0) {
             json_output = true;
         } else if ((strcmp(argv[i], "--help") == 0) || (strcmp(argv[i], "-h") == 0)) {
@@ -891,7 +962,7 @@ int main(int argc, char** argv) {
             files_csv = argv[++i];
         } else if (strcmp(argv[i], "--profile") == 0) {
             if (i + 1 >= argc) {
-                fprintf(stderr, "idebridge: --profile requires debug|release\n");
+                fprintf(stderr, "idebridge: --profile requires debug|perf\n");
                 return IDEBRIDGE_EXIT_USAGE;
             }
             profile = argv[++i];
@@ -903,6 +974,18 @@ int main(int argc, char** argv) {
             edit_apply_file = argv[++i];
         } else if (strcmp(argv[i], "--no_hash_check") == 0) {
             no_hash_check = true;
+        } else if (strcmp(argv[i], "--expected_fnv64") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "idebridge: --expected_fnv64 requires 16 hex digits\n");
+                return IDEBRIDGE_EXIT_USAGE;
+            }
+            expected_fnv64 = argv[++i];
+        } else if (strcmp(argv[i], "--text") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "idebridge: --text requires a value\n");
+                return IDEBRIDGE_EXIT_USAGE;
+            }
+            present_text = argv[++i];
         } else if (strcmp(argv[i], "--socket") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "idebridge: --socket requires a path\n");
@@ -962,7 +1045,18 @@ int main(int argc, char** argv) {
     if (strcmp(cmd, "includes") == 0) return run_includes(json_output, graph, &opts);
     if (strcmp(cmd, "search") == 0) return run_search(json_output, search_pattern, regex_mode, max_items, files_csv, &opts);
     if (strcmp(cmd, "build") == 0) return run_build(json_output, profile, &opts);
-    if (strcmp(cmd, "edit") == 0) return run_edit_apply(json_output, edit_apply_file, no_hash_check, &opts);
+    if (strcmp(cmd, "present") == 0) return run_present(json_output, present_text, &opts);
+    if (strcmp(cmd, "type") == 0) {
+        return run_type(json_output, &type_options, &opts);
+    }
+    if (strcmp(cmd, "edit") == 0) {
+        if (expected_fnv64 && (no_hash_check || strlen(expected_fnv64) != 16 ||
+                               strspn(expected_fnv64, "0123456789abcdef") != 16)) {
+            fprintf(stderr, "idebridge: invalid --expected_fnv64 or hash checking disabled\n");
+            return IDEBRIDGE_EXIT_USAGE;
+        }
+        return run_edit_apply(json_output, edit_apply_file, no_hash_check, expected_fnv64, &opts);
+    }
 
     fprintf(stderr, "idebridge: unknown subcommand: %s\n", cmd);
     print_usage(stderr);

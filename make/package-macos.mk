@@ -14,6 +14,7 @@ package-desktop: package-build-lane
 	@cp $(PACKAGE_IDEBRIDGE_BIN) $(PACKAGE_MACOS_DIR)/idebridge
 	@cp $(PACKAGE_FISICS_BIN) $(PACKAGE_MACOS_DIR)/fisics
 	@cp $(PACKAGE_LAUNCHER_SRC) $(PACKAGE_MACOS_DIR)/ide-launcher
+	@if [ -n "$(PACKAGE_LAUNCHER_BASE_SRC)" ]; then cp "$(PACKAGE_LAUNCHER_BASE_SRC)" "$(PACKAGE_MACOS_DIR)/ide-launcher-base"; chmod +x "$(PACKAGE_MACOS_DIR)/ide-launcher-base"; fi
 	@chmod +x $(PACKAGE_MACOS_DIR)/ide-launcher $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_MACOS_DIR)/idebridge $(PACKAGE_MACOS_DIR)/fisics
 	@PACKAGE_DEP_SEARCH_ROOTS="$(PACKAGE_DEP_SEARCH_ROOTS)" PACKAGE_REQUIRED_DYLIBS="$(PACKAGE_REQUIRED_DYLIBS)" $(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/ide-bin $(PACKAGE_FRAMEWORKS_DIR)
 	@PACKAGE_DEP_SEARCH_ROOTS="$(PACKAGE_DEP_SEARCH_ROOTS)" PACKAGE_REQUIRED_DYLIBS="$(PACKAGE_REQUIRED_DYLIBS)" $(PACKAGE_DYLIB_BUNDLER) $(PACKAGE_MACOS_DIR)/idebridge $(PACKAGE_FRAMEWORKS_DIR)
@@ -48,7 +49,17 @@ package-desktop-sign-adhoc:
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/ide-bin"
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/idebridge"
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/fisics"
+	@if [ -f "$(PACKAGE_MACOS_DIR)/ide-launcher-base" ]; then codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/ide-launcher-base"; fi
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/ide-launcher"
+	@if [ "$(PACKAGE_MAIN_EDIT_IDENTITY)" = "1" ]; then \
+		python3 "$(CODEWORK_ROOT)/shared/scripts/mew1/mew1.py" write-identity \
+			--output "$(PACKAGE_RESOURCES_DIR)/development_identity.json" \
+			--source-root "$(CURDIR)" --binary "$(PACKAGE_MACOS_DIR)/ide-bin" \
+			--profile main-edit --program ide --product codeC \
+			--version "$(RELEASE_VERSION)" --architecture "$(TARGET_ARCH)" \
+			--toolchain "$(PACKAGE_TOOLCHAIN)" \
+			--build-label "main-edit-$(RELEASE_VERSION)-$(TARGET_TRIPLE)"; \
+	fi
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_APP_DIR)"
 	@codesign --verify --deep --strict "$(PACKAGE_APP_DIR)"
 	@echo "package-desktop-sign-adhoc passed."

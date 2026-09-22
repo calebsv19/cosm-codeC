@@ -52,6 +52,10 @@
 #include "core/LoopKernel/mainthread_kernel.h"
 #include "core/Ipc/ide_ipc_server.h"
 #include "core/Ipc/ide_ipc_edit_apply.h"
+#include "core/Ipc/ide_ipc_presentation.h"
+#include "core/Ipc/ide_ipc_typing.h"
+#include "core/Ipc/ide_ipc_typing_edit.h"
+#include "ide/Panes/Terminal/render_terminal.h"
 #include "ide/Panes/Editor/Commands/editor_commands.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/Editor/editor_session.h"
@@ -145,6 +149,34 @@ static bool ide_ipc_edit_apply_from_ui(const char* diff_text,
                                        json_object** result_out) {
     (void)userdata;
     return ide_ipc_apply_unified_diff(projectPath, diff_text, result_out, error_out, error_out_cap);
+}
+
+static bool ide_ipc_present_from_ui(const char* text,
+                                    char* error_out,
+                                    size_t error_out_cap,
+                                    void* userdata) {
+    (void)userdata;
+    UIState* ui = getUIState();
+    if (!ui || !terminal_activate_task(false, true)) {
+        if (error_out && error_out_cap) {
+            snprintf(error_out, error_out_cap, "IDE Run terminal unavailable");
+        }
+        return false;
+    }
+    ui->terminalVisible = true;
+    // A newly selected task can still have its 1024-row bootstrap grid. Size
+    // it for the visible pane before feeding lines, or the first render's
+    // resize may discard part of a short result.
+    if (!terminal_prepare_for_presentation(ui->terminalPanel)) {
+        if (error_out && error_out_cap) {
+            snprintf(error_out, error_out_cap, "IDE Run terminal layout unavailable");
+        }
+        return false;
+    }
+    clearTerminal();
+    printToTerminal(text);
+    terminal_set_follow_output(true);
+    return true;
 }
 
 static bool pathIsDirectory(const char* path) {
@@ -336,8 +368,11 @@ bool initializeSystem(const char* argv0) {
     windowFlags |= SDL_WINDOW_VULKAN;
 #endif
 
+    const char* ide_profile = getenv("IDE_PROFILE");
+    const char* window_title = ide_profile && strcmp(ide_profile, "main-edit") == 0 ?
+                               "codeC Main Edit" : "Caleb's IDE";
     SDL_Window* window = SDL_CreateWindow(
-        "Caleb's IDE", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        window_title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         1600, 860,
         windowFlags
     );
@@ -521,10 +556,14 @@ bool initializeSystem(const char* argv0) {
                                                  ide_ipc_session_id());
         ide_ipc_set_open_handler(ide_ipc_open_from_ui, NULL);
         ide_ipc_set_edit_handler(ide_ipc_edit_apply_from_ui, NULL);
+        ide_ipc_typing_set_handler(ide_ipc_typing_edit_step, projectPath);
     }
     ide_startup_diagnostics_print_if_enabled(stderr);
 
     initTerminal();
+    if (ide_ipc_is_running()) {
+        ide_ipc_presentation_set_handler(ide_ipc_present_from_ui, NULL);
+    }
 
     const char* workspace = getWorkspacePath();
     terminal_spawn_shell((workspace && *workspace) ? workspace : NULL, 0, 0);

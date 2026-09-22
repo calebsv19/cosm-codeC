@@ -4,9 +4,12 @@
 #include "core/Ipc/ide_ipc_build_helpers.h"
 #include "core/Ipc/ide_ipc_edit_apply.h"
 #include "core/Ipc/ide_ipc_path_guard.h"
+#include "core/Ipc/ide_ipc_presentation.h"
 #include "core/Ipc/ide_ipc_query_helpers.h"
 #include "core/Ipc/ide_ipc_search_helpers.h"
 #include "core/Ipc/ide_ipc_server_utils.h"
+#include "core/Ipc/ide_ipc_session_export.h"
+#include "core/Ipc/ide_ipc_typing.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -73,6 +76,8 @@ typedef struct {
     bool edit_completed;
     bool edit_success;
     char* edit_diff;
+    char* edit_hashes_json;
+    bool edit_check_hash;
     char* edit_result_json;
     char edit_error[256];
     IdeIpcEditApplyHandler edit_handler;
@@ -111,6 +116,8 @@ static IdeIpcServerState g_server = {
     .edit_completed = false,
     .edit_success = false,
     .edit_diff = NULL,
+    .edit_hashes_json = NULL,
+    .edit_check_hash = true,
     .edit_result_json = NULL,
     .edit_error = {0},
     .edit_handler = NULL,
@@ -210,7 +217,9 @@ static bool command_requires_auth(const char* cmd) {
     if (!cmd || !*cmd) return false;
     return (strcmp(cmd, "open") == 0 ||
             strcmp(cmd, "build") == 0 ||
-            strcmp(cmd, "edit") == 0);
+            strcmp(cmd, "edit") == 0 ||
+            strcmp(cmd, "type") == 0 ||
+            strcmp(cmd, "present") == 0);
 }
 
 static bool request_auth_token_valid(const char* token) {
@@ -415,6 +424,14 @@ static char* handle_request_payload(const char* payload) {
         } else {
             out = ide_ipc_build_response_json(req_id, true, result, NULL);
         }
+    } else if (strcmp(cmd, "type") == 0) {
+        json_object* result = NULL;
+        json_object* err = NULL;
+        if (ide_ipc_typing_request_json(j_args, &result, &err)) {
+            out = ide_ipc_build_response_json(req_id, true, result, NULL);
+        } else {
+            out = ide_ipc_build_response_json(req_id, false, NULL, err);
+        }
     } else if (strcmp(cmd, "edit") == 0) {
         json_object *jop=NULL,*jdiff=NULL,*jcheck=NULL,*jhashes=NULL;
         const char* op = NULL;
@@ -499,6 +516,10 @@ static char* handle_request_payload(const char* payload) {
         g_server.edit_success = false;
         free(g_server.edit_diff);
         g_server.edit_diff = strdup(diff_text);
+        free(g_server.edit_hashes_json);
+        g_server.edit_hashes_json = jhashes ?
+            strdup(json_object_to_json_string_ext(jhashes, JSON_C_TO_STRING_PLAIN)) : NULL;
+        g_server.edit_check_hash = check_hash;
         free(g_server.edit_result_json);
         g_server.edit_result_json = NULL;
         g_server.edit_error[0] = '\0';
@@ -547,6 +568,26 @@ static char* handle_request_payload(const char* payload) {
             out = ide_ipc_build_response_json(req_id, false, NULL, err);
         }
         free(result_json);
+    } else if (strcmp(cmd, "present") == 0) {
+        json_object* jtext = NULL;
+        if (!j_args || !json_object_object_get_ex(j_args, "text", &jtext) ||
+            !jtext || !json_object_is_type(jtext, json_type_string) ||
+            (size_t)json_object_get_string_len(jtext) != strlen(json_object_get_string(jtext))) {
+            json_object* err = ide_ipc_build_error_obj("bad_request", "present requires plain text", NULL);
+            out = ide_ipc_build_response_json(req_id, false, NULL, err);
+        } else {
+            const char* text = json_object_get_string(jtext);
+            char present_error[160] = {0};
+            if (ide_ipc_presentation_request(text, present_error, sizeof(present_error))) {
+                json_object* result = json_object_new_object();
+                json_object_object_add(result, "presented", json_object_new_boolean(true));
+                json_object_object_add(result, "bytes", json_object_new_int((int)strlen(text)));
+                out = ide_ipc_build_response_json(req_id, true, result, NULL);
+            } else {
+                json_object* err = ide_ipc_build_error_obj("present_failed", present_error, NULL);
+                out = ide_ipc_build_response_json(req_id, false, NULL, err);
+            }
+        }
     } else if (strcmp(cmd, "open") == 0) {
         json_object* jpath = NULL;
         json_object* jline = NULL;
@@ -839,6 +880,12 @@ bool ide_ipc_start(const char* project_root) {
         return false;
     }
 
+    if (!ide_ipc_agent_session_write(project_root, socket_path, session_id, auth_token)) {
+        fprintf(stderr, "[IPC] Failed to publish private Main Edit session handoff.\n");
+        ide_ipc_stop();
+        return false;
+    }
+
     printf("[IPC] Listening on %s\n", g_server.socket_path);
     return true;
 }
@@ -849,7 +896,9 @@ void ide_ipc_stop(void) {
     g_server.running = false;
     close_server_fd_locked();
     char socket_path[108];
+    char session_id[128];
     str_copy(socket_path, sizeof(socket_path), g_server.socket_path);
+    str_copy(session_id, sizeof(session_id), g_server.session_id);
     g_server.socket_path[0] = '\0';
     g_server.session_id[0] = '\0';
     g_server.project_root[0] = '\0';
@@ -860,6 +909,10 @@ void ide_ipc_stop(void) {
     g_server.peer_reject_log_last_ms = 0;
     g_server.peer_reject_log_suppressed = 0;
     pthread_mutex_unlock(&g_server.lock);
+
+    ide_ipc_agent_session_clear(session_id);
+    ide_ipc_presentation_cancel();
+    ide_ipc_typing_cancel();
 
     pthread_mutex_lock(&g_server.open_lock);
     g_server.open_pending = false;
@@ -878,6 +931,8 @@ void ide_ipc_stop(void) {
     g_server.edit_error[0] = '\0';
     free(g_server.edit_diff);
     g_server.edit_diff = NULL;
+    free(g_server.edit_hashes_json);
+    g_server.edit_hashes_json = NULL;
     free(g_server.edit_result_json);
     g_server.edit_result_json = NULL;
     pthread_cond_broadcast(&g_server.edit_cond);
@@ -914,6 +969,8 @@ void ide_ipc_set_edit_handler(IdeIpcEditApplyHandler handler, void* userdata) {
 }
 
 void ide_ipc_pump(void) {
+    ide_ipc_presentation_pump();
+    ide_ipc_typing_pump();
     IdeIpcOpenHandler handler = NULL;
     void* handler_userdata = NULL;
     char path[1024] = {0};
@@ -953,11 +1010,15 @@ void ide_ipc_pump(void) {
     IdeIpcEditApplyHandler edit_handler = NULL;
     void* edit_userdata = NULL;
     char* diff_text = NULL;
+    char* hashes_json = NULL;
+    bool check_hash = true;
     pthread_mutex_lock(&g_server.edit_lock);
     if (g_server.edit_pending && g_server.edit_inflight) {
         edit_handler = g_server.edit_handler;
         edit_userdata = g_server.edit_handler_userdata;
         diff_text = g_server.edit_diff ? strdup(g_server.edit_diff) : NULL;
+        hashes_json = g_server.edit_hashes_json ? strdup(g_server.edit_hashes_json) : NULL;
+        check_hash = g_server.edit_check_hash;
         g_server.edit_pending = false;
     }
     pthread_mutex_unlock(&g_server.edit_lock);
@@ -966,7 +1027,18 @@ void ide_ipc_pump(void) {
         bool ok_edit = false;
         char edit_err[256] = {0};
         json_object* result = NULL;
-        ok_edit = edit_handler(diff_text, edit_err, sizeof(edit_err), edit_userdata, &result);
+        char project_root[sizeof(g_server.project_root)];
+        pthread_mutex_lock(&g_server.lock);
+        str_copy(project_root, sizeof(project_root), g_server.project_root);
+        pthread_mutex_unlock(&g_server.lock);
+        json_object* hashes = hashes_json ? json_tokener_parse(hashes_json) : NULL;
+        if (ide_ipc_verify_edit_hashes(project_root, diff_text, check_hash,
+                                       hashes, edit_err, sizeof(edit_err))) {
+            ok_edit = edit_handler(diff_text, edit_err, sizeof(edit_err),
+                                   edit_userdata, &result);
+        }
+        if (hashes) json_object_put(hashes);
+        free(hashes_json);
         free(diff_text);
 
         char* result_json = NULL;

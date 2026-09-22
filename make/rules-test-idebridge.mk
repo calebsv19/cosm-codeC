@@ -13,7 +13,7 @@ test-idebridge-phase1: $(IDEBRIDGE_OUT)
 	@echo "Compiling idebridge phase-1 runtime check..."
 	@$(CC) $(CFLAGS) tests/idebridge_phase1_check.c $(IDEBRIDGE_PHASE_TEST_SUPPORT_SRCS) -o $(IDEBRIDGE_PHASE1_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-1 compile failed."; exit 1)
 	@echo "Running idebridge phase-1 runtime check..."
-	@$(IDEBRIDGE_PHASE1_TEST_OUT) || (echo "idebridge phase-1 runtime check failed."; exit 1)
+	@IDE_BRIDGE_TEST_BIN="$(abspath $(IDEBRIDGE_OUT))" $(IDEBRIDGE_PHASE1_TEST_OUT) || (echo "idebridge phase-1 runtime check failed."; exit 1)
 	@echo "idebridge phase-1 runtime check passed."
 
 .PHONY: test-idebridge-phase2
@@ -49,7 +49,7 @@ test-idebridge-phase5: $(IDEBRIDGE_OUT)
 	@echo "Compiling idebridge phase-5 runtime check..."
 	@$(CC) $(CFLAGS) tests/idebridge_phase5_check.c $(IDEBRIDGE_PHASE_TEST_SUPPORT_SRCS) -o $(IDEBRIDGE_PHASE5_TEST_OUT) $(LIB_DIRS) -ljson-c -lSDL2 || (echo "idebridge phase-5 compile failed."; exit 1)
 	@echo "Running idebridge phase-5 runtime check..."
-	@$(IDEBRIDGE_PHASE5_TEST_OUT) || (echo "idebridge phase-5 runtime check failed."; exit 1)
+	@IDE_BRIDGE_TEST_BIN="$(abspath $(IDEBRIDGE_OUT))" $(IDEBRIDGE_PHASE5_TEST_OUT) || (echo "idebridge phase-5 runtime check failed."; exit 1)
 	@echo "idebridge phase-5 runtime check passed."
 
 .PHONY: test-idebridge-phase6
@@ -82,3 +82,22 @@ test-idebridge-diag-core-data-export:
 	@echo "Running idebridge diag core_data export check..."
 	@$(TEST_BUILD_DIR)/idebridge_diag_core_data_export_check || (echo "idebridge diag core_data export check failed."; exit 1)
 	@echo "idebridge diag core_data export check passed."
+test-ide-ipc-session-export:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@$(CC) $(CFLAGS) $(ARCH_FLAGS) tests/ide_ipc_session_export_test.c src/core/Ipc/ide_ipc_session_export.c -o $(TEST_BUILD_DIR)/ide_ipc_session_export_test $(LIB_DIRS) -ljson-c
+	@$(TEST_BUILD_DIR)/ide_ipc_session_export_test
+
+.PHONY: test-ide-ipc-presentation
+test-ide-ipc-presentation:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@$(CC) $(CFLAGS) $(ARCH_FLAGS) tests/ide_ipc_presentation_test.c src/core/Ipc/ide_ipc_presentation.c -o $(TEST_BUILD_DIR)/ide_ipc_presentation_test -pthread
+	@$(TEST_BUILD_DIR)/ide_ipc_presentation_test
+
+.PHONY: test-ide-ipc-typing
+test-ide-ipc-typing:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@$(CC) $(CFLAGS) $(ARCH_FLAGS) tests/ide_ipc_typing_test.c \
+		src/core/Ipc/ide_ipc_typing.c src/core/Ipc/ide_ipc_server_utils.c \
+		src/core/Ipc/ide_ipc_path_guard.c \
+		-o $(TEST_BUILD_DIR)/ide_ipc_typing_test $(LIB_DIRS) -ljson-c -pthread
+	@$(TEST_BUILD_DIR)/ide_ipc_typing_test

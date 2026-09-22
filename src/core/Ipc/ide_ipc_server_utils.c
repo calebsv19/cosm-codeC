@@ -82,6 +82,9 @@ bool ide_ipc_build_socket_path(char* out, size_t out_cap, char* out_session, siz
 
     const char* home = getenv("HOME");
     const char* xdg_cache = getenv("XDG_CACHE_HOME");
+    const char* profile = getenv("IDE_PROFILE");
+    const char* app_dir_name = profile && strcmp(profile, "main-edit") == 0 ?
+                               "caleb_ide_main_edit" : IDE_IPC_APP_DIR;
     long long t = now_ms();
     pid_t pid = getpid();
     snprintf(out_session, session_cap, "pid_%d_%lld", (int)pid, t);
@@ -90,7 +93,7 @@ bool ide_ipc_build_socket_path(char* out, size_t out_cap, char* out_session, siz
     bool have_sock_dir = false;
     if (xdg_cache && *xdg_cache) {
         char app_dir[1024];
-        snprintf(app_dir, sizeof(app_dir), "%s/%s", xdg_cache, IDE_IPC_APP_DIR);
+        snprintf(app_dir, sizeof(app_dir), "%s/%s", xdg_cache, app_dir_name);
         snprintf(sock_dir, sizeof(sock_dir), "%s/sock", app_dir);
         if (ensure_dir_exists(xdg_cache, 0700) &&
             ensure_dir_exists(app_dir, 0700) &&
@@ -101,7 +104,7 @@ bool ide_ipc_build_socket_path(char* out, size_t out_cap, char* out_session, siz
         char cache_dir[1024];
         char app_dir[1024];
         snprintf(cache_dir, sizeof(cache_dir), "%s/.cache", home);
-        snprintf(app_dir, sizeof(app_dir), "%s/%s", cache_dir, IDE_IPC_APP_DIR);
+        snprintf(app_dir, sizeof(app_dir), "%s/%s", cache_dir, app_dir_name);
         snprintf(sock_dir, sizeof(sock_dir), "%s/sock", app_dir);
         if (ensure_dir_exists(cache_dir, 0700) &&
             ensure_dir_exists(app_dir, 0700) &&
@@ -110,7 +113,7 @@ bool ide_ipc_build_socket_path(char* out, size_t out_cap, char* out_session, siz
         }
     }
     if (!have_sock_dir) {
-        snprintf(sock_dir, sizeof(sock_dir), "/tmp/%s_sock", IDE_IPC_APP_DIR);
+        snprintf(sock_dir, sizeof(sock_dir), "/tmp/%s_sock", app_dir_name);
         if (!ensure_dir_exists(sock_dir, 0700)) return false;
     }
 
@@ -118,7 +121,7 @@ bool ide_ipc_build_socket_path(char* out, size_t out_cap, char* out_session, siz
     snprintf(candidate, sizeof(candidate), "%s/%s.sock", sock_dir, out_session);
 
     if (strlen(candidate) >= out_cap) {
-        snprintf(candidate, sizeof(candidate), "/tmp/%s_%d.sock", IDE_IPC_APP_DIR, (int)pid);
+        snprintf(candidate, sizeof(candidate), "/tmp/%s_%d.sock", app_dir_name, (int)pid);
         if (strlen(candidate) >= out_cap) return false;
     }
 

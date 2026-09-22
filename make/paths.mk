@@ -39,7 +39,7 @@ endif
 ABS_VK_SHADER_ROOT := $(abspath $(VK_RENDERER_DIR))
 
 # Fisics frontend (compiler) integration
-FISICS_DIR := ../fisiCs
+FISICS_DIR := $(CODEWORK_ROOT)/fisiCs
 FISICS_INC := $(FISICS_DIR)/src
 FISICS_LEXER_INC := $(FISICS_DIR)/src/Lexer
 FISICS_LIB_UNSANITIZED_SRC := $(FISICS_DIR)/libfisics_frontend_unsanitized.a

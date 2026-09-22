@@ -180,8 +180,6 @@ void layout_static_panes(UIPane* panes[], int* paneCount) {
     ide_refresh_live_theme();
     *paneCount = 0;
 
-    syncPopupPane(panes, paneCount);
-
     if (ui->menuBar && *paneCount < MAX_PANES) {
         updateMenuBarPane(ui->menuBar, winW);
         panes[(*paneCount)++] = ui->menuBar;
@@ -212,7 +210,9 @@ void layout_static_panes(UIPane* panes[], int* paneCount) {
         panes[(*paneCount)++] = ui->terminalPanel;
     }
 
-    if (ui->popup && *paneCount < MAX_PANES) {
-        panes[(*paneCount)++] = ui->popup;
-    }
+    // Build the ordinary pane list first, then let the popup synchronizer add
+    // the popup exactly once when it is visible. Calling it against an empty
+    // list and appending ui->popup again here duplicated the same pointer;
+    // shutdown subsequently destroyed that pane twice.
+    syncPopupPane(panes, paneCount);
 }

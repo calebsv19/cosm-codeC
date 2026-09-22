@@ -30,6 +30,11 @@ static int run_cmd_expect(const char* cmd, int expected_exit) {
 }
 
 int main(void) {
+    const char* bridge_bin = getenv("IDE_BRIDGE_TEST_BIN");
+    if (!bridge_bin || !*bridge_bin) {
+        fprintf(stderr, "IDE_BRIDGE_TEST_BIN must name the built bridge\n");
+        return 1;
+    }
     const char* xdg_root = "/tmp/idebridge_phase5_xdg_cache";
     const char* workspace = "/tmp/idebridge_phase5_workspace";
     mkdir(xdg_root, 0755);
@@ -59,7 +64,7 @@ int main(void) {
     }
 
     char cmd[4096];
-    snprintf(cmd, sizeof(cmd), "./idebridge ping --json --socket '%s' >/tmp/idebridge_phase5_ping.json 2>/tmp/idebridge_phase5_ping.err", socket_path);
+    snprintf(cmd, sizeof(cmd), "'%s' ping --json --socket '%s' >/tmp/idebridge_phase5_ping.json 2>/tmp/idebridge_phase5_ping.err", bridge_bin, socket_path);
     if (run_cmd_expect(cmd, 0) != 0) {
         fprintf(stderr, "ping with --socket failed\n");
         ide_ipc_stop();
@@ -71,14 +76,14 @@ int main(void) {
         return 1;
     }
 
-    snprintf(cmd, sizeof(cmd), "./idebridge ping --json --socket '/tmp/idebridge_missing.sock' >/tmp/idebridge_phase5_bad.json 2>/tmp/idebridge_phase5_bad.err");
+    snprintf(cmd, sizeof(cmd), "'%s' ping --json --socket '/tmp/idebridge_missing.sock' >/tmp/idebridge_phase5_bad.json 2>/tmp/idebridge_phase5_bad.err", bridge_bin);
     if (run_cmd_expect(cmd, 3) != 0) {
         fprintf(stderr, "invalid socket did not return connect exit code\n");
         ide_ipc_stop();
         return 1;
     }
 
-    snprintf(cmd, sizeof(cmd), "./idebridge diag --json --socket '%s' --spill_file /tmp/idebridge_phase5_spill.json >/tmp/idebridge_phase5_diag.json 2>/tmp/idebridge_phase5_diag.err", socket_path);
+    snprintf(cmd, sizeof(cmd), "'%s' diag --json --socket '%s' --spill_file /tmp/idebridge_phase5_spill.json >/tmp/idebridge_phase5_diag.json 2>/tmp/idebridge_phase5_diag.err", bridge_bin, socket_path);
     if (run_cmd_expect(cmd, 0) != 0) {
         fprintf(stderr, "diag with spill file failed\n");
         ide_ipc_stop();

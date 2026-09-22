@@ -5,6 +5,7 @@
 #include "core/Analysis/analysis_symbols_store.h"
 #include "core/Analysis/analysis_token_store.h"
 #include "core/Analysis/analysis_units_store.h"
+#include "core/Analysis/analysis_store.h"
 #include "Compiler/diagnostics.h"
 
 #include <json-c/json.h>
@@ -208,6 +209,26 @@ int main(void) {
         return 1;
     }
     addDiagnostic("/tmp/proj/src/a.c", 19, 2, "null dereference", DIAG_SEVERITY_ERROR);
+    FisicsDiagnostic analysis_diags[2] = {0};
+    analysis_diags[0].file_path = "/tmp/proj/src/a.c";
+    analysis_diags[0].line = 12;
+    analysis_diags[0].column = 4;
+    analysis_diags[0].length = 6;
+    analysis_diags[0].kind = DIAG_ERROR;
+    analysis_diags[0].code = FISICS_DIAG_CODE_EXTENSION_UNITS_ASSIGN_DIM_MISMATCH;
+    analysis_diags[0].severity_id = FISICS_DIAG_SEVERITY_ERROR;
+    analysis_diags[0].category_id = FISICS_DIAG_CATEGORY_EXTENSION;
+    analysis_diags[0].code_id = FISICS_DIAG_CODE_EXTENSION_UNITS_ASSIGN_DIM_MISMATCH;
+    analysis_diags[0].message = "assignment dimension mismatch";
+    analysis_diags[1].file_path = "/tmp/proj/src/a.c";
+    analysis_diags[1].line = 19;
+    analysis_diags[1].column = 2;
+    analysis_diags[1].length = 1;
+    analysis_diags[1].kind = DIAG_ERROR;
+    analysis_diags[1].severity_id = FISICS_DIAG_SEVERITY_ERROR;
+    analysis_diags[1].message = "null dereference";
+    analysis_store_clear();
+    analysis_store_upsert("/tmp/proj/src/a.c", analysis_diags, 2u);
 
     const char* build_chunk = "/tmp/proj/src/b.c:3:1: warning: build warn\n/tmp/proj/src/b.c:4:2: error: build err\n";
     build_diagnostics_feed_chunk(build_chunk, strlen(build_chunk));
@@ -301,7 +322,7 @@ int main(void) {
     json_object_object_get_ex(root, "result", &result);
     json_object_object_get_ex(result, "total_count", &j);
     if (!j || json_object_get_int(j) != 4) {
-        fprintf(stderr, "diag total_count mismatch\n");
+        fprintf(stderr, "diag total_count mismatch: %s\n", response);
         json_object_put(root);
         ide_ipc_stop();
         return 1;

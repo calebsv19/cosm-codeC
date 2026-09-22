@@ -13,6 +13,7 @@ include make/rules-build.mk
 include make/rules-runtime.mk
 include make/rules-vulkan-runtime.mk
 include make/package-macos.mk
+include make/package-main-edit.mk
 include make/release.mk
 include make/rules-test-groups.mk
 include make/rules-test-idebridge.mk

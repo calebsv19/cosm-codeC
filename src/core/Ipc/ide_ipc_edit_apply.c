@@ -494,6 +494,27 @@ static OpenFile* open_or_get_file(EditorView* view, const char* abs_path) {
     return openFileInView(view, abs_path);
 }
 
+static void find_open_document(EditorView* view, const char* abs_path,
+                               EditorView** found_view, int* found_count,
+                               bool* has_unsaved_copy) {
+    if (!view || !abs_path) return;
+    if (view->type == VIEW_SPLIT) {
+        find_open_document(view->childA, abs_path, found_view,
+                           found_count, has_unsaved_copy);
+        find_open_document(view->childB, abs_path, found_view,
+                           found_count, has_unsaved_copy);
+        return;
+    }
+    for (int i = 0; i < view->fileCount; ++i) {
+        OpenFile* file = view->openFiles[i];
+        if (file && file->filePath && strcmp(file->filePath, abs_path) == 0) {
+            (*found_count)++;
+            if (file->isModified) *has_unsaved_copy = true;
+            if (!*found_view) *found_view = view;
+        }
+    }
+}
+
 static void diagnostics_summary(json_object* out_summary) {
     int total = 0, err = 0, warn = 0, info = 0;
     size_t bcount = 0;
@@ -533,6 +554,15 @@ bool ide_ipc_apply_unified_diff(const char* project_root,
         return false;
     }
 
+    // One visible document is the current atomic edit boundary. A later file
+    // failure must never leave the first file already changed and saved.
+    if (patch.file_count != 1 || isSaveQueueBusy()) {
+        free_patch(&patch);
+        set_error(error_out, error_out_cap,
+                  "Edit requires one file and an idle save queue");
+        return false;
+    }
+
     EditorView* view = resolve_leaf_editor_view();
     if (!view) {
         free_patch(&patch);
@@ -541,6 +571,8 @@ bool ide_ipc_apply_unified_diff(const char* project_root,
     }
 
     json_object* touched = json_object_new_array();
+    uint64_t before_revision = 0;
+    uint64_t after_revision = 0;
 
     for (size_t i = 0; i < patch.file_count; ++i) {
         FilePatch* fp = &patch.files[i];
@@ -581,7 +613,23 @@ bool ide_ipc_apply_unified_diff(const char* project_root,
         }
         free(old_text);
 
-        OpenFile* file = open_or_get_file(view, abs_path);
+        IDECoreState* core = getCoreState();
+        EditorView* existing_view = NULL;
+        int open_count = 0;
+        bool has_unsaved_copy = false;
+        find_open_document(core ? core->persistentEditorView : view, abs_path,
+                           &existing_view, &open_count, &has_unsaved_copy);
+        if (has_unsaved_copy || open_count > 1) {
+            free(new_text);
+            free_patch(&patch);
+            json_object_put(touched);
+            set_error(error_out, error_out_cap,
+                      has_unsaved_copy ? "Open document has unsaved edits" :
+                      "Document is open in multiple editor panes");
+            return false;
+        }
+        OpenFile* file = open_or_get_file(existing_view ? existing_view : view,
+                                          abs_path);
         if (!file || !file->buffer) {
             free(new_text);
             free_patch(&patch);
@@ -590,22 +638,77 @@ bool ide_ipc_apply_unified_diff(const char* project_root,
             return false;
         }
 
+        if (file->isModified) {
+            free(new_text);
+            free_patch(&patch);
+            set_error(error_out, error_out_cap,
+                      "Open document has unsaved edits; preserve and resolve them first");
+            json_object_put(touched);
+            return false;
+        }
+
+        before_revision = file->documentRevision;
         pushUndoState(file);
-        loadSnapshotIntoBuffer(file->buffer, new_text, strlen(new_text));
+        size_t new_len = strlen(new_text);
+        // The editor snapshot writes one newline per buffer row. A patch's
+        // trailing newline is represented by the last row, not an extra row.
+        size_t buffer_len = new_len > 0 && new_text[new_len - 1] == '\n' ?
+                            new_len - 1 : new_len;
+        loadSnapshotIntoBuffer(file->buffer, new_text, buffer_len);
         markFileAsModified(file);
+        size_t queued_len = 0;
+        char* queued_text = getBufferSnapshot(file->buffer, &queued_len);
+        if (!queued_text) {
+            file->isModified = true;
+            free(new_text);
+            free_patch(&patch);
+            json_object_put(touched);
+            set_error(error_out, error_out_cap, "Failed to snapshot edited document");
+            return false;
+        }
+        if (queued_len != new_len || memcmp(queued_text, new_text, new_len) != 0) {
+            file->isModified = true;
+            free(queued_text);
+            free(new_text);
+            free_patch(&patch);
+            json_object_put(touched);
+            set_error(error_out, error_out_cap,
+                      "Editor buffer cannot represent patch bytes exactly");
+            return false;
+        }
         queueSaveFromOpenFile(file);
-        free(new_text);
 
         json_object_array_add(touched, json_object_new_string(fp->new_path));
-    }
-
-    int guard = 0;
-    while (isSaveQueueBusy() && guard < 4096) {
-        tickSaveQueue();
-        guard++;
+        int guard = 0;
+        while (isSaveQueueBusy() && guard < 4096) {
+            tickSaveQueue();
+            guard++;
+        }
+        size_t saved_len = 0;
+        char* saved_text = read_text_file(abs_path, &saved_len);
+        bool saved = !isSaveQueueBusy() && saved_text &&
+                     saved_len == queued_len &&
+                     memcmp(saved_text, queued_text, saved_len) == 0;
+        free(saved_text);
+        free(queued_text);
+        free(new_text);
+        if (!saved) {
+            file->isModified = true;
+            free_patch(&patch);
+            json_object_put(touched);
+            set_error(error_out, error_out_cap,
+                      "Document changed in memory but save readback failed");
+            return false;
+        }
+        after_revision = file->documentRevision;
     }
 
     json_object* result = json_object_new_object();
+    json_object_object_add(result, "document_revision_before",
+                           json_object_new_int64((int64_t)before_revision));
+    json_object_object_add(result, "document_revision_after",
+                           json_object_new_int64((int64_t)after_revision));
+    json_object_object_add(result, "saved_readback", json_object_new_boolean(true));
     json_object_object_add(result, "applied", json_object_new_boolean(true));
     json_object_object_add(result, "touched_files", touched);
     json_object* summary = json_object_new_object();

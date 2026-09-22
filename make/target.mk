@@ -1,4 +1,7 @@
-TARGET_CONTRACT_HELPER ?= ../bin/desktop_release_target_contract.sh
+# Canonical IDE and its persistent _worktrees/ide_main_edit checkout have
+# different parent directories but use the same workspace-owned contract.
+CODEWORK_ROOT := $(if $(wildcard $(CURDIR)/../fisiCs),$(abspath $(CURDIR)/..),$(abspath $(CURDIR)/../..))
+TARGET_CONTRACT_HELPER ?= $(CODEWORK_ROOT)/bin/desktop_release_target_contract.sh
 HOST_ARCH := $(strip $(shell "$(TARGET_CONTRACT_HELPER)" get host_arch))
 TARGET_OS_INPUT := $(TARGET_OS)
 TARGET_ARCH_INPUT := $(TARGET_ARCH)

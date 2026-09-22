@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+REAL_HOME="${HOME:-}"
+[ -n "$REAL_HOME" ] || { echo "Main Edit requires HOME" >&2; exit 1; }
+case "$REAL_HOME" in /*) ;; *) echo "Main Edit requires absolute HOME" >&2; exit 1;; esac
+umask 077
+
+PROFILE_ROOT="$REAL_HOME/Library/Application Support/codeC Main Edit"
+mkdir -p "$PROFILE_ROOT/home" "$PROFILE_ROOT/cache" "$PROFILE_ROOT/logs" "$PROFILE_ROOT/runtime"
+export HOME="$PROFILE_ROOT/home"
+export XDG_CACHE_HOME="$PROFILE_ROOT/cache"
+export IDE_LOG_DIR="$PROFILE_ROOT/logs"
+export IDE_RUNTIME_DIR="$PROFILE_ROOT/runtime"
+export IDE_PROFILE="main-edit"
+exec "$SCRIPT_DIR/ide-launcher-base" "$@"

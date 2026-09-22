@@ -1,4 +1,4 @@
-IDEBRIDGE_SRCS := tools/idebridge/idebridge.c tools/idebridge/idebridge_file_utils.c tools/idebridge/idebridge_error_format.c
+IDEBRIDGE_SRCS := tools/idebridge/idebridge.c tools/idebridge/idebridge_file_utils.c tools/idebridge/idebridge_error_format.c tools/idebridge/idebridge_type.c
 IDEBRIDGE_OBJS := $(patsubst tools/idebridge/%.c,$(TOOLS_BUILD_DIR)/idebridge_objs/%.o,$(IDEBRIDGE_SRCS))
 IDEBRIDGE_DEP_FILES := $(IDEBRIDGE_OBJS:.o=.d)
 ANALYSIS_ARTIFACT_IO_SRC := src/core/Analysis/analysis_artifact_io.c
@@ -6,6 +6,9 @@ TEST_FIXTURE_UTILS_SRC := tests/test_fixture_utils.c
 IDEBRIDGE_PHASE_TEST_SUPPORT_SRCS := \
 	src/core/Ipc/ide_ipc_server.c \
 	src/core/Ipc/ide_ipc_server_utils.c \
+	src/core/Ipc/ide_ipc_session_export.c \
+	src/core/Ipc/ide_ipc_presentation.c \
+	src/core/Ipc/ide_ipc_typing.c \
 	src/core/Ipc/ide_ipc_build_helpers.c \
 	src/core/Ipc/ide_ipc_query_helpers.c \
 	src/core/Ipc/ide_ipc_search_helpers.c \
@@ -25,7 +28,7 @@ IDEBRIDGE_PHASE_TEST_SUPPORT_SRCS := \
 	src/core/Analysis/library_index.c \
 	src/core/LoopKernel/mainthread_context.c \
 	src/app/GlobalInfo/workspace_prefs.c \
-	../fisiCs/src/Compiler/diagnostic_metadata.c
+	$(FISICS_DIR)/src/Compiler/diagnostic_metadata.c
 DIAG_PACK_EXPORT_OBJ := $(HOST_OBJ_DIR)/idebridge_support/core/Diagnostics/diagnostics_pack_export.o
 DIAG_DATA_EXPORT_OBJ := $(HOST_OBJ_DIR)/idebridge_support/core/Diagnostics/diagnostics_core_data_export.o
 IDEBRIDGE_LDFLAGS := $(LIB_DIRS) -ljson-c

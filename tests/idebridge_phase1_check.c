@@ -128,6 +128,11 @@ static int expect_error_code(const char* response, const char* code) {
 }
 
 int main(void) {
+    const char* bridge_bin = getenv("IDE_BRIDGE_TEST_BIN");
+    if (!bridge_bin || !*bridge_bin) {
+        fprintf(stderr, "IDE_BRIDGE_TEST_BIN must name the built bridge\n");
+        return 1;
+    }
     if (!ide_ipc_start("/tmp/idebridge_phase1_project")) {
         fprintf(stderr, "failed to start IPC server\n");
         return 1;
@@ -162,7 +167,7 @@ int main(void) {
     }
 
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "MYIDE_SOCKET='%s' ./idebridge ping >/tmp/idebridge_ping_human.txt 2>/tmp/idebridge_ping_human.err", socket_path);
+    snprintf(cmd, sizeof(cmd), "MYIDE_SOCKET='%s' '%s' ping >/tmp/idebridge_ping_human.txt 2>/tmp/idebridge_ping_human.err", socket_path, bridge_bin);
     int human_rc = system(cmd);
     if (human_rc == -1 || !WIFEXITED(human_rc) || WEXITSTATUS(human_rc) != 0) {
         fprintf(stderr, "idebridge human ping failed\n");
@@ -170,7 +175,7 @@ int main(void) {
         return 1;
     }
 
-    snprintf(cmd, sizeof(cmd), "MYIDE_SOCKET='%s' ./idebridge ping --json >/tmp/idebridge_ping_json.txt 2>/tmp/idebridge_ping_json.err", socket_path);
+    snprintf(cmd, sizeof(cmd), "MYIDE_SOCKET='%s' '%s' ping --json >/tmp/idebridge_ping_json.txt 2>/tmp/idebridge_ping_json.err", socket_path, bridge_bin);
     int json_rc = system(cmd);
     if (json_rc == -1 || !WIFEXITED(json_rc) || WEXITSTATUS(json_rc) != 0) {
         fprintf(stderr, "idebridge json ping failed\n");

@@ -8,7 +8,7 @@
 struct IDECoreState;
 
 void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* core);
+bool terminal_prepare_for_presentation(const UIPane* pane);
 
 #endif
-
 

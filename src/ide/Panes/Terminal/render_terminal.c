@@ -24,6 +24,28 @@
 #define TERMINAL_ATTR_UNDERLINE (1 << 1)
 #define TERMINAL_ATTR_WIDE_CONTINUATION (1 << 7)
 #define TERMINAL_DEFAULT_BG     0x000000FFu
+enum { TERMINAL_SCROLL_TRACK_WIDTH = 6, TERMINAL_SCROLL_TRACK_PADDING = 4 };
+
+static SDL_Rect terminal_viewport_for_pane(const UIPane* pane) {
+    const int padding = TERMINAL_PADDING;
+    SDL_Rect viewport = {
+        .x = pane->x + padding,
+        .y = pane->y + padding + TERMINAL_HEADER_HEIGHT,
+        .w = pane->w - (padding * 2 + TERMINAL_SCROLL_TRACK_WIDTH + TERMINAL_SCROLL_TRACK_PADDING),
+        .h = pane->h - (padding * 2 + TERMINAL_HEADER_HEIGHT)
+    };
+    if (viewport.w < 0) viewport.w = 0;
+    if (viewport.h < 0) viewport.h = 0;
+    return viewport;
+}
+
+bool terminal_prepare_for_presentation(const UIPane* pane) {
+    if (!pane) return false;
+    SDL_Rect viewport = terminal_viewport_for_pane(pane);
+    if (viewport.w <= 0 || viewport.h <= 0) return false;
+    terminal_resize_grid_for_pane(viewport.w, viewport.h);
+    return true;
+}
 
 static void render_terminal_header_button(SDL_Renderer* renderer,
                                           SDL_Rect rect,
@@ -441,8 +463,6 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     }
 
     const int padding = TERMINAL_PADDING;
-    const int trackWidth = 6;
-    const int trackPadding = 4;
     const int headerH = TERMINAL_HEADER_HEIGHT;
 
     SDL_Rect header = {
@@ -452,14 +472,7 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         .h = headerH
     };
 
-    SDL_Rect viewport = {
-        .x = pane->x + padding,
-        .y = pane->y + padding + headerH,
-        .w = pane->w - (padding * 2 + trackWidth + trackPadding),
-        .h = pane->h - (padding * 2 + headerH)
-    };
-    if (viewport.w < 0) viewport.w = 0;
-    if (viewport.h < 0) viewport.h = 0;
+    SDL_Rect viewport = terminal_viewport_for_pane(pane);
 
     if (viewport.w > 0 && viewport.h > 0) {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -675,9 +688,9 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
 
     if (showScrollbar) {
         SDL_Rect track = {
-            viewport.x + viewport.w + trackPadding,
+            viewport.x + viewport.w + TERMINAL_SCROLL_TRACK_PADDING,
             viewport.y,
-            trackWidth,
+            TERMINAL_SCROLL_TRACK_WIDTH,
             viewport.h
         };
         SDL_Rect thumb = scroll_state_thumb_rect(scroll, track.x, track.y, track.w, track.h);
