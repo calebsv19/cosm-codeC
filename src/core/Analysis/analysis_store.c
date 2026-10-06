@@ -5,6 +5,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "core/LoopKernel/mainthread_context.h"
 
@@ -249,8 +251,13 @@ static void ensure_cache_dir(const char* workspaceRoot) {
     char dir[1024];
     snprintf(dir, sizeof(dir), "%s/ide_files", workspaceRoot);
     struct stat st;
-    if (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+    if (lstat(dir, &st) != 0) {
         mkdir(dir, 0755);
+        return;
+    }
+    // Refuse to follow workspace-controlled symlinks for cache directory.
+    if (!S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) {
+        return;
     }
 }
 
@@ -283,12 +290,15 @@ void analysis_store_save(const char* workspaceRoot) {
     }
 
     const char* serialized = json_object_to_json_string_ext(arr, JSON_C_TO_STRING_PLAIN);
-    FILE* f = fopen(path, "w");
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
+    FILE* f = (fd >= 0) ? fdopen(fd, "w") : NULL;
     if (f && serialized) {
         fputs(serialized, f);
         fclose(f);
     } else if (f) {
         fclose(f);
+    } else if (fd >= 0) {
+        close(fd);
     }
     json_object_put(arr);
     analysis_store_unlock();
