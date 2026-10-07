@@ -224,3 +224,13 @@ Recent update notes:
 - `0.14.3`: added `kit_render_external_text_reset_font_system(...)` so bridge hosts can clear shared external-text font caches before SDL_ttf shutdown/restart and avoid stale derived font handles in later text measurement.
 - `0.14.2`: truth-locked the live backend/text boundary, documented borrowed frame-data lifetime rules, added lifecycle/zoom/borrow-contract tests, and rejected backend attachment during an open frame.
 - `0.14.1`: external text font-source unregister now clears derived point-size font cache entries for that source path, preventing stale SDL_ttf font handles from surviving app/menu shutdown and later crashing text measurement.
+
+## 0.15.0 optional native font fallback
+
+`kit_render_native_font.h` adds an opt-in SDL surface adapter. On macOS it
+uses CoreText shaped system fallback runs for missing CJK/emoji glyphs, with
+the same line metrics for logical measurement and scaled rasterization.
+The host retains its font choice, clipping, texture cache and input policy.
+Link CoreText, CoreGraphics and CoreFoundation when using these functions on macOS. Other
+platforms return unsupported so existing host text paths remain available.
+No mandatory native dependency is added to the portable/null backend.

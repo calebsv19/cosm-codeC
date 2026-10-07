@@ -3,6 +3,7 @@
 
 #include <SDL2/SDL.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include "ide/Panes/Terminal/terminal_grid.h"
 
 #define TERMINAL_LINE_HEIGHT 20
@@ -81,6 +82,7 @@ bool terminal_debug_overlay_enabled(void);
 int terminal_cell_width(void);
 int terminal_cell_height(void);
 int terminal_session_count(void);
+uint64_t terminal_session_generation(void);
 int terminal_active_index(void);
 bool terminal_set_active(int index);
 int terminal_create_interactive(const char* start_dir);

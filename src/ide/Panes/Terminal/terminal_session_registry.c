@@ -7,6 +7,8 @@ static int g_tab_rect_count = 0;
 static SDL_Rect g_plus_rect = {0};
 static SDL_Rect g_close_rect = {0};
 static int g_next_id = 1;
+static uint64_t g_session_generation=1;
+uint64_t terminal_session_generation(void) { return g_session_generation; }
 
 static int count_interactive(void) {
     int n = 0;
@@ -30,6 +32,7 @@ static void terminal_init_session(TerminalSession* s) {
     s->followOutput = true;
     s->inUse = true;
     s->id = g_next_id++;
+    ++g_session_generation;
 }
 
 int terminal_session_count(void) {
@@ -42,6 +45,7 @@ int terminal_active_index(void) {
 
 bool terminal_set_active(int index) {
     if (index < 0 || index >= g_session_count) return false;
+    if (g_active_index!=index) ++g_session_generation;
     g_active_index = index;
     TerminalSession* s = active_session();
     if (s) {
@@ -64,6 +68,7 @@ bool terminal_set_name(int index, const char* name) {
     if (index < 0 || index >= g_session_count) return false;
     TerminalSession* s = &g_sessions[index];
     if (!name) return false;
+    ++g_session_generation;
     snprintf(s->name, sizeof(s->name), "%s", name);
     return true;
 }
@@ -112,6 +117,7 @@ void terminal_close_interactive(int index) {
         g_sessions[i - 1] = g_sessions[i];
     }
     g_session_count--;
+    ++g_session_generation;
     if (g_active_index >= g_session_count) g_active_index = g_session_count - 1;
     if (g_active_index < 0) g_active_index = 0;
 }

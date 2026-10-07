@@ -79,6 +79,7 @@ SDL_Rect task_panel_scroll_track_rect(void);
 SDL_Rect task_panel_scroll_thumb_rect(void);
 void task_panel_set_scroll_rects(SDL_Rect track, SDL_Rect thumb);
 UIPanelTaggedRectList* task_panel_control_hits(void);
+bool task_activate_top_control(TaskTopControlId id);
 
 #define includeNestLabel (*task_panel_include_nest_label_ptr())
 #define taskRoots (*task_panel_roots_ptr())

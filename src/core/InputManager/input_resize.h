@@ -10,5 +10,7 @@ void handleResizeDragging(SDL_Event* event,
                           ResizeZone* zones, int zoneCount,
                           UIPane** panes, int* paneCount);
 
+void cancelResizeDragging(UIPane** panes, int* paneCount);
+
 #endif // INPUT_RESIZE_H
 

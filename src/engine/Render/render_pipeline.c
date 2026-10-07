@@ -1,3 +1,6 @@
+#include "ide/UI/window_lifecycle.h"
+#include "ide/UI/pane_composition.h"
+#include "ide/UI/window_lifecycle_proof.h"
 #include "build_config.h"
 #include "engine/Render/render_pipeline.h"
 #include "engine/Render/render_helpers.h"
@@ -355,6 +358,10 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     VkExtent2D extent = {0, 0};
 #endif
 
+    if (!ide_window_lifecycle_refresh(panes, &paneCount)) {
+        if (timerHudActive) ts_session_stop_timer(timer_hud_session(), "Render");
+        return;
+    }
     SDL_GetWindowSize(ctx->window, &winW, &winH);
 
     if (timerHudActive) {
@@ -497,9 +504,12 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
     if (timerHudActive) {
         ts_session_start_timer(timer_hud_session(), "PaneRender");
     }
+    KitPaneComposition composition = {0};
+    bool composition_valid = ide_pane_composition_build(&composition,panes,paneCount,winW,winH);
+    if (!composition_valid) fprintf(stderr,"[UI] Invalid pane composition; pane paint skipped.\n");
     for (int i = 0; i < paneCount; i++) {
         UIPane* pane = panes[i];
-        if (!pane || !pane->render) continue;
+        if (!composition_valid || !pane || !pane->render || !pane->visible || pane->w <= 0 || pane->h <= 0) continue;
 
         // Keep cache dependency bookkeeping in sync with pane geometry.
         if (pane->cacheWidth != pane->w || pane->cacheHeight != pane->h) {
@@ -510,7 +520,11 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
             pane->cacheValid = false;
         }
 
+        SDL_Rect pane_clip = {0};
+        if (!ide_pane_composition_clip(&composition,pane,&pane_clip)) continue;
+        pushClipRect(&pane_clip);
         pane->render(pane, pane == getCoreState()->activeMousePane, core);
+        popClipRect();
 
         if (!pane->dirty) {
             pane->cacheValid = true;
@@ -596,6 +610,7 @@ void RenderPipeline_renderAll(UIPane** panes, int paneCount,
         }
     } else {
         s_logged_end_failure = 0;
+        ide_window_proof_presented();
     }
     if (timerHudActive) {
         ts_session_stop_timer(timer_hud_session(), "Present");

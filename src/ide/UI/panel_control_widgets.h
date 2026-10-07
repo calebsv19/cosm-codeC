@@ -20,6 +20,7 @@ typedef struct UIPanelCompactButtonSpec {
     bool pressed;
     bool disabled;
     bool outlined;
+    bool close_glyph; /* Fixed geometry avoids clipping a zoomed font glyph. */
     bool use_custom_fill;
     SDL_Color custom_fill;
     bool use_custom_outline;
@@ -63,14 +64,15 @@ typedef struct UIPanelCompactButtonRowItem {
     bool pressed;
     bool disabled;
     bool outlined;
+    bool close_glyph; /* Fixed geometry avoids clipping a zoomed font glyph. */
 } UIPanelCompactButtonRowItem;
 
 static inline bool ui_panel_rect_contains(const SDL_Rect* rect, int x, int y) {
     if (!rect || rect->w <= 0 || rect->h <= 0) return false;
     return x >= rect->x &&
-           x <= (rect->x + rect->w) &&
+           x < (rect->x + rect->w) &&
            y >= rect->y &&
-           y <= (rect->y + rect->h);
+           y < (rect->y + rect->h);
 }
 
 static inline UIPanelTextFieldButtonStripLayout ui_panel_text_field_button_strip_layout(int x,
@@ -172,72 +174,10 @@ static inline int ui_panel_tagged_rect_list_hit_test(const UIPanelTaggedRectList
     return 0;
 }
 
+void renderSharedPanelButton(SDL_Renderer* renderer, const UIPanelCompactButtonSpec* spec);
 static inline void ui_panel_compact_button_render(SDL_Renderer* renderer,
                                                   const UIPanelCompactButtonSpec* spec) {
-    if (!renderer || !spec) return;
-
-    IDEThemePalette palette = {0};
-    (void)ide_ui_button_resolve_palette(&palette);
-
-    IDEUIButtonState buttonState = {
-        .hovered = spec->hovered,
-        .selected = spec->active,
-        .pressed = spec->pressed,
-        .disabled = spec->disabled,
-        .focused = spec->outlined
-    };
-    IDEUIButtonResolvedStyle resolved = {0};
-    if (!ide_ui_button_resolve_style(&palette,
-                                     spec->label,
-                                     IDE_UI_BUTTON_VARIANT_DEFAULT,
-                                     buttonState,
-                                     &resolved)) {
-        resolved.fill = palette.button_fill;
-        resolved.outline = palette.button_border;
-        resolved.text = palette.text_primary;
-    }
-
-    SDL_Color bg = spec->use_custom_fill ? spec->custom_fill : resolved.fill;
-    SDL_Color outline = spec->use_custom_outline ? spec->custom_outline : resolved.outline;
-
-    SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, bg.a);
-    SDL_RenderFillRect(renderer, &spec->rect);
-    SDL_SetRenderDrawColor(renderer, outline.r, outline.g, outline.b, 255);
-    SDL_RenderDrawRect(renderer, &spec->rect);
-
-    if (spec->outlined) {
-        SDL_Rect outer = ide_ui_button_outer_focus_rect(spec->rect);
-        SDL_SetRenderDrawColor(renderer, outline.r, outline.g, outline.b, outline.a);
-        SDL_RenderDrawRect(renderer, &outer);
-    }
-
-    const char* src = spec->label ? spec->label : "";
-    int textMaxW = spec->rect.w - 8;
-    size_t keepLen = getTextClampedLength(src, textMaxW);
-    char labelBuf[64];
-    if (keepLen >= sizeof(labelBuf)) keepLen = sizeof(labelBuf) - 1;
-    memcpy(labelBuf, src, keepLen);
-    labelBuf[keepLen] = '\0';
-
-    TTF_Font* tierFont = getUIFontByTier(spec->tier);
-    if (!tierFont) {
-        tierFont = getActiveFont();
-    }
-    int textW = getTextWidthWithFont(labelBuf, tierFont);
-    int textH = tierFont ? TTF_FontHeight(tierFont) : 12;
-    if (textH < 1) textH = 12;
-
-    int tx = spec->rect.x + (spec->rect.w - textW) / 2;
-    int ty = spec->rect.y + (spec->rect.h - textH) / 2;
-    if (ty < spec->rect.y) {
-        ty = spec->rect.y;
-    }
-    drawTextUTF8WithFontColor(tx,
-                              ty,
-                              labelBuf,
-                              tierFont,
-                              resolved.text,
-                              false);
+    renderSharedPanelButton(renderer, spec);
 }
 
 static inline void ui_panel_compact_button_row_render(SDL_Renderer* renderer,

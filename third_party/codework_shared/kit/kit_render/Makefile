@@ -36,7 +36,7 @@ endif
 LIB = $(OBJ_DIR)/libkit_render.a
 LIB_OBJ = $(OBJ_DIR)/kit_render.o $(OBJ_DIR)/kit_render_command_validation.o $(OBJ_DIR)/kit_render_backend_null.o $(OBJ_DIR)/kit_render_backend_vk.o
 ifeq ($(KIT_RENDER_ENABLE_VK),1)
-LIB_OBJ += $(OBJ_DIR)/kit_render_external_text.o $(OBJ_DIR)/kit_render_backend_vk_commands.o
+LIB_OBJ += $(OBJ_DIR)/kit_render_external_text.o $(OBJ_DIR)/kit_render_native_font.o $(OBJ_DIR)/kit_render_backend_vk_commands.o
 endif
 TEST_BIN = $(OBJ_DIR)/kit_render_test
 CONTRACT_TEST_BIN = $(OBJ_DIR)/kit_render_command_contract_test
@@ -145,3 +145,17 @@ test-fidelity-vk: fidelity-harness
 
 clean:
 	rm -rf $(OBJ_DIR)
+
+$(OBJ_DIR)/kit_render_native_font.o: src/kit_render_native_font.c include/kit_render_native_font.h | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(VK_ENABLE_CFLAGS) $(INC) -MMD -MP -c $< -o $@
+
+# Optional native adapter test; every output stays in caller-selected OBJ_DIR.
+NATIVE_FONT_TEST_FONT ?= ../../assets/fonts/Lato-Regular.ttf
+NATIVE_FONT_FRAMEWORKS :=
+ifeq ($(UNAME_S),Darwin)
+NATIVE_FONT_FRAMEWORKS := -framework CoreText -framework CoreGraphics -framework CoreFoundation
+endif
+.PHONY: test-native-font
+test-native-font: | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(shell $(PKG_CONFIG) --cflags sdl2 SDL2_ttf) -Iinclude src/kit_render_native_font.c tests/kit_render_native_font_test.c $(shell $(PKG_CONFIG) --libs sdl2 SDL2_ttf) $(NATIVE_FONT_FRAMEWORKS) -lm -o $(OBJ_DIR)/kit_render_native_font_test
+	$(OBJ_DIR)/kit_render_native_font_test "$(NATIVE_FONT_TEST_FONT)"

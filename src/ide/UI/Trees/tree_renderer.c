@@ -32,6 +32,21 @@ static SDL_Color statusColors[8] = {
     { 224, 226, 244, 255 }   // SECTION
 };
 
+static bool statusColorOverrides[8];
+static SDL_Color tree_status_text_color(TreeNodeColor color) {
+    int index=color>=0 && color<8 ? color : 0;
+    IDEThemePalette palette={0};
+    if (!statusColorOverrides[index] && ide_shared_theme_resolve_palette(&palette)) {
+        switch (index) {
+            case 1: return palette.accent_warning;
+            case 2: case 4: return palette.accent_primary;
+            case 3: return palette.accent_error;
+            case 5: return palette.text_muted;
+            default: return palette.text_primary;
+        }
+    }
+    return statusColors[index];
+}
 static int tree_line_height_for_pane(const UIPane* pane) {
     (void)pane;
     return ide_ui_dense_row_height();
@@ -101,6 +116,7 @@ static SDL_Color control_panel_symbol_tone_by_node(const UITreeNode* node) {
 void setTreeColorOverride(TreeNodeColor color, SDL_Color sdlColor) {
     if (color >= 0 && color < 8) {
         statusColors[color] = sdlColor;
+        statusColorOverrides[color] = true;
     }
 }
 
@@ -193,7 +209,7 @@ static void renderTreeRecursive(UITreeNode* node,
 
     //  Set color by node->color enum
     TreeNodeColor color = node->color;
-    SDL_Color col = statusColors[color >= 0 && color < 8 ? color : 0];
+    SDL_Color col = tree_status_text_color(color);
     if (controlPanelTone) {
         col = control_panel_symbol_tone_by_node(node);
     }
@@ -378,7 +394,7 @@ void renderTreePanelWithScroll(UIPane* pane, UITreeNode* root,
             }
 
             TreeNodeColor color = n->color;
-            SDL_Color col = statusColors[color >= 0 && color < 8 ? color : 0];
+            SDL_Color col = tree_status_text_color(color);
             if (controlPanelTone) {
                 col = control_panel_symbol_tone_by_node(n);
             }

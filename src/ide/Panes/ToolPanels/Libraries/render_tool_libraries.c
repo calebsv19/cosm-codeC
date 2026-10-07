@@ -1,3 +1,4 @@
+#include "ide/UI/panel_button_scope.h"
 #include "render_tool_libraries.h"
 
 #include "engine/Render/render_pipeline.h"
@@ -648,6 +649,9 @@ void renderLibrariesPanel(UIPane* pane) {
                                        .tier = CORE_FONT_TEXT_SIZE_CAPTION
                                    });
     (void)ui_panel_tagged_rect_list_add(controlHits, LIB_TOP_CONTROL_LOGS_TOGGLE, logsRect);
+
+    ide_panel_buttons_domain(IDE_PANEL_LIBRARIES,pane,st,(uint64_t)st->viewMode);
+    ide_panel_buttons_publish(IDE_PANEL_LIBRARIES,pane,controlHits,0);
 
     // Status indicator in header area (not clipped)
     AnalysisRefreshViewSnapshot refreshView = {0};

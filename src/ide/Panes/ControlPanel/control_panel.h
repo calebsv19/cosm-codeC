@@ -1,3 +1,4 @@
+#include "kit_ui_text_edit.h"
 #ifndef CONTROL_PANEL_H
 #define CONTROL_PANEL_H
 
@@ -209,4 +210,8 @@ void control_panel_toggle_filters_collapsed(void);
 void control_panel_capture_persist_state(ControlPanelPersistState* outState);
 void control_panel_apply_persist_state(const ControlPanelPersistState* state);
 
+const KitUiTextEdit* control_panel_get_search_edit(void);
+bool control_panel_handle_search_edit_key_mod(SDL_Keycode key,SDL_Keymod mod);
+
+bool control_panel_search_pointer(size_t position, bool extend);
 #endif

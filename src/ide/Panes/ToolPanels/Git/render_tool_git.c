@@ -1,3 +1,4 @@
+#include "ide/UI/panel_button_scope.h"
 #include "ide/Panes/ToolPanels/Git/render_tool_git.h"
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
@@ -62,6 +63,9 @@ void renderGitPanel(UIPane* pane) {
     SDL_Rect msgBox = topStrip.middle_rect;
     SDL_Rect commitBtn = topStrip.trailing_rect;
     git_panel_set_top_strip_layout(topStrip);
+    UIPanelTaggedRect items[2]={{1,addAllBtn},{2,commitBtn}};
+    UIPanelTaggedRectList hits={items,2,2};
+    ide_panel_buttons_publish_field(IDE_PANEL_GIT,pane,&hits,0,msgBox);
     int mouseX = 0;
     int mouseY = 0;
     Uint32 mouseButtons = SDL_GetMouseState(&mouseX, &mouseY);
@@ -99,11 +103,13 @@ void renderGitPanel(UIPane* pane) {
     const char* msg = git_panel_get_message();
     ui_panel_text_field_render(renderer,
                                &(UIPanelTextFieldSpec){
+                                   .owner_pane = pane, .owner_group = IDE_PANEL_GIT,
                                    .rect = msgBox,
                                    .text = msg,
                                    .placeholder = "commit message...",
                                    .focused = git_panel_is_message_focused(),
                                    .cursor = git_panel_get_message_cursor(),
+                                   .edit = git_panel_get_message_edit(),
                                    .tier = CORE_FONT_TEXT_SIZE_CAPTION
                                });
 
@@ -117,7 +123,9 @@ void renderGitPanel(UIPane* pane) {
     snprintf(branchLine, sizeof(branchLine), "Branch: %s", (branchName && branchName[0]) ? branchName : "unknown");
     SDL_Rect branchClip = { pane->x + 10, layout.branchY, pane->w - 20, metaLineHeight };
     if (branchClip.w < 0) branchClip.w = 0;
-    SDL_Color branchColor = {232, 238, 248, 255};
+    IDEThemePalette palette={0};
+    (void)ide_shared_theme_resolve_palette(&palette);
+    SDL_Color branchColor = palette.text_muted;
     drawTextUTF8WithFontColorClipped(branchClip.x,
                                      branchClip.y,
                                      branchLine,
@@ -130,7 +138,7 @@ void renderGitPanel(UIPane* pane) {
     if (status && status[0]) {
         SDL_Rect statusClip = { pane->x + 10, layout.statusY, pane->w - 20, metaLineHeight };
         if (statusClip.w < 0) statusClip.w = 0;
-        SDL_Color statusColor = {213, 220, 233, 255};
+        SDL_Color statusColor = palette.text_primary;
         drawTextUTF8WithFontColorClipped(statusClip.x,
                                          statusClip.y,
                                          status,

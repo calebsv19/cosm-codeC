@@ -112,3 +112,11 @@ clean:
 .PHONY: verify-contained
 verify-contained:
 	@python3 "$(CODEWORK_ROOT)/bin/verify_ide_contained.py" --source "$(CURDIR)"
+
+$(HOST_OBJ_DIR)/ui_sdl_adapters/%.o: $(KIT_UI_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -I$(TARGET_HOMEBREW_PREFIX)/include/SDL2 -c $< -o $@
+
+$(PANE_COMPOSITION_OBJ): $(PANE_COMPOSITION_SRC)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(ARCH_FLAGS) -c $< -o $@

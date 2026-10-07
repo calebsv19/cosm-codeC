@@ -1,5 +1,17 @@
 # Version Compatibility Matrix
 
+## BBF7 point/plane query adoption checkpoint — 2026-10-07
+
+`core_collision3d 0.1.1` is committed and independently tested. Ball Bounce retained Main Edit consumes it in actual multi-sphere wall queries through its normal live shared root; the minimum supported version is0.1.1. Both native compiler variants preserve complete original2400-tick trajectories and pass shared-query refusal/recovery, native/app MCP, full-cache and protected B5/B6 tests. Actual desktop and isolated development-package qualification are distinct from canonical/install/release adoption. FP contraction is scoped inside the query implementation, preserving existing app solver flags.
+
+Connected Mechanics surface3d static-plane integration remains pending its active BE2 owner's reserved writer boundary and default managed adoption. Its planned minimum is0.1.1; copied seam tests are qualified contract evidence, not current adoption. A sanctioned module-only managed rollout has been prepared in a clean temporary clone and changes only the six new module files, retaining every existing vendor path/pin. No original CMS source/vendor/index was modified. World construction, integration, response, XPBD/materials, accepted-state, sessions, caches, UI and rendering remain app-owned. Full BBF7 and its separate secondary closure remain pending.
+
+
+## BBF7 shared point/plane query foundation — 2026-10-07
+
+`core_collision3d 0.1.0` supplies a renderer-free, allocation-free C11 double-precision point/plane signed distance and clearance gap. It rejects invalid input without changing caller output; callers declare one Cartesian meter frame and retain integration, response, contacts, material, lifecycle and presentation policy. FP contraction is disabled for the documented arithmetic order. Core math float vectors cannot preserve this double contract; core_space remains the coordinate conversion owner. The initial adoption targets are Ball Bounce multi-sphere room walls and Connected Mechanics surface3d static-plane predicates. Production consumer cutover and qualification are pending; copied seam probes do not establish adoption. See `core/core_collision3d/README.md`. No general 3D collision solver is claimed.
+
+
 Minimum supported shared-module versions per app.
 Last updated: 2026-08-22
 
@@ -437,3 +449,150 @@ See [migration pilot feedback](../UI_MIGRATION_GUIDE.md#first-pilot-feedback-ske
 ## 2026-10-06 — Renderer checkpoint available; Carta adoption pending
 
 The additive texture-corner API is checkpointed in `vk_renderer 1.7.0`. Existing adopter minimums remain unchanged. Carta Main Edit retains a documented 1.3.2-based backport; a future exact-pin subtree update must preserve textured terrain and presentation recovery before raising its minimum.
+
+## 2026-10-06 Carta Main Edit exact shared adoption
+
+Retained Carta Main Edit imports exact shared `09ff89a0a32d80981010b15a7d45a2cdf8e5fd9f`
+(tree `c5a9cfed9ac92388ee071804990dc982b1449639`) in dedicated import
+`4f1105d3e93420eddaae973a9af2e631ea511876`, followed by app integration
+`e0b7761a48b7e36b436bb25402121cb846d7a4b4`. Renderer 1.7.0 and runtime 0.6.0
+own frame submission/resource retirement and surface recovery; Carta keeps map,
+terrain, routes, camera/input, backend choice and diagnostics. Its build and
+direct-source tests link the separate render command-validation module.
+
+Fresh build, focused/shared contract tests, aggregate/headless smoke, native
+road and rotated terrain replay, SDL terrain fallback, Retina resize/readback
+and clean-source Main Edit package gates passed. Vulkan validation and
+frame/presenter invariants are clean. This is local macOS source/package proof,
+not native Linux/Windows, full UI adoption, fullscreen qualification or release.
+
+The exact snapshot also supplies kit_ui 0.18.0, kit_pane 0.5.0, kit_render 0.14.6
+and kit_workspace_authoring 0.6.1. Availability is distinct from adoption:
+toolbar/hiking presentation and semantic activation are the next bounded
+integration slice; text/focus/pane/window host contracts follow separately.
+Canonical Carta remains `bb693e9`, VERSION 0.3.0; installed apps and personal
+data remain separate. No other program or uncommitted shared modules were
+imported. See retained Main Edit `docs/shared_dependency_checkpoint.md`.
+
+## 2026-10-06 Carta shared navigation and hiking controls
+
+Clean Carta Main Edit `ee4a07fb5a28ff4a493ddf7dddc836ac096a4665` adopts
+`kit_ui 0.18.0` from the unchanged exact shared `09ff89a` pin for four workspace
+tabs and normal Hiking & History action buttons. The app synchronizes a
+caller-owned semantic surface, dispatches stable domain/action keys to existing
+product bodies, and preserves app-owned rectangles, data, filters and persistence.
+Compact rounded borders, measured centered/clipped captions and focus markers
+use shared appearance math. Vulkan uses native rounded geometry; SDL uses the
+optional shared adapter. Pointer activation occurs once on matching-owner release;
+keyboard activation, modal/resize/selection cancellation and hidden-control
+eligibility are production-linked. Guarded Undo remains visible after filtering.
+
+Fresh build, focused app/shared interaction and 1x/2x SDL appearance tests,
+aggregate/headless/visual, native Vulkan road/terrain and SDL fallback replays,
+clean-source package and guarded Desktop Main Edit refresh pass. Zero native
+validation or presenter/lifecycle invariant failures. Previous installed bundle
+is retained for rollback; stable Carta and personal data are preserved. Native
+captures establish expression/alignment, not cross-backend pixel equality or a
+performance claim. No shared API/module version changed; application VERSION
+0.3.0 and canonical `bb693e9` remain unchanged. No release, push or Registry effect.
+
+Other Map HUD/layer and places/service controls, list/legend rows and modal forms
+remain prior hosts. Bounded text editing/modal focus, pane composition and window/
+fullscreen qualification are subsequent slices. See retained Main Edit
+`docs/shared_control_adoption.md`; available kit modules do not imply full adoption.
+
+## 2026-10-06 Carta text/modal and places control adoption
+
+Clean Main Edit `55922ba0d79f874538b30e63d55fc859a9518b0d` adopts existing
+`kit_ui 0.18.0` bounded UTF-8 editing, SDL event/clipboard, text presentation,
+native caret and modal focus-scope contracts from unchanged exact shared `09ff89a`.
+History forms/peak search, place/profile/pet/route/backup fields, ordinary search
+and route naming retain their declared capacities and app-owned validation,
+preview invalidation, commit/cancel and persistence. Current font metrics drive
+synchronous clipped selection/preedit/caret and pointer positioning. Native text
+sessions follow visible focused fields; modal exit restores an eligible semantic
+button key. Lifecycle invalidation preserves the outstanding release guard.
+
+The normal places/service toolbar, saved-route buttons and history modal type/
+state/preview/save actions now use shared presentation and semantic release
+activation. Route buttons call product bodies directly; no synthetic key dispatch.
+No shared API/module version or application persisted schema changed. Build,
+production-linked/shared text/focus/clipboard/native mapping tests and aggregate/
+headless/visual pass; private audit records exact native/package/install readback.
+Native and SDL expression, focus eligibility, real OS IME acceptance, font glyph
+coverage and performance remain separate evidence planes. The current font shows
+missing CJK preedit glyphs; Latin Unicode editing/display is qualified.
+
+Remaining Carta hosts: main pin-name/Ingest editors, Map HUD/layer and list/chooser
+controls, place-modal buttons, full field/button traversal, pane composition and
+fullscreen/window qualification. Canonical `bb693e9` and VERSION0.3.0 remain
+unchanged. No release, push, Registry or remote effect. See retained Main Edit
+`docs/shared_text_modal_adoption.md`; availability still does not mean full adoption.
+
+## 2026-10-06 Carta remaining-host UI adoption
+
+Retained Main Edit extends the immutable shared `09ff89a` adoption to pin-name
+and Ingest bounded UTF-8 editing; remaining Map HUD/sidebar/metadata/place-modal,
+view/peak/terrain chooser and legend controls; and shared pane/window contracts.
+Existing kit_ui 0.18.0 and kit_pane 0.5.0 own semantic surfaces, text, composition,
+topmost hits, pointer capture and a 14-logical-pixel splitter hit region. The visible
+divider is one pixel and ordinary resizing never enters workspace authoring.
+Normal map projection remains beneath the sidebar; Hiking uses composed reserved
+map bounds. Optional sidebar ratio is app-owned view persistence.
+
+The actual app loop observes logical/drawable size and presentability, uses shared
+F11 fullscreen, cancels transient domain/modal gestures without editing drafts,
+counts successful presentations and suspends hidden/minimized rendering. Shared
+Vulkan owns swapchain/resource recovery. App policies retain lists/reorder, sliders,
+map endpoints, imports, history/status/Undo and guarded storage/backup transactions.
+Semantic actions call product bodies directly; no synthetic hit/key dispatch.
+Visible modal inventories and selected/store/route bindings invalidate stale presses.
+
+No shared code/API/module VERSION changes are needed. Production-linked fixtures
+and native actual-loop receipts qualify adopted behavior; exact final source,
+aggregate/performance, native and comparison-package results are retained in the
+private Carta completion audit. Combined field/button order, OS IME/font acceptance,
+external-monitor/platform moves and catastrophic device loss remain separate
+refinement/qualification. Canonical `bb693e9`, VERSION0.3.0 and public release are
+unchanged. See retained Main Edit `docs/shared_ui_rollout.md`.
+
+## 2026-10-06 Sonics Main Edit transport adoption
+
+Sonics runtime work is checkpointed as canonical `fb832eb` and reconciled into
+persistent Main Edit. Separate subtree commit `9dc47a0` imports exactly shared
+`09ff89a0a32d80981010b15a7d45a2cdf8e5fd9f`, with kit_ui 0.18.0, kit_pane 0.5.0,
+vk_renderer 1.7.0 and vk_runtime 0.6.0. Host integration `398bb45` adopts shared
+surface/focus/button presentation for LOAD/SAVE/PLAY/STOP/GRID/B/W/H. Product
+rectangles, theme/status and direct engine/recording/project/viewport commands
+remain owned by Sonics. kit_pane is available in this dependency but this slice
+makes no new shared pane-composition claim.
+
+Fresh build, input/transaction/media tests, stable headless suite, validation-clean
+native Vulkan startup/resize/restart and actual dark/light UI captures pass.
+Main Edit comparison package is refreshed from clean committed source with exact
+identity readback. DAW uses SDL events and Vulkan drawing; no separate SDL renderer,
+physical audio, native IME, full fullscreen or other-platform proof is claimed.
+Remaining text/modal, editor-control, pane and actual-loop window slices remain
+under the active shared UI rollout. Canonical/stable app and VERSION 0.3.0 retain
+their existing UI/release boundary. No shared API/source/module VERSION changed.
+
+Pilot adapter lessons: preserve module-local build output against app BUILD_DIR
+overrides; qualify immutable commit bytes; compile SDL bridge units with real SDL
+types; cancel captured/armed controls when host geometry changes; replace legacy
+chrome rather than adding a generic fill over it. Public host contract:
+`_worktrees/daw_main_edit/docs/shared_ui_rollout.md`; private supporting sequence:
+`docs/private_program_docs/daw/active/2026-10-06_sonics_shared_ui_rollout.md`.
+
+
+## IDE standardization completion, 2026-10-07
+
+IDE Main Edit now requires kit_render >= 0.15.0 for its optional macOS
+CoreText font fallback adapter; kit_ui 0.18.0 and kit_pane 0.5.0 retain
+interaction, bounded scalar text, measured field presentation, window observation
+and pane composition. vk_renderer 1.7.0/vk_runtime 0.6.0 retain Vulkan ownership.
+No core semantics or generic docking contract changes. IDE retains editor/PTY,
+workspace, compiler, submission and file policy. Missing CJK and color emoji
+glyphs use one native shaped line for measurement/rasterization at 1x/2x.
+Existing ASCII and non-native text paths remain supported. This records source
+adoption and tests; installed qualification is recorded separately in IDE
+`docs/shared_ui_rollout.md` and the retained completion packet.

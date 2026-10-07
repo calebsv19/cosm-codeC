@@ -13,3 +13,18 @@ IDEBRIDGE_SUPPORT_OBJS := $(patsubst src/%.c,$(HOST_OBJ_DIR)/idebridge_support/%
 APP_DEP_FILES := $(APP_OBJ_FILES:.o=.d)
 TIMER_HUD_DEP_FILES := $(TIMER_HUD_OBJS:.o=.d) $(TIMER_HUD_EXTERNAL_OBJS:.o=.d)
 IDEBRIDGE_SUPPORT_DEP_FILES := $(IDEBRIDGE_SUPPORT_OBJS:.o=.d)
+
+# Optional shared SDL event/window adapters; compiled unchanged from the pin.
+UI_SDL_ADAPTER_SRCS := $(KIT_UI_DIR)/src/kit_ui_native_text_sdl.c $(KIT_UI_DIR)/src/kit_ui_interaction_sdl.c $(KIT_UI_DIR)/src/kit_ui_window_sdl.c $(KIT_UI_DIR)/src/kit_ui_window_probe_sdl.c
+UI_SDL_ADAPTER_OBJS := $(patsubst $(KIT_UI_DIR)/src/%.c,$(HOST_OBJ_DIR)/ui_sdl_adapters/%.o,$(UI_SDL_ADAPTER_SRCS))
+APP_OBJ_FILES += $(UI_SDL_ADAPTER_OBJS)
+APP_DEP_FILES += $(UI_SDL_ADAPTER_OBJS:.o=.d)
+
+PANE_COMPOSITION_SRC := $(KIT_UI_DIR)/../kit_pane/src/kit_pane_composition.c
+PANE_COMPOSITION_OBJ := $(HOST_OBJ_DIR)/pane_adapters/kit_pane_composition.o
+APP_OBJ_FILES += $(PANE_COMPOSITION_OBJ)
+APP_DEP_FILES += $(PANE_COMPOSITION_OBJ:.o=.d)
+
+ifeq ($(shell uname -s),Darwin)
+VULKAN_LIBS += -framework CoreText -framework CoreGraphics -framework CoreFoundation
+endif

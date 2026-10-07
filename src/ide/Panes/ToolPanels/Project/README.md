@@ -23,3 +23,9 @@ the choice is persisted in `~/.custom_c_ide/config.ini` alongside the workspace.
 If a folder inside `BuildOutputs/` is selected instead, the newest executable in
 that folder is used. Builds automatically refresh the tree and, when no explicit
 target has been chosen yet, the most recent artefact becomes the new run target.
+
+`project_toolbar.c` computes fresh shared paint/input geometry for four controls.
+Matching release routes to existing commands; delete controls require an eligible
+selection. Selection/root/workspace-generation, hidden, rename/authoring and
+geometry changes cancel old ownership. Tree gestures and file operations remain
+with their existing controllers.

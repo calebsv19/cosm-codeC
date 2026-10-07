@@ -6,6 +6,11 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <pthread.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdint.h>
+#include <time.h>
 #include <json-c/json.h>
 
 #define MAX_BUILD_DIAGNOSTICS 256
@@ -92,7 +97,49 @@ static void try_parse_line(const char* rawLine) {
     }
 }
 
+/* Optional persisted diagnostics must never hold up the UI or IPC startup.
+ * A bounded pair of detached readers owns only cache bytes, never app state.
+ * A clear/build/workspace change invalidates older results before publication. */
+typedef struct DiagnosticsCacheRead {
+    bool busy, done;
+    uint64_t generation;
+    struct timespec started;
+    char path[PATH_MAX];
+    char* bytes;
+} DiagnosticsCacheRead;
+static DiagnosticsCacheRead cache_reads[2];
+static pthread_mutex_t cache_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t cache_generation;
+
+static void* read_diagnostics_cache(void* argument) {
+    DiagnosticsCacheRead* request = argument;
+    char* bytes = NULL;
+    int fd = open(request->path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+    struct stat st;
+    if (fd >= 0 && fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+        st.st_size > 0 && st.st_size <= (1 << 20)) {
+        size_t size = (size_t)st.st_size, used = 0;
+        bytes = malloc(size + 1);
+        if (bytes) {
+            while (used < size) {
+                ssize_t got = read(fd, bytes + used, size - used);
+                if (got <= 0) break;
+                used += (size_t)got;
+            }
+            if (used != size) { free(bytes); bytes = NULL; }
+            else bytes[size] = '\0';
+        }
+    }
+    if (fd >= 0) close(fd);
+    pthread_mutex_lock(&cache_lock);
+    request->bytes = bytes;
+    request->done = true;
+    pthread_mutex_unlock(&cache_lock);
+    return NULL;
+}
+
 void build_diagnostics_clear(void) {
+    ++cache_generation;
     g_diag_count = 0;
     g_line_len = 0;
     g_last_index_with_notes = -1;
@@ -158,31 +205,8 @@ void build_diagnostics_save(const char* workspaceRoot) {
     json_object_put(arr);
 }
 
-void build_diagnostics_load(const char* workspaceRoot) {
-    build_diagnostics_clear();
-    if (!workspaceRoot || !*workspaceRoot) return;
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/ide_files/build_output.json", workspaceRoot);
-    FILE* f = fopen(path, "r");
-    if (!f) return;
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > 1 << 20) {
-        fclose(f);
-        return;
-    }
-    char* buf = (char*)malloc((size_t)len + 1);
-    if (!buf) {
-        fclose(f);
-        return;
-    }
-    fread(buf, 1, (size_t)len, f);
-    buf[len] = '\0';
-    fclose(f);
-
-    json_object* root = json_tokener_parse(buf);
-    free(buf);
+static void apply_diagnostics_cache(const char* bytes) {
+    json_object* root = json_tokener_parse(bytes);
     if (!root || !json_object_is_type(root, json_type_array)) {
         if (root) json_object_put(root);
         return;
@@ -218,4 +242,46 @@ void build_diagnostics_load(const char* workspaceRoot) {
         }
     }
     json_object_put(root);
+}
+
+void build_diagnostics_poll(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    for (size_t i = 0; i < 2; ++i) {
+        pthread_mutex_lock(&cache_lock);
+        DiagnosticsCacheRead* request = &cache_reads[i];
+        char* bytes = NULL;
+        if (request->busy && request->done) {
+            double elapsed = (double)(now.tv_sec - request->started.tv_sec) +
+                (double)(now.tv_nsec - request->started.tv_nsec) / 1e9;
+            if (request->generation == cache_generation && elapsed < 2.0)
+                bytes = request->bytes;
+            else free(request->bytes);
+            *request = (DiagnosticsCacheRead){0};
+        }
+        pthread_mutex_unlock(&cache_lock);
+        if (bytes) { apply_diagnostics_cache(bytes); free(bytes); }
+    }
+}
+
+void build_diagnostics_load(const char* workspaceRoot) {
+    build_diagnostics_clear();
+    build_diagnostics_poll();
+    if (!workspaceRoot || !*workspaceRoot) return;
+    pthread_mutex_lock(&cache_lock);
+    for (size_t i = 0; i < 2; ++i) {
+        DiagnosticsCacheRead* request = &cache_reads[i];
+        if (request->busy) continue;
+        *request = (DiagnosticsCacheRead){.busy=true, .generation=cache_generation};
+        clock_gettime(CLOCK_MONOTONIC, &request->started);
+        int written = snprintf(request->path, sizeof(request->path),
+            "%s/ide_files/build_output.json", workspaceRoot);
+        pthread_t thread;
+        if (written < 0 || (size_t)written >= sizeof(request->path) ||
+            pthread_create(&thread, NULL, read_diagnostics_cache, request) != 0)
+            *request = (DiagnosticsCacheRead){0};
+        else pthread_detach(thread);
+        break; /* Saturation skips this optional cache rather than spawning more. */
+    }
+    pthread_mutex_unlock(&cache_lock);
 }

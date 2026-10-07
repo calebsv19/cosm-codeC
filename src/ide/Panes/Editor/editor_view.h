@@ -14,12 +14,12 @@
 
 
 // Shared UI layout constants
-#define EDITOR_PADDING 6
+#define EDITOR_PADDING 0
 #define HEADER_HEIGHT 22
 #define HEADER_BG_R 40
 #define HEADER_BG_G 40
 #define HEADER_BG_B 40
-#define EDITOR_SPLIT_GAP 4
+#define EDITOR_SPLIT_GAP 0
 #define EDITOR_SPLIT_MIN_CHILD_W 220
 #define EDITOR_SPLIT_MIN_CHILD_H 140
 #define EDITOR_MAX_LEAF_VIEWS 8

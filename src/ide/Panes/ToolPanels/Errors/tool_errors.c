@@ -50,6 +50,7 @@ typedef struct {
     UIPanelTextFieldButtonStripLayout search_layout;
     char search_query[128];
     int search_cursor;
+    KitUiTextEdit search_edit;
     bool search_focused;
     ErrorFileSnapshot* snapshot_files;
     int snapshot_count;
@@ -304,7 +305,8 @@ static UIPanelTextEditBuffer errors_search_buffer(void) {
     return (UIPanelTextEditBuffer){
         .text = g_searchQuery,
         .capacity = (int)sizeof(errors_panel_state()->search_query),
-        .cursor = &g_searchCursor
+        .cursor = &g_searchCursor,
+        .retained = &errors_panel_state()->search_edit
     };
 }
 
@@ -312,7 +314,7 @@ const char* errors_get_search_query(void) { return g_searchQuery; }
 int errors_get_search_cursor(void) { return g_searchCursor; }
 bool errors_is_search_focused(void) { return g_searchFocused; }
 bool errors_has_active_search_query(void) { return g_searchQuery[0] != '\0'; }
-void errors_set_search_focused(bool focused) { g_searchFocused = focused; }
+void errors_set_search_focused(bool focused) { if(!focused){UIPanelTextEditBuffer buffer=errors_search_buffer();ui_panel_text_edit_blur(&buffer);} g_searchFocused = focused; }
 void errors_search_cursor_end(void) { g_searchCursor = (int)strlen(g_searchQuery); }
 void errors_set_search_strip_layout(UIPanelTextFieldButtonStripLayout layout) { g_searchLayout = layout; }
 UIPanelTextFieldButtonStripLayout errors_get_search_strip_layout(void) { return g_searchLayout; }
@@ -327,16 +329,18 @@ bool errors_clear_search_query(void) {
 bool errors_handle_search_text_input(const SDL_Event* event) {
     UIPanelTextEditBuffer buffer = errors_search_buffer();
     bool changed = ui_panel_text_edit_handle_text_input(&buffer, event);
-    if (changed) errors_reset_after_filter_change();
+    if (changed && event->type==SDL_TEXTINPUT) errors_reset_after_filter_change();
     return changed;
 }
 
-bool errors_handle_search_edit_key(SDL_Keycode key) {
+bool errors_handle_search_edit_key_mod(SDL_Keycode key,SDL_Keymod mod) {
     UIPanelTextEditBuffer buffer = errors_search_buffer();
-    bool changed = ui_panel_text_edit_handle_keydown(&buffer, key);
+    bool changed = ui_panel_text_edit_handle_keydown_mod(&buffer, key,mod);
     if (changed) errors_reset_after_filter_change();
     return changed;
 }
+bool errors_handle_search_edit_key(SDL_Keycode key) { return errors_handle_search_edit_key_mod(key,KMOD_NONE); }
+
 
 TTF_Font* get_error_font(void) {
     TTF_Font* font = getUIFontByTier(CORE_FONT_TEXT_SIZE_CAPTION);
@@ -652,8 +656,8 @@ static void errors_row_drag_start(void* context) {
     ui_flat_list_drag_state_begin(&g_errorDragState, state->hit_index);
 }
 
-static bool errors_handle_top_control_click(int mx, int my) {
-    switch ((ErrorTopControlId)ui_panel_tagged_rect_list_hit_test(errors_get_control_hits(), mx, my)) {
+bool errors_activate_top_control(ErrorTopControlId id) {
+    switch (id) {
         case ERROR_TOP_CONTROL_FILTER_ALL:
             g_filterAll = !g_filterAll;
             errors_reset_after_filter_change();
@@ -887,7 +891,7 @@ void errors_select_all_visible(void) {
 void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
     errors_refresh_snapshot_from_store();
-    if (event->type == SDL_TEXTINPUT && errors_is_search_focused()) {
+    if ((event->type == SDL_TEXTINPUT || event->type == SDL_TEXTEDITING) && errors_is_search_focused()) {
         (void)errors_handle_search_text_input(event);
         return;
     }
@@ -902,9 +906,6 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
         const int mx = event->button.x;
         const int my = event->button.y;
         UIPanelTextFieldButtonStripLayout searchLayout = errors_get_search_strip_layout();
-        if (errors_handle_top_control_click(mx, my)) {
-            return;
-        }
         if (ui_panel_rect_contains(&searchLayout.text_field_rect, mx, my)) {
             errors_set_search_focused(true);
             errors_search_cursor_end();
@@ -984,9 +985,9 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
         Uint16 mod = event->key.keysym.mod;
         bool accel = ui_input_has_primary_accel(mod);
         if (errors_is_search_focused()) {
-            bool plainEdit = !(mod & (KMOD_CTRL | KMOD_GUI | KMOD_ALT));
+            bool plainEdit = !(mod & KMOD_ALT);
             if (plainEdit) {
-                if (errors_handle_search_edit_key(key)) {
+                if (errors_handle_search_edit_key_mod(key,(SDL_Keymod)mod)) {
                     return;
                 }
                 if (key == SDLK_ESCAPE) {
@@ -1018,4 +1019,15 @@ void handleErrorsEvent(UIPane* pane, SDL_Event* event) {
             if (errors_jump_selected_diagnostic()) return;
         }
     }
+}
+
+const KitUiTextEdit* errors_get_search_edit(void) {
+    UIPanelTextEditBuffer buffer=errors_search_buffer();KitUiTextEdit edit={0};
+    if(!ui_panel_text_edit_bind(&buffer,&edit))return NULL;
+    ui_panel_text_edit_save(&buffer,&edit);return buffer.retained;
+}
+
+bool errors_search_pointer(size_t position, bool extend) {
+    UIPanelTextEditBuffer buffer = errors_search_buffer();
+    return ui_panel_text_edit_pointer(&buffer, position, extend);
 }

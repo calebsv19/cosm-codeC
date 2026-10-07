@@ -107,7 +107,97 @@ The immutable source pin is `make/shared-source-pin.txt`; contained verification
 checks all vendored source files against that commit. The compiler remains
 `83af7ab9c984981ae1f8044dd0f5b12caecfbaa9`. The importer updates tracked source
 without deleting ignored consumer outputs and refuses untracked collisions.
-Build/regression qualification is source proof. UI migration and installed
-visual acceptance have not started. Some bridge fixtures still use fixed
+Build/regression qualification is source proof. The first menu/window UI pilot
+has passed focused tests and native source window lifecycle/validation proof.
+Broader UI migration and installed visual acceptance remain pending. Some bridge fixtures still use fixed
 `/tmp/idebridge_*` paths; serialize bridge suites. The contained helper supplies
 a short unique IPC cache root to avoid Unix socket path truncation.
+
+
+For the menu/window pilot, include `test-ide-menu-window-ui` and
+`test-ide-ui-button-adapter` in contained verification. The optional actual-app
+proof uses `CODEWORK_WINDOW_LIFECYCLE_PROOF=<fresh capture directory>` with
+Khronos validation layer paths, isolated HOME/cache/temp and a disposable
+`--workspace` root. It changes the test window through eight lifecycle stages,
+records six BMP captures, and exits with a failure on validation warnings/errors.
+It never invokes menu build/run commands or replaces installed apps. Evidence:
+`artifacts/ide/ui-menu-window-20261006/STATUS.md` in the parent workspace.
+
+
+The next shared UI slices extend compact appearance, icon/project release/focus
+routing and fixed-pane composition. Include `test-ide-shared-panel-ui` in focused
+contained verification. See `docs/shared_ui_rollout.md` for the surface matrix,
+proof scope and pending text/modal and installed review boundaries.
+
+Include `test-ide-panel-text-ui` for the Control/Errors/Git release scopes and
+shared bounded UTF-8 mechanics. These checks record ownership/IDs and text-buffer
+changes; they do not invoke Git staging/commit or file operations.
+
+Include `test-ide-tool-chrome-ui` for production Libraries/Tasks adapters and
+terminal header/action callbacks. `test-ide-panel-text-ui` also checks measured
+UTF-8 caret/viewport presentation. Opt-in `CODEWORK_IDE_UI_PROOF_TEXT=1` populates
+long field fixtures in the isolated native lifecycle proof; no submit actions.
+
+Use `test-ide-editor-header-ui` and `test-ide-rename-ui` for the editor/rename
+checkpoint. They record commands/callbacks without closing real files or renaming
+filesystem objects. `CODEWORK_IDE_UI_PROOF_RENAME=1` adds an isolated long UTF-8
+popup fixture to the native lifecycle proof, with no completion callback.
+
+Final capacity review (2026-10-07): existing sessions may have more than sixteen
+open files. Header snapshots therefore retain every live file identity, while
+visible controls stay bounded by the shared scope capacity. An 80-tab fixture
+proves late-index selection/close and cancellation after an off-screen file
+changes. Eight split leaves retain independent scopes. The corrected final
+snapshot passes the full contained and native verification gates. Current native
+font presets display missing glyph placeholders for some Chinese/emoji text;
+UTF-8 editing/retention passes, but glyph coverage and human IME acceptance remain
+open visual qualification work. Source VERSION remains unchanged; the release
+impact dry-run recommends a minor release for eventual public adoption.
+
+The prior field adapter caret used an unmapped SDL floating-rectangle call. The
+final painter uses the actual Vulkan-compatible rectangle call, and the Vulkan
+contract now rejects unmapped SDL calls in native UI adapters. A negative fixture
+confirms rejection; final native rename captures force the caret visible for
+render review while ordinary blink policy is retained.
+
+Rename blink timestamps and animation advancement now use the same SDL time
+origin; the previous mixed-clock call could hide the caret immediately.
+Deterministic blink-transition checks pass, and the opt-in native fixture
+confirms a visible caret. Ordinary blink intervals retain their existing policy.
+
+Native field/button captions, terminal labels and rename popup sizing now use
+the existing UTF-8 width helper rather than byte-oriented text measurement,
+matching the UTF-8 drawing path. Font fallback remains separately unqualified.
+
+`CODEWORK_IDE_UI_PROOF_RETAINED_TEXT=1` adds synthetic selection/preedit to the
+isolated lifecycle fixture. No callbacks rename filesystem objects. Retained text
+and traversal are covered by `test-ide-panel-text-ui` and `test-ide-rename-ui`.
+
+## Guarded Desktop refresh — 2026-10-07
+
+`tools/packaging/macos/main_edit_package.py` now supports `--output-root` and
+`--build-root` for a fresh retained package/build pair. The default legacy output
+path still refuses a stale existing candidate; use a new pair for every refresh.
+`verify --output-root <package-root>` checks source/binary identity, deep strict
+codesign, matching required icon bytes and isolated launcher namespaces.
+
+`refresh --output-root <package-root> --backup-root <fresh-retained-root>` is the
+explicit occupied-destination path. It requires an idle Main Edit app, verifies
+its bundle ID, stages beside the Desktop destination, compares file/symlink
+manifests, rechecks occupancy and idle state, then atomically renames the old app
+into the backup and the verified candidate into place. Failed install verification
+restores the prior bundle and retains the failed candidate. Release codeC.app and
+preferences/projects are outside this operation. This is local development
+installation; it does not bump VERSION or publish/adopt canonical source.
+
+
+### Standardization closeout (2026-10-07)
+
+The current compiler pin is `make/fisics-source-pin.txt`, fisiCs 0.7.0 at
+cd1673aa05d8a1daf54bbfec37ac440ad7cb7be3, superseding the older 83af7ab9
+qualification. Current shared pin includes kit_render 0.15.0 native font
+fallback. Both dependency sources remain read-only during builds.
+The user authorized completing this rollout, closing/refreshing Main Edit and
+creating a clean source checkpoint. Existing canonical runtime files and prior
+Desktop packages remain retained. This authority does not publish a release.
+See `shared_ui_rollout.md` and the parent standardization completion packet.

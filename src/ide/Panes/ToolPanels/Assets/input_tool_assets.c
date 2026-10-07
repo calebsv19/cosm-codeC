@@ -1,3 +1,4 @@
+#include "ide/UI/panel_button_scope.h"
 #include "input_tool_assets.h"
 #include "ide/Panes/ToolPanels/Assets/tool_assets.h"
 #include "ide/Panes/ToolPanels/Assets/render_tool_assets.h"
@@ -102,23 +103,18 @@ static void assets_row_drag_start(void* context) {
     ui_flat_list_drag_state_begin(assets_get_drag_state(), state->hit_index);
 }
 
-static bool assets_handle_top_control_click(int x, int y) {
-    switch ((AssetTopControlId)ui_panel_tagged_rect_list_hit_test(assets_get_control_hits(), x, y)) {
-        case ASSET_TOP_CONTROL_OPEN_ALL:
-            assets_set_all_collapsed(false);
-            return true;
-        case ASSET_TOP_CONTROL_CLOSE_ALL:
-            assets_set_all_collapsed(true);
-            return true;
-        case ASSET_TOP_CONTROL_NONE:
-        default:
-            return false;
-    }
+static bool assets_header_event(UIPane* pane, SDL_Event* event) {
+    uint32_t id=0;
+    bool consumed=ide_panel_buttons_event(IDE_PANEL_ASSETS,pane,event,false,&id);
+    if (id==ASSET_TOP_CONTROL_OPEN_ALL) assets_set_all_collapsed(false);
+    if (id==ASSET_TOP_CONTROL_CLOSE_ALL) assets_set_all_collapsed(true);
+    return consumed;
 }
 
 void handleAssetsKeyboardInput(UIPane* pane, SDL_Event* event) {
-    (void)pane;
-    if (!event || event->type != SDL_KEYDOWN) return;
+    if (!pane || !event) return;
+    if (assets_header_event(pane,event)) return;
+    if (event->type != SDL_KEYDOWN) return;
     Uint16 mod = event->key.keysym.mod;
     SDL_Keycode key = event->key.keysym.sym;
     if (ui_input_has_primary_accel(mod) && key == SDLK_a) {
@@ -133,6 +129,7 @@ void handleAssetsKeyboardInput(UIPane* pane, SDL_Event* event) {
 
 void handleAssetsMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
+    if (assets_header_event(pane,event)) return;
     const int headerHeight = ASSET_PANEL_HEADER_HEIGHT;
     const int lineHeight = ASSET_PANEL_ROW_HEIGHT;
     const int contentTop = tool_panel_single_row_content_top(pane);
@@ -148,9 +145,6 @@ void handleAssetsMouseInput(UIPane* pane, SDL_Event* event) {
     float offset = scroll ? scroll_state_get_offset(scroll) : 0.0f;
 
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
-        if (assets_handle_top_control_click(event->button.x, event->button.y)) {
-            return;
-        }
 
         AssetFlatRef refs[1024];
         int count = assets_flatten(refs, 1024);

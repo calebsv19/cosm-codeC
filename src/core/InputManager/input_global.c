@@ -1,4 +1,5 @@
 #include "input_global.h"
+#include "ide/UI/window_lifecycle.h"
 #include "ide/UI/ui_state.h"
 #include "ide/UI/layout.h"
 #include "app/GlobalInfo/core_state.h"
@@ -17,6 +18,7 @@ static bool should_log_focus_events(void) {
 void handleWindowGlobalEvents(SDL_Event* event,
                               UIPane** panes, int* paneCountRef,
                               bool* running) {
+    ide_window_lifecycle_event(event, panes, paneCountRef);
     switch (event->type) {
         case SDL_QUIT:
             *running = false;

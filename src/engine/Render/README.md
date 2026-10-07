@@ -13,3 +13,7 @@ Common rendering helpers plus optional reference back ends live here.
 ## Subdirectories
 
 - `shared/vk_renderer/` — Standalone Vulkan renderer library (headers in `include/`, sources in `src/`, shaders in `shaders/`) used as an optional SDL backend.
+
+`render_ui_button.c` resolves the shared KitUI compact rounded appearance and
+paints it through the IDE Vulkan renderer, with caption clipping and focus state.
+The direct SDL adapter requires SDL_Renderer and must not receive VkRenderer.

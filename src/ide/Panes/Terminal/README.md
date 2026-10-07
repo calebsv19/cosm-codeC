@@ -19,3 +19,10 @@ sessions.
 
 Build and run buttons target their own terminals; output also feeds the build
 output panel for structured errors/warnings.
+
+`terminal_header_controls.c` publishes actual close/add/tab geometry to shared
+release ownership, guarded by the session-registry generation.
+`terminal_header_actions.c` retains app create/close/select/double-click rename
+semantics; registry changes disqualify stale double-clicks. Header routing passes
+keyboard/text/preedit to the existing PTY input path. Captions retain UTF-8 and
+are measured/clipped rather than truncated by byte count.

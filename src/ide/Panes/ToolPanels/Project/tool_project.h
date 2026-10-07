@@ -1,3 +1,4 @@
+#include "kit_ui_text_edit.h"
 #ifndef TOOL_PROJECT_H
 #define TOOL_PROJECT_H
 
@@ -82,5 +83,8 @@ void deleteSelectedDirectory(void);
 void refreshProjectDirectory(void);
 void selectDirectoryEntry(struct DirEntry* entry);
 void selectFileEntry(struct DirEntry* entry);
+
+const KitUiTextEdit* project_get_rename_edit(void);
+bool project_handle_rename_edit_key_mod(SDL_Keycode key,SDL_Keymod mod);
 
 #endif

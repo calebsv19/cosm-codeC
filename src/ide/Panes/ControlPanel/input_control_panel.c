@@ -1,3 +1,4 @@
+#include "ide/UI/panel_button_scope.h"
 #include "input_control_panel.h"
 #include "core/InputManager/input_macros.h" // adds CMD(InputCmd) abilities
 #include "core/CommandBus/command_bus.h"
@@ -95,8 +96,33 @@ static bool is_match_sub_button(ControlFilterButtonId id) {
            id == CONTROL_FILTER_BTN_MATCH_TAGS;
 }
 
+static bool control_header_event(UIPane* pane, SDL_Event* event) {
+    uint32_t id=0;
+    bool consumed=ide_panel_buttons_event(IDE_PANEL_CONTROL,pane,event,control_panel_is_search_focused(),&id);
+    if(consumed && ((event->type==SDL_KEYDOWN && event->key.keysym.sym==SDLK_TAB) ||
+        ((event->type==SDL_MOUSEBUTTONDOWN || event->type==SDL_MOUSEBUTTONUP) && event->button.button==SDL_BUTTON_LEFT)))
+        control_panel_set_search_focused(ide_panel_buttons_field_focused(IDE_PANEL_CONTROL,pane));
+    size_t position = 0; bool extend = false;
+    if (ide_panel_text_pointer(IDE_PANEL_CONTROL, pane, event, control_panel_get_search_query(), &position, &extend)) {
+        (void)control_panel_search_pointer(position, extend);
+        consumed = true;
+    }
+    if(id==IDE_PANEL_TEXT_FIELD_ID) { control_panel_set_search_focused(true); }
+    else if (id==1001) { control_panel_toggle_search_enabled(); control_panel_set_search_focused(true); }
+    else if (id==1002) { control_panel_clear_search_query(); control_panel_set_search_focused(true); }
+    else if (id==1003) { control_panel_toggle_filters_collapsed(); control_panel_set_search_focused(false); }
+    else if (id) {
+        if (!is_match_sub_button((ControlFilterButtonId)id)) control_panel_clear_match_button_selection();
+        control_panel_set_search_focused(false);
+        control_panel_activate_filter_button((ControlFilterButtonId)id);
+    }
+    return consumed;
+}
+
 void handleControlPanelKeyboardInput(UIPane* pane, SDL_Event* event) {
-    if (!pane || event->type != SDL_KEYDOWN) return;
+    if (!pane || !event) return;
+    if (control_header_event(pane,event)) return;
+    if (event->type != SDL_KEYDOWN) return;
 
     SDL_Keycode key = event->key.keysym.sym;
     Uint16 mod = event->key.keysym.mod;
@@ -132,9 +158,9 @@ void handleControlPanelKeyboardInput(UIPane* pane, SDL_Event* event) {
     }
 
     if (control_panel_is_search_focused()) {
-        bool plainEdit = !(mod & (KMOD_CTRL | KMOD_GUI | KMOD_ALT));
+        bool plainEdit = !(mod & KMOD_ALT);
         if (plainEdit) {
-            if (control_panel_handle_search_edit_key(key)) {
+            if (control_panel_handle_search_edit_key_mod(key,(SDL_Keymod)mod)) {
                 return;
             }
             switch (key) {
@@ -165,6 +191,7 @@ void handleControlPanelKeyboardInput(UIPane* pane, SDL_Event* event) {
 
 void handleControlPanelMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
+    if (control_header_event(pane,event)) return;
 
     PaneScrollState* scroll = control_panel_get_symbol_scroll();
     SDL_Rect* track = control_panel_get_symbol_scroll_track();
@@ -189,38 +216,15 @@ void handleControlPanelMouseInput(UIPane* pane, SDL_Event* event) {
         int mx = event->button.x;
         int my = event->button.y;
         UIPanelTextFieldButtonStripLayout searchLayout = control_panel_get_search_strip_layout();
-        SDL_Rect filterHeaderRect = control_panel_get_filter_header_rect();
         handleTreeMouseMove(mx, my);
         ControlFilterButtonId hitButton = control_panel_hit_filter_button(mx, my);
         if (!is_match_sub_button(hitButton)) {
             control_panel_clear_match_button_selection();
         }
 
-        if (ui_panel_rect_contains(&searchLayout.trailing_button_rect, mx, my)) {
-            control_panel_clear_search_query();
-            control_panel_set_search_focused(true);
-            return;
-        }
-
-        if (ui_panel_rect_contains(&searchLayout.aux_button_rect, mx, my)) {
-            control_panel_toggle_search_enabled();
-            control_panel_set_search_focused(true);
-            return;
-        }
-
         bool inSearch = ui_panel_rect_contains(&searchLayout.text_field_rect, mx, my);
         control_panel_set_search_focused(inSearch);
         if (inSearch) {
-            return;
-        }
-
-        if (ui_panel_rect_contains(&filterHeaderRect, mx, my)) {
-            control_panel_toggle_filters_collapsed();
-            return;
-        }
-
-        if (hitButton != CONTROL_FILTER_BTN_NONE) {
-            control_panel_activate_filter_button(hitButton);
             return;
         }
 
@@ -275,7 +279,7 @@ void handleControlPanelHoverInput(UIPane* pane, int x, int y) {
 }
 
 void handleControlPanelTextInput(UIPane* pane, SDL_Event* event) {
-    if (!pane || !event || event->type != SDL_TEXTINPUT) return;
+    if (!pane || !event || (event->type != SDL_TEXTINPUT && event->type != SDL_TEXTEDITING)) return;
     if (!control_panel_is_search_focused()) return;
     (void)control_panel_handle_search_text_input(event);
 }

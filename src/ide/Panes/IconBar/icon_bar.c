@@ -5,6 +5,7 @@
 #include <stdio.h> // for printf
 
 static IconTool activeTool = ICON_PROJECT_FILES;
+static uint64_t activeToolGeneration = 1;
 
 SDL_Rect getIconRect(UIPane* pane, int index) {
     int iconSize = pane->w - ICON_BUTTON_PADDING;
@@ -24,9 +25,12 @@ SDL_Rect getIconRect(UIPane* pane, int index) {
 
 void setActiveIcon(IconTool tool) {
     if (tool >= 0 && tool < ICON_COUNT) {
+        if (activeTool != tool) ++activeToolGeneration;
         activeTool = tool;
     }
 }
+
+uint64_t getActiveIconGeneration(void) { return activeToolGeneration; }
 
 IconTool getActiveIcon() {
     return activeTool;

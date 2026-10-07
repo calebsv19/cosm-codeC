@@ -6,5 +6,7 @@
 
 void handleMouseInput(SDL_Event* event, UIPane** panes, int paneCount);
 
+void cancelMouseInputCapture(void);
+
 #endif // INPUT_MOUSE_H
 

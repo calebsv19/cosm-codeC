@@ -2,6 +2,7 @@
 #define RENAME_FLOW_H
 
 #include <stdbool.h>
+#include "kit_ui_text_edit.h"
 #include <SDL2/SDL.h>
 
 
@@ -26,6 +27,7 @@ typedef struct {
     void* context;
     bool active;
     int cursorPosition;
+    KitUiTextEdit retainedEdit;
     char promptLabel[128];
     char defaultError[128];
     char lastError[128];
@@ -48,6 +50,10 @@ void cancelRename(void);
 void submitRename(void);
 void submitRenameWithMod(SDL_Keymod mod);
 void handleRenameTextInput(char ch);
+bool handleRenameUtf8TextInput(const char* text);
+bool handleRenameEditingKey(SDL_Keycode key);
+bool handleRenameEditingKeyWithMod(SDL_Keycode key,SDL_Keymod mod);
+bool handleRenameTextEvent(const SDL_Event* event);
 bool isRenaming(void);
 void setRenameErrorMessage(const char* message);
 bool tickRenameAnimation(Uint32 nowTicks);

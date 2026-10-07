@@ -91,6 +91,7 @@ int getTextWidthUTF8WithFont(const char* text, TTF_Font* font) {
     if (!font) return 0;
 
     int w = 0, h = 0;
+    if (measureNativeFallbackText(font,text,&w,&h)) return w;
     if (TTF_SizeUTF8(font, text, &w, &h) != 0) {
         return 0;
     }

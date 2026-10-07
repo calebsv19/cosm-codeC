@@ -401,7 +401,9 @@ bool initializeSystem(const char* argv0) {
 
     VkRendererConfig rendererConfig;
     vk_renderer_config_set_defaults(&rendererConfig);
-    rendererConfig.enable_validation = VK_FALSE;
+    /* Native qualification opts in; normal launch policy remains unchanged. */
+    const char* lifecycle_proof = getenv("CODEWORK_WINDOW_LIFECYCLE_PROOF");
+    rendererConfig.enable_validation = lifecycle_proof && lifecycle_proof[0] ? VK_TRUE : VK_FALSE;
     rendererConfig.clear_color[0] = 30.0f / 255.0f;
     rendererConfig.clear_color[1] = 30.0f / 255.0f;
     rendererConfig.clear_color[2] = 30.0f / 255.0f;

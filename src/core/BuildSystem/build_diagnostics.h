@@ -21,6 +21,8 @@ void build_diagnostics_clear(void);
 void build_diagnostics_feed_chunk(const char* data, size_t len);
 const BuildDiagnostic* build_diagnostics_get(size_t* count);
 void build_diagnostics_save(const char* workspaceRoot);
+/* Starts an optional bounded background read; poll publishes on the UI thread. */
 void build_diagnostics_load(const char* workspaceRoot);
+void build_diagnostics_poll(void);
 
 #endif

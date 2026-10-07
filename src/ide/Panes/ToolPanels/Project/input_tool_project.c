@@ -1,3 +1,4 @@
+#include "project_toolbar.h"
 // input_project.c
 #include "ide/Panes/ToolPanels/Project/input_tool_project.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
@@ -20,11 +21,12 @@ static ProjectRenameContext s_projectRenameContext;
 
 
 void handleProjectFilesKeyboardInput(UIPane* pane, SDL_Event* event) {
+    if (ide_project_toolbar_event(pane, event)) return;
     if (!pane || !event) return;
 
     // === Rename mode input ===
     if (renamingEntry) {
-        if (event->type == SDL_TEXTINPUT) {
+        if ((event->type == SDL_TEXTINPUT || event->type == SDL_TEXTEDITING)) {
             (void)project_handle_rename_text_input(event);
             return;
         }
@@ -32,6 +34,8 @@ void handleProjectFilesKeyboardInput(UIPane* pane, SDL_Event* event) {
 
         SDL_Keycode key = event->key.keysym.sym;
         if (key == SDLK_RETURN) {
+            const KitUiTextEdit* edit=project_get_rename_edit();
+            if(edit && edit->composition[0])return;
             CMD(COMMAND_CONFIRM_RENAME);
             return;
         } else if (key == SDLK_KP_ENTER) {
@@ -40,7 +44,7 @@ void handleProjectFilesKeyboardInput(UIPane* pane, SDL_Event* event) {
         } else if (key == SDLK_ESCAPE) {
             CMD(COMMAND_CANCEL_RENAME);
             return;
-        } else if (project_handle_rename_edit_key(key)) {
+        } else if (project_handle_rename_edit_key_mod(key,(SDL_Keymod)event->key.keysym.mod)) {
             return;
         }
         return;
@@ -96,6 +100,7 @@ void handleProjectFilesKeyboardInput(UIPane* pane, SDL_Event* event) {
 
 void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane) return;
+    if (ide_project_toolbar_event(pane, event)) return;
 
     PaneScrollState* scroll = project_get_scroll_state(pane);
     if (scroll) {
@@ -156,24 +161,6 @@ void handleProjectFilesMouseInput(UIPane* pane, SDL_Event* event) {
     // Left click handling (existing)
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
         project_clear_select_all_visual();
-        switch ((ProjectTopControlId)ui_panel_tagged_rect_list_hit_test(project_top_control_hits(), mx, my)) {
-            case PROJECT_TOP_CONTROL_ADD_FILE:
-                CMD(COMMAND_NEW_FILE);
-                return;
-            case PROJECT_TOP_CONTROL_DELETE_FILE:
-                CMD(COMMAND_DELETE_FILE);
-                return;
-            case PROJECT_TOP_CONTROL_ADD_FOLDER:
-                CMD(COMMAND_NEW_FOLDER);
-                return;
-            case PROJECT_TOP_CONTROL_DELETE_FOLDER:
-                CMD(COMMAND_DELETE_FOLDER);
-                return;
-            case PROJECT_TOP_CONTROL_NONE:
-            default:
-                break;
-        }
-
         handleProjectFilesClick(pane, mx, my);
     }
 }

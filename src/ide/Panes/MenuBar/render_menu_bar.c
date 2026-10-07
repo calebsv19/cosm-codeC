@@ -10,6 +10,7 @@
 #include "engine/Render/render_font.h"
 #include "ide/UI/ide_ui_button.h"
 #include "ide/Panes/MenuBar/render_menu_bar.h"
+#include "ide/Panes/MenuBar/input_menu_bar.h"
 
 
 #include "../MenuBar/menu_buttons.h" // for renderMenuBarContents
@@ -55,11 +56,14 @@ void renderMenuBarContents(UIPane* pane, struct IDECoreState* core) {
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
 
+    SDL_Rect clip = {pane->x, pane->y, pane->w, pane->h};
+    pushClipRect(&clip);
     if (currentMenuBarLayout == MENU_BAR_MODE_STANDARD) {
         renderMenuBarStandard(pane, renderer, core);
     } else {
         renderMenuBarCenteredFile(pane, renderer, core);
     }
+    popClipRect();
 }
 
 
@@ -74,27 +78,19 @@ void renderMenuBarStandard(UIPane* pane, SDL_Renderer* renderer, struct IDECoreS
         .owner_role = pane->role,
         .x = pane->x + 8,
         .y = y,
-        .maxWidth = 0,
+        .maxWidth = getLeftMenuButtonRect(pane, 0).x - pane->x - 18,
         .text = fileName,
         .flags = TEXT_SELECTION_FLAG_SELECTABLE,
     };
-    drawSelectableText(&fileNameOpts);
+    if (fileNameOpts.maxWidth > 0) drawSelectableText(&fileNameOpts);
 
     // 2. Calculate button group start after file name
-    int nameWidth = getTextWidth(fileName);
-    int leftStartX = pane->x + 8 + nameWidth + 30;
 
     // 3. Draw left-side buttons (Load / Save)
     const char* leftLabels[MENU_BUTTON_LEFT_COUNT] = { "Load", "Save" };
     for (int i = 0; i < MENU_BUTTON_LEFT_COUNT; i++) {
-        int x = leftStartX + i * (LEFT_BUTTON_WIDTH + BUTTON_SPACING);
-        SDL_Rect rect = {
-            x,
-            pane->y + BUTTON_HEIGHT_PADDING / 2,
-            LEFT_BUTTON_WIDTH,
-            pane->h - BUTTON_HEIGHT_PADDING
-        };
-        renderButton(pane, rect, leftLabels[i]);
+        SDL_Rect rect = getLeftMenuButtonRect(pane, i);
+        renderSharedButton(pane, rect, leftLabels[i], ide_menu_bar_button_state(pane, i));
     }
 
     // 4. Status tag ([modified], [saved], etc.)
@@ -109,7 +105,8 @@ void renderMenuBarStandard(UIPane* pane, SDL_Renderer* renderer, struct IDECoreS
         file = view->openFiles[view->activeTab];
     }
 
-    int tagX = leftStartX + MENU_BUTTON_LEFT_COUNT * (LEFT_BUTTON_WIDTH + BUTTON_SPACING);
+    SDL_Rect lastLeft = getLeftMenuButtonRect(pane, 1);
+    int tagX = lastLeft.x + lastLeft.w + BUTTON_SPACING;
     if (file) {
         Uint32 now = SDL_GetTicks();
 
@@ -120,11 +117,11 @@ void renderMenuBarStandard(UIPane* pane, SDL_Renderer* renderer, struct IDECoreS
                 .owner_role = pane->role,
                 .x = tagX,
                 .y = y,
-                .maxWidth = 0,
+                .maxWidth = getRightMenuButtonRect(pane, 0).x - tagX - 8,
                 .text = "[saved]",
                 .flags = TEXT_SELECTION_FLAG_SELECTABLE,
             };
-            drawSelectableText(&savedOpts);
+            if (savedOpts.maxWidth > 0) drawSelectableText(&savedOpts);
         } else if (file->isModified) {
             SelectableTextOptions modifiedOpts = {
                 .pane = pane,
@@ -132,11 +129,11 @@ void renderMenuBarStandard(UIPane* pane, SDL_Renderer* renderer, struct IDECoreS
                 .owner_role = pane->role,
                 .x = tagX,
                 .y = y,
-                .maxWidth = 0,
+                .maxWidth = getRightMenuButtonRect(pane, 0).x - tagX - 8,
                 .text = "[modified]",
                 .flags = TEXT_SELECTION_FLAG_SELECTABLE,
             };
-            drawSelectableText(&modifiedOpts);
+            if (modifiedOpts.maxWidth > 0) drawSelectableText(&modifiedOpts);
         } else {
             file->showSavedTag = false;
         }
@@ -146,7 +143,7 @@ void renderMenuBarStandard(UIPane* pane, SDL_Renderer* renderer, struct IDECoreS
     const char* rightLabels[MENU_BUTTON_RIGHT_COUNT] = { "Build", "Run", "Debug", "Ctrl" };
     for (int i = 0; i < MENU_BUTTON_RIGHT_COUNT; i++) {
         SDL_Rect rect = getRightMenuButtonRect(pane, i);
-        renderButton(pane, rect, rightLabels[i]);
+        renderSharedButton(pane, rect, rightLabels[i], ide_menu_bar_button_state(pane, i + 2));
     }
 }
 
@@ -159,10 +156,8 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
     // 1. Left side: Load, Save, [modified]  
     const char* leftLabels[MENU_BUTTON_LEFT_COUNT] = { "Load", "Save" };
     for (int i = 0; i < MENU_BUTTON_LEFT_COUNT; i++) {
-        int x = pane->x + 8 + i * (LEFT_BUTTON_WIDTH + BUTTON_SPACING);
-        SDL_Rect rect = { x, pane->y + BUTTON_HEIGHT_PADDING / 2,
-                          LEFT_BUTTON_WIDTH, pane->h - BUTTON_HEIGHT_PADDING };
-        renderButton(pane, rect, leftLabels[i]);
+        SDL_Rect rect = getLeftMenuButtonRect(pane, i);
+        renderSharedButton(pane, rect, leftLabels[i], ide_menu_bar_button_state(pane, i));
     }
 
     // 2. Modified/saved tag
@@ -178,7 +173,8 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
     }
 
     if (file) {
-        int tagX = pane->x + 8 + MENU_BUTTON_LEFT_COUNT * (LEFT_BUTTON_WIDTH + BUTTON_SPACING);
+        SDL_Rect lastLeft = getLeftMenuButtonRect(pane, 1);
+        int tagX = lastLeft.x + lastLeft.w + BUTTON_SPACING;
         Uint32 now = SDL_GetTicks();
 
         if (file->showSavedTag && now - file->savedTagTimestamp < 1500) {
@@ -188,11 +184,11 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
                 .owner_role = pane->role,
                 .x = tagX,
                 .y = y,
-                .maxWidth = 0,
+                .maxWidth = getRightMenuButtonRect(pane, 0).x - tagX - 8,
                 .text = "[saved]",
                 .flags = TEXT_SELECTION_FLAG_SELECTABLE,
             };
-            drawSelectableText(&savedOpts);
+            if (savedOpts.maxWidth > 0) drawSelectableText(&savedOpts);
         } else if (file->isModified) {
             SelectableTextOptions modifiedOpts = {
                 .pane = pane,
@@ -200,11 +196,11 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
                 .owner_role = pane->role,
                 .x = tagX,
                 .y = y,
-                .maxWidth = 0,
+                .maxWidth = getRightMenuButtonRect(pane, 0).x - tagX - 8,
                 .text = "[modified]",
                 .flags = TEXT_SELECTION_FLAG_SELECTABLE,
             };
-            drawSelectableText(&modifiedOpts);
+            if (modifiedOpts.maxWidth > 0) drawSelectableText(&modifiedOpts);
         } else {
             file->showSavedTag = false; // auto-clear after timeout
         }
@@ -268,7 +264,7 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
         .text = workspaceName,
         .flags = TEXT_SELECTION_FLAG_SELECTABLE,
     };
-    drawSelectableText(&workspaceOpts);
+    if (workspaceOpts.maxWidth > 0) drawSelectableText(&workspaceOpts);
 
     SelectableTextOptions centeredNameOpts = {
         .pane = pane,
@@ -280,13 +276,13 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
         .text = fileName,
         .flags = TEXT_SELECTION_FLAG_SELECTABLE,
     };
-    drawSelectableText(&centeredNameOpts);
+    if (centeredNameOpts.maxWidth > 0) drawSelectableText(&centeredNameOpts);
 
 
     // 4. Right-side buttons (Build / Run / Debug / Ctrl)
     const char* rightLabels[MENU_BUTTON_RIGHT_COUNT] = { "Build", "Run", "Debug", "Ctrl" };
     for (int i = 0; i < MENU_BUTTON_RIGHT_COUNT; i++) {
         SDL_Rect rect = getRightMenuButtonRect(pane, i);
-        renderButton(pane, rect, rightLabels[i]);
+        renderSharedButton(pane, rect, rightLabels[i], ide_menu_bar_button_state(pane, i + 2));
     }
 }

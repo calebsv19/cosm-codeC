@@ -1,3 +1,4 @@
+#include "input_icon_bar.h"
 
 #include "ide/Panes/IconBar/render_icon_bar.h"
 #include "engine/Render/render_pipeline.h"            
@@ -17,12 +18,6 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
     RenderContext* ctx = getRenderContext();
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
-    int mouse_x = 0;
-    int mouse_y = 0;
-    Uint32 mouse_buttons = SDL_GetMouseState(&mouse_x, &mouse_y);
-    bool mouse_pressed = (mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
-    IconTool active = getActiveIcon();
-
     (void)hovered;
     (void)core;
 
@@ -41,7 +36,7 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
     int iconCount = ICON_COUNT;
     for (int i = 0; i < iconCount; i++) {
         SDL_Rect icon = getIconRect(pane, i);
-        bool icon_hovered = ui_panel_rect_contains(&icon, mouse_x, mouse_y);
+        KitUiButtonState state = ide_icon_bar_button_state(pane, i);
         const char* label = "?";
         switch (i) {
             case ICON_PROJECT_FILES: label = "P"; break;
@@ -57,11 +52,11 @@ void renderIconBarContents(UIPane* pane, bool hovered, struct IDECoreState* core
                                        &(UIPanelCompactButtonSpec){
                                            .rect = icon,
                                            .label = label,
-                                           .hovered = icon_hovered,
-                                           .active = i == active,
-                                           .pressed = icon_hovered && mouse_pressed,
-                                           .disabled = false,
-                                           .outlined = false,
+                                           .hovered = state.hovered,
+                                           .active = state.selected,
+                                           .pressed = state.pressed,
+                                           .disabled = state.disabled,
+                                           .outlined = state.focused,
                                            .use_custom_fill = false,
                                            .use_custom_outline = false,
                                            .tier = CORE_FONT_TEXT_SIZE_CAPTION

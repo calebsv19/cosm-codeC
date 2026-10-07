@@ -7,7 +7,7 @@ void handleResizeDragging(SDL_Event* event,
                           UIPane** panes, int* paneCount) {
     LayoutDimensions* layout = getLayoutDimensions();
                 
-    if (event->type == SDL_MOUSEBUTTONDOWN) {
+    if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
             int mx = event->button.x;
             int my = event->button.y;
          
@@ -99,9 +99,28 @@ void handleResizeDragging(SDL_Event* event,
         layout_static_panes(panes, paneCount);
     }
                     
-    if (event->type == SDL_MOUSEBUTTONUP) {
+    if (event->type == SDL_MOUSEBUTTONUP && event->button.button == SDL_BUTTON_LEFT) {
         gResizeDrag.active = false;
         gResizeDrag.target = RESIZE_NONE;
     }
 }
 
+
+void cancelResizeDragging(UIPane** panes, int* paneCount) {
+    if (!gResizeDrag.active) return;
+    LayoutDimensions* layout = getLayoutDimensions();
+    switch (gResizeDrag.target) {
+        case RESIZE_TOOL: case RESIZE_CORNER_TOOL:
+            layout->toolWidth = gResizeDrag.startValueX;
+            break;
+        case RESIZE_CONTROL: case RESIZE_CORNER_CONTROL:
+            layout->controlWidth = gResizeDrag.startValueX;
+            break;
+        default: break;
+    }
+    if (gResizeDrag.target == RESIZE_TERMINAL || gResizeDrag.target == RESIZE_CORNER_TOOL ||
+        gResizeDrag.target == RESIZE_CORNER_CONTROL) layout->terminalHeight = gResizeDrag.startValueY;
+    gResizeDrag.active = false;
+    gResizeDrag.target = RESIZE_NONE;
+    if (panes && paneCount) layout_static_panes(panes, paneCount);
+}

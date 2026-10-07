@@ -666,11 +666,11 @@ static int row_index_from_position(UIPane* pane, int mouseY) {
     return (idx >= 0 && idx < st->flatCount) ? idx : -1;
 }
 
-bool handleLibraryHeaderClick(UIPane* pane, int clickX, int clickY) {
-    (void)pane;
+bool library_activate_top_control(LibraryTopControlId id) {
     LibraryPanelState* st = libraries_panel_state();
-    switch ((LibraryTopControlId)ui_panel_tagged_rect_list_hit_test(&st->control_hits, clickX, clickY)) {
+    switch (id) {
         case LIB_TOP_CONTROL_SYSTEM_TOGGLE:
+            if (st->viewMode!=LIB_PANEL_VIEW_HEADERS) return false;
             st->includeSystemHeaders = !st->includeSystemHeaders;
             rebuildLibraryFlatRows();
             return true;
@@ -689,6 +689,11 @@ bool handleLibraryHeaderClick(UIPane* pane, int clickX, int clickY) {
     }
 
     return false;
+}
+
+bool handleLibraryHeaderClick(UIPane* pane, int clickX, int clickY) {
+    (void)pane;
+    return library_activate_top_control((LibraryTopControlId)ui_panel_tagged_rect_list_hit_test(libraries_control_hits(),clickX,clickY));
 }
 
 static LibraryGraphNodeInfo* graph_node_by_id(LibraryPanelState* st, uint32_t node_id) {

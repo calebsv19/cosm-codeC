@@ -1,5 +1,5 @@
 # IDE owns dependency outputs; compiler source stays read-only.
-FISICS_REQUIRED_SOURCE_HEAD := 83af7ab9c984981ae1f8044dd0f5b12caecfbaa9
+FISICS_REQUIRED_SOURCE_HEAD := $(strip $(shell cat make/fisics-source-pin.txt))
 FISICS_SOURCE_HEAD := $(shell git -C "$(FISICS_DIR)" rev-parse HEAD)
 FISICS_DEP_ROOT := $(abspath $(BUILD_DIR)/fisics-dependency/$(FISICS_SOURCE_HEAD))
 FISICS_DEP_ARCHIVE := $(FISICS_DEP_ROOT)/libfisics_frontend.a

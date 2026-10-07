@@ -1,3 +1,4 @@
+#include "ide/UI/panel_button_scope.h"
 #include "ide/Panes/ToolPanels/Tasks/input_tool_tasks.h"
 #include "ide/Panes/ToolPanels/Tasks/tool_tasks.h"
 
@@ -7,8 +8,18 @@
 #include "ide/UI/input_modifiers.h"
 #include "ide/UI/scroll_input_adapter.h"
 
+static bool task_header_event(UIPane* pane, SDL_Event* event) {
+    ide_panel_buttons_domain(IDE_PANEL_TASKS,pane,selectedTask,0);
+    uint32_t id=0;
+    bool consumed=ide_panel_buttons_event(IDE_PANEL_TASKS,pane,event,false,&id);
+    if (id) (void)task_activate_top_control((TaskTopControlId)id);
+    return consumed;
+}
+
 void handleTasksKeyboardInput(UIPane* pane, SDL_Event* event) {
-    if (!pane || event->type != SDL_KEYDOWN) return;
+    if (!pane || !event) return;
+    if (task_header_event(pane,event)) return;
+    if (event->type != SDL_KEYDOWN) return;
 
     SDL_Keycode key = event->key.keysym.sym;
     Uint16 mod = event->key.keysym.mod;
@@ -35,6 +46,7 @@ void handleTasksKeyboardInput(UIPane* pane, SDL_Event* event) {
 
 void handleTasksMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
+    if (task_header_event(pane,event)) return;
 
     PaneScrollState* scroll = task_panel_scroll_state();
     SDL_Rect track = task_panel_scroll_track_rect();

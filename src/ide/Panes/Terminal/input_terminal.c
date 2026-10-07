@@ -1,3 +1,4 @@
+#include "terminal_header_controls.h"
 #include "input_terminal.h"
 #include "core/InputManager/input_macros.h" // adds CMD(InputCmd) abilities
 #include "core/CommandBus/command_bus.h"
@@ -137,36 +138,6 @@ static void terminal_compute_position(UIPane* pane, int mouseX, int mouseY, int*
     *outLine = lineIndex;
     *outColumn = col;
 }
-
-// --- Rename support (double-click interactive tab) ---
-static Uint32 g_lastTabClickTicks = 0;
-static int g_lastTabClickIndex = -1;
-static const Uint32 kTabDoubleClickMs = 400;
-
-static void handle_tab_rename_callback(const char* oldName, const char* newName, void* context) {
-    (void)oldName;
-    int idx = (int)(intptr_t)context;
-    if (!newName) return;
-    terminal_set_name(idx, newName);
-}
-
-static void maybe_begin_tab_rename(int tabIndex) {
-    const char* name = NULL;
-    bool isBuild = false, isRun = false;
-    if (!terminal_session_info(tabIndex, &name, &isBuild, &isRun)) return;
-    if (isBuild || isRun) return; // only interactive tabs are renameable
-    const char* current = name ? name : "Terminal";
-    beginRenameWithPrompt(
-        "Terminal Name:",
-        "Enter a name",
-        current,
-        handle_tab_rename_callback,
-        NULL, // no validation needed
-        (void*)(intptr_t)tabIndex,
-        true   // accept unchanged
-    );
-}
-
 
 void handleTerminalKeyboardInput(UIPane* pane, SDL_Event* event) {
     if (!pane || event->type != SDL_KEYDOWN) return;
@@ -313,7 +284,11 @@ void handleTerminalKeyboardInput(UIPane* pane, SDL_Event* event) {
 
 
 void handleTerminalMouseInput(UIPane* pane, SDL_Event* event) {
-    if (!pane) return;
+    if (!pane || !event) return;
+    uint32_t headerId=0;
+    bool headerConsumed=ide_terminal_header_event(pane,event,&headerId);
+    if (headerId) (void)ide_terminal_header_activate(headerId);
+    if (headerConsumed) return;
 
     PaneScrollState* scroll = terminal_get_scroll_state();
     if (scroll) {
@@ -328,27 +303,6 @@ void handleTerminalMouseInput(UIPane* pane, SDL_Event* event) {
     switch (event->type) {
         case SDL_MOUSEBUTTONDOWN:
             if (event->button.button == SDL_BUTTON_LEFT) {
-                int hit = terminal_tab_hit(event->button.x, event->button.y);
-                if (hit >= 0) {
-                    Uint32 now = SDL_GetTicks();
-                    bool doubleClick = (hit == g_lastTabClickIndex) &&
-                                       (now - g_lastTabClickTicks < kTabDoubleClickMs);
-                    g_lastTabClickTicks = now;
-                    g_lastTabClickIndex = hit;
-                    if (doubleClick) {
-                        maybe_begin_tab_rename(hit);
-                    } else {
-                        terminal_set_active(hit);
-                    }
-                    return;
-                }
-                if (terminal_plus_hit(event->button.x, event->button.y)) {
-                    terminal_create_interactive(getWorkspacePath());
-                    return;
-                }
-                if (terminal_close_hit(event->button.x, event->button.y)) {
-                    if (terminal_close_active_interactive()) return;
-                }
                 int line = 0, column = 0;
                 terminal_compute_position(pane, event->button.x, event->button.y, &line, &column);
                 terminal_begin_selection(line, column);

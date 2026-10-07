@@ -226,9 +226,8 @@ static bool text_cache_get(SDL_Renderer* renderer,
         return true;
     }
 
-    SDL_Surface* surface =
-        utf8 ? TTF_RenderUTF8_Blended(raster_font, text, color)
-             : TTF_RenderText_Blended(raster_font, text, color);
+    SDL_Surface* surface = utf8 ? rasterizeNativeFallbackText(font,text,color,raster_scale) : NULL;
+    if (!surface) surface = utf8 ? TTF_RenderUTF8_Blended(raster_font,text,color) : TTF_RenderText_Blended(raster_font,text,color);
     if (!surface) return false;
 
     text_cache_destroy_entry(slot);
@@ -793,7 +792,14 @@ void pushClipRect(const SDL_Rect* rect) {
         s_clip_enabled_stack[s_clip_top] = (enabled == SDL_TRUE);
         s_clip_top++;
     }
-    SDL_RenderSetClipRect(ctx->renderer, rect);
+    SDL_Rect effective = rect ? *rect : (SDL_Rect){0};
+    if (SDL_RenderIsClipEnabled(ctx->renderer)) {
+        SDL_Rect parent = {0};
+        SDL_RenderGetClipRect(ctx->renderer, &parent);
+        if (rect) SDL_IntersectRect(&parent, rect, &effective);
+        else effective = parent;
+    }
+    SDL_RenderSetClipRect(ctx->renderer, &effective);
 }
 
 void popClipRect(void) {

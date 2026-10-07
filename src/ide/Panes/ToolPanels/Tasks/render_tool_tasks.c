@@ -1,3 +1,4 @@
+#include "ide/UI/panel_button_scope.h"
 #include "render_tool_tasks.h"
 #include "engine/Render/render_pipeline.h"
 #include "engine/Render/render_helpers.h"
@@ -169,7 +170,7 @@ void renderTasksPanel(UIPane* pane) {
                                            .hovered = buttonHovered,
                                            .active = false,
                                            .pressed = buttonHovered && topMousePressed,
-                                           .disabled = false,
+                                           .disabled = s_taskTopControls[i].id==TASK_TOP_CONTROL_REMOVE && !selectedTask,
                                            .outlined = false,
                                            .use_custom_fill = false,
                                            .use_custom_outline = false,
@@ -178,6 +179,9 @@ void renderTasksPanel(UIPane* pane) {
         (void)ui_panel_tagged_rect_list_add(controlHits, s_taskTopControls[i].id, buttonRect);
         drawText(buttonRect.x + buttonRect.w + 6, buttonRect.y + 4, s_taskTopControls[i].label);
     }
+
+    ide_panel_buttons_domain(IDE_PANEL_TASKS,pane,selectedTask,0);
+    ide_panel_buttons_publish(IDE_PANEL_TASKS,pane,controlHits,selectedTask ? 0 : TASK_TOP_CONTROL_REMOVE);
 
     y += (topControls.count * iconBtnSize) +
          ((topControls.count > 0 ? topControls.count - 1 : 0) * TASK_BUTTON_SPACING);

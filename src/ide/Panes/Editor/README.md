@@ -28,3 +28,36 @@ can reuse the editing core without the SDL UI if needed.
 
 This structure keeps editing logic reusable while the pane files glue it to the
 rest of the IDE.
+
+`editor_header_controls.c` borrows painted close/tab controls per split leaf.
+Input accepts matching release only while the file order, active tab, tab scroll,
+workspace and geometry snapshot remains current. View/tab retirement cancels
+borrowed targets before reuse. Input retains the existing command bus for close
+and state synchronization for tab selection. Keyboard/document and continuous
+scroll/selection/split gestures stay on their existing paths.
+
+Final capacity review (2026-10-07): existing sessions may have more than sixteen
+open files. Header snapshots therefore retain every live file identity, while
+visible controls stay bounded by the shared scope capacity. An 80-tab fixture
+proves late-index selection/close and cancellation after an off-screen file
+changes. Eight split leaves retain independent scopes. The corrected final
+snapshot passes the full contained and native verification gates. Current native
+font presets display missing glyph placeholders for some Chinese/emoji text;
+UTF-8 editing/retention passes, but glyph coverage and human IME acceptance remain
+open visual qualification work. Source VERSION remains unchanged; the release
+impact dry-run recommends a minor release for eventual public adoption.
+
+The prior field adapter caret used an unmapped SDL floating-rectangle call. The
+final painter uses the actual Vulkan-compatible rectangle call, and the Vulkan
+contract now rejects unmapped SDL calls in native UI adapters. A negative fixture
+confirms rejection; final native rename captures force the caret visible for
+render review while ordinary blink policy is retained.
+
+Rename blink timestamps and animation advancement now use the same SDL time
+origin; the previous mixed-clock call could hide the caret immediately.
+Deterministic blink-transition checks pass, and the opt-in native fixture
+confirms a visible caret. Ordinary blink intervals retain their existing policy.
+
+Native field/button captions, terminal labels and rename popup sizing now use
+the existing UTF-8 width helper rather than byte-oriented text measurement,
+matching the UTF-8 drawing path. Font fallback remains separately unqualified.

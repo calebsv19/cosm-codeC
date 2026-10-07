@@ -1,4 +1,5 @@
 #include "ide/Panes/Popup/render_popup.h"
+#include "ide/UI/panel_text_field.h"
 #include "engine/Render/render_pipeline.h"
 #include "engine/Render/render_text_helpers.h"
 #include "engine/Render/render_helpers.h"
@@ -78,9 +79,9 @@ void renderRenamePopup(SDL_Renderer* renderer, int winW, int winH) {
 
     int minWidth = 400;
     int margin = 80;
-    int promptWidth = getTextWidth(prompt) + 24;
-    int inputWidth = getTextWidth(buffer) + 24;
-    int errorWidth = (renameErrorVisible && errorText[0]) ? getTextWidth(errorText) + 24 : 0;
+    int promptWidth = getTextWidthUTF8WithFont(prompt,getActiveFont()) + 24;
+    int inputWidth = getTextWidthUTF8WithFont(buffer,getActiveFont()) + 24;
+    int errorWidth = (renameErrorVisible && errorText[0]) ? getTextWidthUTF8WithFont(errorText,getActiveFont()) + 24 : 0;
 
     int maxContentWidth = promptWidth;
     if (inputWidth > maxContentWidth) maxContentWidth = inputWidth;
@@ -139,23 +140,9 @@ void renderRenamePopup(SDL_Renderer* renderer, int winW, int winH) {
         textY = box.y + 66;
     }
 
-    // Input buffer
-    int textX = box.x + 12;
-    drawClippedTextColor(textX, textY, buffer, box.w - 24, palette.text_primary);
-
-    if (caretVisible) {
-	char temp[MAX_PATH_LENGTH];
-	strncpy(temp, buffer, RENAME->cursorPosition);
-	temp[RENAME->cursorPosition] = '\0';
-	int textW = getTextWidth(temp); // width of text up to caret
-
-        SDL_SetRenderDrawColor(renderer,
-                               palette.text_primary.r,
-                               palette.text_primary.g,
-                               palette.text_primary.b,
-                               palette.text_primary.a);
-        SDL_RenderDrawLine(renderer,
-            textX + textW + 1, textY,
-            textX + textW + 1, textY + 18);
-    }
+    ui_panel_text_field_render(renderer,&(UIPanelTextFieldSpec){
+        .rect={box.x+12,textY,box.w-24,26},.text=buffer,
+        .focused=true,.hide_caret=!caretVisible,
+        .cursor=req?req->cursorPosition:0,.edit=req?&req->retainedEdit:NULL,.tier=CORE_FONT_TEXT_SIZE_BASIC
+    });
 }

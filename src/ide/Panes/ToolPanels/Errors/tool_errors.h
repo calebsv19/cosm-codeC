@@ -1,3 +1,4 @@
+#include "kit_ui_text_edit.h"
 #ifndef TOOL_ERRORS_H
 #define TOOL_ERRORS_H
 
@@ -74,6 +75,7 @@ bool errors_get_context_summary_for_diagnostic(const Diagnostic* diag,
 bool errors_open_selected_context_target(void);
 bool errors_open_context_detail_row(const ErrorsContextDetailRow* row);
 UIPanelTaggedRectList* errors_get_control_hits(void);
+bool errors_activate_top_control(ErrorTopControlId id);
 bool errors_filter_all_enabled(void);
 bool errors_filter_errors_enabled(void);
 bool errors_filter_warnings_enabled(void);
@@ -89,4 +91,8 @@ void errors_search_cursor_end(void);
 void errors_set_search_strip_layout(UIPanelTextFieldButtonStripLayout layout);
 UIPanelTextFieldButtonStripLayout errors_get_search_strip_layout(void);
 
+const KitUiTextEdit* errors_get_search_edit(void);
+bool errors_handle_search_edit_key_mod(SDL_Keycode key,SDL_Keymod mod);
+
+bool errors_search_pointer(size_t position, bool extend);
 #endif

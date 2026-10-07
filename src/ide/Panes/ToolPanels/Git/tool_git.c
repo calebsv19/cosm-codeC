@@ -33,6 +33,7 @@ typedef struct {
     bool message_focused;
     char commit_message[256];
     int commit_cursor;
+    KitUiTextEdit commit_edit;
     char status_text[256];
 } GitPanelUIState;
 
@@ -293,7 +294,8 @@ static UIPanelTextEditBuffer git_panel_message_buffer(void) {
     UIPanelTextEditBuffer buffer = {
         g_commitMessage,
         (int)sizeof(g_commitMessage),
-        &g_commitCursor
+        &g_commitCursor,
+        &git_panel_state()->ui.commit_edit
     };
     return buffer;
 }
@@ -595,7 +597,7 @@ void git_panel_set_top_strip_layout(UIPanelThreeSegmentStripLayout layout) {
     g_topStripLayout = layout;
 }
 UIPanelThreeSegmentStripLayout git_panel_get_top_strip_layout(void) { return g_topStripLayout; }
-void git_panel_set_message_focus(bool focused) { (void)ui_text_input_focus_set(&g_messageFocused, focused); }
+void git_panel_set_message_focus(bool focused) { if(!focused){UIPanelTextEditBuffer buffer=git_panel_message_buffer();ui_panel_text_edit_blur(&buffer);} (void)ui_text_input_focus_set(&g_messageFocused, focused); }
 bool git_panel_is_message_focused(void) { return g_messageFocused; }
 const char* git_panel_get_message(void) { return g_commitMessage; }
 int git_panel_get_message_cursor(void) { return g_commitCursor; }
@@ -607,10 +609,12 @@ bool git_panel_handle_message_text_input(const SDL_Event* event) {
     UIPanelTextEditBuffer buffer = git_panel_message_buffer();
     return ui_panel_text_edit_handle_text_input(&buffer, event);
 }
-bool git_panel_handle_message_edit_key(SDL_Keycode key) {
+bool git_panel_handle_message_edit_key_mod(SDL_Keycode key,SDL_Keymod mod) {
     UIPanelTextEditBuffer buffer = git_panel_message_buffer();
-    return ui_panel_text_edit_handle_keydown(&buffer, key);
+    return ui_panel_text_edit_handle_keydown_mod(&buffer, key,mod);
 }
+bool git_panel_handle_message_edit_key(SDL_Keycode key) { return git_panel_handle_message_edit_key_mod(key,KMOD_NONE); }
+
 const char* git_panel_get_status_text(void) { return g_statusText; }
 int git_panel_content_top(const UIPane* pane) {
     if (!pane) return 0;
@@ -695,6 +699,7 @@ bool git_stage_all_changes(void) {
 }
 
 bool git_commit_with_message(void) {
+    if(git_panel_state()->ui.commit_edit.composition[0])return false;
     if (!g_commitMessage[0]) {
         snprintf(g_statusText, sizeof(g_statusText), "Commit message is empty");
         return false;
@@ -852,4 +857,15 @@ Uint32 gitStatusWatchIntervalMs(void) {
     long v = strtol(env, &end, 10);
     if (end == env || v < 200 || v > 10000) return defaultMs;
     return (Uint32)v;
+}
+
+const KitUiTextEdit* git_panel_get_message_edit(void) {
+    UIPanelTextEditBuffer buffer=git_panel_message_buffer();KitUiTextEdit edit={0};
+    if(!ui_panel_text_edit_bind(&buffer,&edit))return NULL;
+    ui_panel_text_edit_save(&buffer,&edit);return buffer.retained;
+}
+
+bool git_panel_message_pointer(size_t position, bool extend) {
+    UIPanelTextEditBuffer buffer = git_panel_message_buffer();
+    return ui_panel_text_edit_pointer(&buffer, position, extend);
 }

@@ -1,8 +1,10 @@
 #ifndef INPUT_ICON_BAR_H
 #define INPUT_ICON_BAR_H
+#include "kit_ui.h"
 
 #include "ide/Panes/PaneInfo/pane.h"
 #include <SDL2/SDL.h>
+KitUiButtonState ide_icon_bar_button_state(UIPane* pane, int index);
 
 // Pane-level input handlers
 void handleIconBarKeyboardInput(UIPane* pane, SDL_Event* event);

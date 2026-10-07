@@ -1,3 +1,4 @@
+#include "terminal_header_controls.h"
 #include "ide/Panes/Terminal/render_terminal.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_text_helpers.h"  // renderUIPane, drawText
@@ -485,6 +486,7 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     int tabX = header.x + 4;
     int tabY = header.y + 4;
     terminal_reset_tab_rects();
+    ide_terminal_header_begin(pane);
     int sessionCount = terminal_session_count();
     int activeIdx = terminal_active_index();
     int headerMouseX = 0;
@@ -495,6 +497,7 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     int closeW = headerH - 8;
     SDL_Rect closeRect = { header.x + 4, tabY, closeW, headerH - 8 };
     terminal_set_close_rect(closeRect);
+    ide_terminal_header_add(IDE_TERMINAL_HEADER_CLOSE,closeRect);
     render_terminal_header_button(renderer,
                                   closeRect,
                                   "x",
@@ -507,6 +510,7 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
     // Plus button for interactive, next to close
     SDL_Rect plus = { closeRect.x + closeRect.w + 6, tabY, headerH - 8, headerH - 8 };
     terminal_set_plus_rect(plus);
+    ide_terminal_header_add(IDE_TERMINAL_HEADER_ADD,plus);
     render_terminal_header_button(renderer,
                                   plus,
                                   "+",
@@ -524,24 +528,14 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         if (!terminal_session_info(i, &name, &isBuild, &isRun)) continue;
         if (isBuild || isRun) continue;
         const char* label = name ? name : "Term";
-        char truncated[64];
         const bool isActiveTab = (i == activeIdx);
         const char* drawLabel = label;
-        if (!isActiveTab) {
-            size_t len = strlen(label);
-            if (len > 20) {
-                size_t copy = 17;
-                if (copy > sizeof(truncated) - 4) copy = sizeof(truncated) - 4;
-                memcpy(truncated, label, copy);
-                truncated[copy] = '\0';
-                strncat(truncated, "...", sizeof(truncated) - copy - 1);
-                drawLabel = truncated;
-            }
-        }
-        int textW = getTextWidth(drawLabel);
+        int textW = getTextWidthUTF8WithFont(drawLabel,getActiveFont());
         int tabW = textW + 16;
+        if (!isActiveTab && tabW>160) tabW=160;
         SDL_Rect tabRect = { tabX, tabY, tabW, headerH - 8 };
         terminal_set_tab_rect(i, tabRect);
+        ide_terminal_header_add(IDE_TERMINAL_HEADER_TAB_BASE+i,tabRect);
         render_terminal_header_button(renderer,
                                       tabRect,
                                       drawLabel,
@@ -561,11 +555,12 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
         if (!terminal_session_info(i, &name, &isBuild, &isRun)) continue;
         if (!isBuild && !isRun) continue;
         const char* label = name ? name : (isBuild ? "Build" : (isRun ? "Run" : "Task"));
-        int textW = getTextWidth(label);
+        int textW = getTextWidthUTF8WithFont(label,getActiveFont());
         int tabW = textW + 16;
         rightStart -= (tabW + 6);
         SDL_Rect tabRect = { rightStart, tabY, tabW, headerH - 8 };
         terminal_set_tab_rect(i, tabRect);
+        ide_terminal_header_add(IDE_TERMINAL_HEADER_TAB_BASE+i,tabRect);
         render_terminal_header_button(renderer,
                                       tabRect,
                                       label,
@@ -575,6 +570,8 @@ void renderTerminalContents(UIPane* pane, bool hovered, struct IDECoreState* cor
                                       headerMouseY,
                                       headerMousePressed);
     }
+
+    ide_terminal_header_publish(pane);
 
     TermGrid* grid = terminal_active_grid();
     if (!grid) return;

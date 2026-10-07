@@ -112,6 +112,7 @@ int main(void) {
 
     expect(ide_ui_button_compact_appearance(&appearance, &layout),
            "compact appearance should resolve");
+    expect(appearance.corner_radius > 0.0f, "compact appearance must retain shared rounded corners");
     expect(appearance.border_thickness == 1.0f, "compact border should stay one pixel");
     expect(layout.text_offset_x == 4.0f, "compact text offset should follow padding");
 

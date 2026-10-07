@@ -1,3 +1,4 @@
+#include "ide/Panes/Editor/editor_header_controls.h"
 #include "engine/Render/render_pipeline.h"
 #include "engine/Render/render_helpers.h"              // renderUIPane, drawText
 #include "engine/Render/render_text_helpers.h"    
@@ -364,6 +365,7 @@ void renderEditorViewContents(UIPane* pane, bool hovered, IDECoreState* core) {
 // renderUIPane(pane, hovered, core);
 
     if (!pane->editorView) {
+        ide_editor_headers_begin(pane);ide_editor_headers_end();
         drawTextWithTier(pane->x + 8, pane->y + 30, "(empty editor)", CORE_FONT_TEXT_SIZE_CAPTION);
         return;
     }
@@ -377,7 +379,9 @@ void renderEditorViewContents(UIPane* pane, bool hovered, IDECoreState* core) {
 
     // Layout and render
     performEditorLayout(pane->editorView, pane->x, pane->y, pane->w, pane->h);
+    ide_editor_headers_begin(pane);
     renderEditorEntry(pane->editorView);  // uses core->activeEditorView internally
+    ide_editor_headers_end();
 }
 
 
@@ -411,6 +415,8 @@ void renderEditorViewRecursive(EditorView* view) {
 
 
 void renderLeafEditorView(EditorView* view) {
+    KitUiInteractionControl header_controls[IDE_BUTTON_SCOPE_CAPACITY]={0};
+    uint32_t header_count=0;
     RenderContext* ctx = getRenderContext();
     if (!ctx || !ctx->renderer) return;
     SDL_Renderer* renderer = ctx->renderer;
@@ -549,6 +555,10 @@ void renderLeafEditorView(EditorView* view) {
                 continue;
             }
 
+            if(header_count<IDE_BUTTON_SCOPE_CAPACITY-1){
+                SDL_Rect hit={0};SDL_IntersectRect(&tabRect,&tabViewport,&hit);
+                header_controls[header_count++]=(KitUiInteractionControl){.id=IDE_EDITOR_HEADER_TAB_BASE+i,.bounds={hit.x,hit.y,hit.w,hit.h},.enabled=1};
+            }
             if (vs->viewTabHitboxCount < MAX_TAB_HITBOXES) {
                 SDL_Rect hitVisible = {0};
                 if (!SDL_IntersectRect(&tabRect, &tabViewport, &hitVisible)) {
@@ -620,19 +630,19 @@ void renderLeafEditorView(EditorView* view) {
         }
     }
 
-    int tabMouseX = 0;
-    int tabMouseY = 0;
-    Uint32 tabMouseButtons = SDL_GetMouseState(&tabMouseX, &tabMouseY);
-    bool closeEnabled = view->activeTab >= 0 && view->activeTab < view->fileCount;
-    bool closeHovered = ui_panel_rect_contains(&xButtonRect, tabMouseX, tabMouseY);
+    bool closeEnabled = ide_editor_header_close_enabled(view->parentPane, view);
+    header_controls[header_count++]=(KitUiInteractionControl){.id=IDE_EDITOR_HEADER_CLOSE,.bounds={xButtonRect.x,xButtonRect.y,xButtonRect.w,xButtonRect.h},.enabled=closeEnabled};
+    ide_editor_header_publish(view,header_controls,header_count);
+    KitUiButtonState closeState=ide_editor_header_state(view,IDE_EDITOR_HEADER_CLOSE,false);
+    bool closeHovered = closeState.hovered;
     ui_panel_compact_button_render(renderer,
                                    &(UIPanelCompactButtonSpec){
                                        .rect = xButtonVisualRect,
                                        .label = "X",
+                                       .close_glyph = true,
                                        .hovered = closeHovered,
                                        .active = false,
-                                       .pressed = closeHovered &&
-                                                  (tabMouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0,
+                                       .pressed = closeState.pressed,
                                        .disabled = !closeEnabled,
                                        .outlined = false,
                                        .use_custom_fill = false,

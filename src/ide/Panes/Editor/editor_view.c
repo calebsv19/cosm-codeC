@@ -1,3 +1,4 @@
+#include "editor_header_controls.h"
 
 #include <assert.h>
 #include "app/GlobalInfo/core_state.h"
@@ -360,6 +361,7 @@ bool splitEditorView(EditorView* root, EditorView* targetLeaf, UIPane* pane, Spl
         root->activeTab = -1;
         root->tabScrollX = 0;
         root->ownsFileData = false;
+        ide_editor_headers_forget_view(split);
         free(split);
     }
 
@@ -445,6 +447,7 @@ EditorView* cloneLeafView(EditorView* src, SplitOrientation parentSplit){
     view->fileCapacity = src->fileCapacity > 0 ? src->fileCapacity : INITIAL_TAB_CAPACITY;
     view->openFiles = calloc((size_t)view->fileCapacity, sizeof(OpenFile*));
     if (!view->openFiles) {
+        ide_editor_headers_forget_view(view);
         free(view);
         return NULL;
     }
@@ -608,6 +611,7 @@ void closeTab(EditorView* view, int index) {
     if (!view || view->type != VIEW_LEAF || index < 0 || index >= view->fileCount)
         return;
 
+    ide_editor_headers_forget_view(view);
     OpenFile* file = view->openFiles[index];
     if (file) {
         editor_release_open_file(file);
@@ -668,16 +672,21 @@ bool closeEmptyEditorLeaf(EditorView* root, EditorView* leaf) {
         }
 
         free(leaf->openFiles);
+        ide_editor_headers_forget_view(leaf);
         free(leaf);
+        ide_editor_headers_forget_view(parent);
         free(parent);
     } else {
         if (root->openFiles) {
             free(root->openFiles);
             root->openFiles = NULL;
         }
+        ide_editor_headers_forget_view(root);
         *root = *sibling;
+        ide_editor_headers_forget_view(sibling);
         free(sibling);
         free(leaf->openFiles);
+        ide_editor_headers_forget_view(leaf);
         free(leaf);
     }
 
@@ -732,6 +741,7 @@ bool collapseEditorLeaf(EditorView* root, EditorView* leaf) {
         }
 
         destroyEditorView(sibling);
+        ide_editor_headers_forget_view(parent);
         free(parent);
 
         if (core->editorViewCount > removedLeaves) {
@@ -758,7 +768,10 @@ bool collapseEditorLeaf(EditorView* root, EditorView* leaf) {
         free(root->openFiles);
         root->openFiles = NULL;
     }
+    ide_editor_headers_forget_view(root);
+    ide_editor_headers_forget_view(leaf);
     *root = *leaf;
+    ide_editor_headers_forget_view(leaf);
     free(leaf);
 
     if (core->editorViewCount > removedLeaves) {
@@ -783,6 +796,7 @@ void switchTab(EditorView* view, int direction) {
         oldFile->showSavedTag = false;
     }
 
+    ide_editor_headers_forget_view(view);
     view->activeTab += direction;
 
     if (view->activeTab < 0)
@@ -862,6 +876,7 @@ EditorView* createLeafView(void) {
 
     view->openFiles = malloc(sizeof(OpenFile*) * INITIAL_TAB_CAPACITY);
     if (!view->openFiles) {
+        ide_editor_headers_forget_view(view);
         free(view);
         return NULL;
     }
@@ -894,6 +909,7 @@ EditorView* createEditorView(void) {
 
 void destroyEditorView(EditorView* view) {
     if (!view) return;
+    ide_editor_headers_forget_view(view);
 
     if (view->type == VIEW_SPLIT) {
         if (view->childA) destroyEditorView(view->childA);
@@ -908,6 +924,8 @@ void destroyEditorView(EditorView* view) {
             free(view->openFiles);
         }
     }
+
+    ide_editor_headers_forget_view(view);
 
     free(view);
 }
@@ -929,6 +947,7 @@ OpenFile* openFileInView(EditorView* view, const char* filePath) {
     // Prevent duplicate opens
     for (int i = 0; i < view->fileCount; i++) {
         if (strcmp(view->openFiles[i]->filePath, filePath) == 0) {
+            ide_editor_headers_forget_view(view);
             view->activeTab = i;
             setActiveEditorView(view);
             return view->openFiles[i];
@@ -964,6 +983,7 @@ OpenFile* openFileInView(EditorView* view, const char* filePath) {
     editor_projection_reset(&file->projection);
     
     // Add to list
+    ide_editor_headers_forget_view(view);
     view->openFiles[view->fileCount] = file;
     view->activeTab = view->fileCount;
     view->fileCount++;

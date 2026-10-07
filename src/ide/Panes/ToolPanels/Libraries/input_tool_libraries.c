@@ -1,3 +1,4 @@
+#include "ide/UI/panel_button_scope.h"
 #include "ide/Panes/ToolPanels/Libraries/input_tool_libraries.h"
 #include "ide/Panes/ToolPanels/Libraries/tool_libraries.h"
 #include "ide/UI/input_modifiers.h"
@@ -6,9 +7,18 @@
 #include "core/Analysis/library_index.h"
 #include "engine/Render/render_pipeline.h"
 
+static bool library_header_event(UIPane* pane, SDL_Event* event) {
+    LibraryPanelState* st=libraries_panel_state();
+    ide_panel_buttons_domain(IDE_PANEL_LIBRARIES,pane,st,(uint64_t)st->viewMode);
+    uint32_t id=0;
+    bool consumed=ide_panel_buttons_event(IDE_PANEL_LIBRARIES,pane,event,false,&id);
+    if (id) (void)library_activate_top_control((LibraryTopControlId)id);
+    return consumed;
+}
 void handleLibrariesKeyboardInput(UIPane* pane, SDL_Event* event) {
-    (void)pane;
-    if (!event || event->type != SDL_KEYDOWN) return;
+    if (!pane || !event) return;
+    if (library_header_event(pane,event)) return;
+    if (event->type != SDL_KEYDOWN) return;
     SDL_Keycode key = event->key.keysym.sym;
     Uint16 mod = (Uint16)SDL_GetModState();
     bool accel = ui_input_has_primary_accel(mod);
@@ -27,6 +37,7 @@ void handleLibrariesKeyboardInput(UIPane* pane, SDL_Event* event) {
 
 void handleLibrariesMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
+    if (library_header_event(pane,event)) return;
     LibraryPanelState* st = libraries_panel_state();
 
     if (st->viewMode == LIB_PANEL_VIEW_GRAPH && event->type == SDL_MOUSEWHEEL) {
@@ -40,9 +51,6 @@ void handleLibrariesMouseInput(UIPane* pane, SDL_Event* event) {
     }
 
     if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
-        if (handleLibraryHeaderClick(pane, event->button.x, event->button.y)) {
-            return;
-        }
         if (st->viewMode == LIB_PANEL_VIEW_GRAPH &&
             handleLibraryGraphMouseDown(pane, event->button.x, event->button.y)) {
             return;

@@ -32,4 +32,7 @@ TTF_Font* getUIFontByTier(CoreFontTextSizeTier tier);
 int getUIFontPointSizeByTier(CoreFontTextSizeTier tier);
 TTF_Font* getRasterizedFontForScale(TTF_Font* base_font, float scale, float* out_raster_scale);
 
+int measureNativeFontText(TTF_Font* font, const char* text, int* width, int* height);
+int measureNativeFallbackText(TTF_Font* font, const char* text, int* width, int* height);
+SDL_Surface* rasterizeNativeFallbackText(TTF_Font* font, const char* text, SDL_Color color, float scale);
 #endif

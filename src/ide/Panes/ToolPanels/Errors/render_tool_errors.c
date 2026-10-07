@@ -1,3 +1,4 @@
+#include "ide/UI/panel_button_scope.h"
 #include "ide/Panes/ToolPanels/Errors/render_tool_errors.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_font.h"
@@ -362,11 +363,13 @@ void renderErrorsPanel(UIPane* pane) {
     (void)ui_panel_tagged_rect_list_add(controlHits, ERROR_TOP_CONTROL_CLOSE_ALL, btnCloseAll);
     ui_panel_text_field_render(getRenderContext()->renderer,
                                &(UIPanelTextFieldSpec){
+                                   .owner_pane = pane, .owner_group = IDE_PANEL_ERRORS,
                                    .rect = searchLayout.text_field_rect,
                                    .text = errors_get_search_query(),
                                    .placeholder = "message, file, code...",
                                    .focused = errors_is_search_focused(),
                                    .cursor = errors_get_search_cursor(),
+                                   .edit = errors_get_search_edit(),
                                    .tier = CORE_FONT_TEXT_SIZE_CAPTION
                                });
     ui_panel_compact_button_render(getRenderContext()->renderer,
@@ -399,6 +402,7 @@ void renderErrorsPanel(UIPane* pane) {
         drawTextWithFont(tx, ty, statusBuf, font ? font : getActiveFont());
     }
 
+    ide_panel_buttons_publish_field(IDE_PANEL_ERRORS,pane,controlHits,hasSearchQuery ? 0 : ERROR_TOP_CONTROL_CLEAR_SEARCH,searchLayout.text_field_rect);
     errors_refresh_snapshot();
     FlatDiagRef refs[512];
     int flatCount = flatten_diagnostics(refs, 512);

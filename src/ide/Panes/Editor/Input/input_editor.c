@@ -1,4 +1,5 @@
 #include "input_editor.h"
+#include "ide/Panes/Editor/editor_header_controls.h"
 #include "ide/Panes/Editor/Input/editor_input_keyboard.h"
 #include "ide/Panes/Editor/Input/editor_input_mouse.h"
 #include "ide/Panes/Editor/editor_view.h"
@@ -105,6 +106,19 @@ void handleEditorMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !pane->editorView) return;
 
     IDECoreState* core = getCoreState();
+    EditorView* header_target=NULL;
+    uint32_t header_action=0;
+    bool header_consumed=ide_editor_headers_event(pane,event,&header_target,&header_action);
+    if(header_action && header_target){
+        if(header_action==IDE_EDITOR_HEADER_CLOSE){
+            setActiveEditorView(header_target);
+            enqueueEditorCommand(pane,COMMAND_CLOSE_TAB,SDL_GetModState(),NULL);
+        }else if(header_action>=IDE_EDITOR_HEADER_TAB_BASE){
+            int tab=(int)(header_action-IDE_EDITOR_HEADER_TAB_BASE);
+            if(tab>=0 && tab<header_target->fileCount){header_target->activeTab=tab;setActiveEditorView(header_target);}
+        }
+    }
+    if(header_consumed)return;
 
     switch (event->type) {
         case SDL_MOUSEBUTTONDOWN:

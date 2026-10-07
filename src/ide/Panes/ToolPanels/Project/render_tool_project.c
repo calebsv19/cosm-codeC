@@ -1,3 +1,4 @@
+#include "project_toolbar.h"
 #include "ide/Panes/ToolPanels/Project/render_tool_project.h"
 #include "ide/Panes/ToolPanels/Project/tool_project.h"
 #include "ide/Panes/ToolPanels/tool_panel_chrome.h"
@@ -8,6 +9,7 @@
 #include "ide/UI/scroll_manager.h"
 #include "ide/UI/panel_control_widgets.h"
 #include "ide/UI/panel_metrics.h"
+#include "ide/UI/panel_text_field.h"
 #include "ide/UI/row_surface.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/UI/ui_selection_style.h"
@@ -179,17 +181,7 @@ static void project_row_build_line(char* out_line,
     if (!display_name) display_name = "";
 
     if (entry == renamingEntry) {
-        int cursor = project_get_rename_cursor();
-        int renameLen = (int)strlen(renameBuffer);
-        if (cursor < 0) cursor = 0;
-        if (cursor > renameLen) cursor = renameLen;
-        snprintf(out_line,
-                 out_cap,
-                 "%s%.*s_%s",
-                 prefix,
-                 cursor,
-                 renameBuffer,
-                 renameBuffer + cursor);
+        snprintf(out_line,out_cap,"%s%s",prefix,renameBuffer);
         return;
     }
 
@@ -283,9 +275,16 @@ static void project_render_entry(ProjectRenderContext* ctx, DirEntry* entry, int
         TTF_Font* rowFont = project_entry_font();
         ui_row_surface_render(ctx->renderer, &row.visible_surface, &row.surface_spec);
 
-        drawTextUTF8WithFontColorClipped(row.draw_x, row.text_y, row.line, rowFont,
-                                         row.text_color, false,
-                                         &ctx->clipRect);
+        if(entry==renamingEntry) {
+            drawTextUTF8WithFontColorClipped(row.draw_x,row.text_y,row.prefix,rowFont,row.text_color,false,&ctx->clipRect);
+            int x=row.draw_x+getTextWidthUTF8WithFont(row.prefix,rowFont);
+            UIPanelTextFieldSpec field={.rect={x,row.text_y-3,ctx->clipRect.x+ctx->clipRect.w-x,ctx->lineHeight},
+                .text=renameBuffer,.cursor=project_get_rename_cursor(),.edit=project_get_rename_edit(),
+                .focused=true,.tier=CORE_FONT_TEXT_SIZE_CAPTION};
+            ui_panel_text_field_render(ctx->renderer,&field);
+        } else {
+            drawTextUTF8WithFontColorClipped(row.draw_x,row.text_y,row.line,rowFont,row.text_color,false,&ctx->clipRect);
+        }
 
         if (row.hovered) {
             hoveredEntry = entry;
@@ -361,23 +360,18 @@ void renderProjectFilesPanel(UIPane* pane) {
         ui_panel_vertical_button_stack_layout(x, y, iconBtnSize, iconBtnSize, spacing, topControlCount);
     UIPanelTaggedRectList* topControlHits = project_top_control_hits();
     ui_panel_tagged_rect_list_reset(topControlHits);
-    int topMouseX = 0;
-    int topMouseY = 0;
-    Uint32 topMouseButtons = SDL_GetMouseState(&topMouseX, &topMouseY);
-    bool topMousePressed = (topMouseButtons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
-
     for (int i = 0; i < topControls.count; ++i) {
-        SDL_Rect buttonRect = topControls.button_rects[i];
-        bool buttonHovered = ui_panel_rect_contains(&buttonRect, topMouseX, topMouseY);
+        SDL_Rect buttonRect = ide_project_toolbar_rect(pane, i);
+        KitUiButtonState state = ide_project_toolbar_state(pane, i);
         ui_panel_compact_button_render(renderer,
                                        &(UIPanelCompactButtonSpec){
                                            .rect = buttonRect,
                                            .label = s_projectTopControls[i].symbol,
-                                           .hovered = buttonHovered,
+                                           .hovered = state.hovered,
                                            .active = false,
-                                           .pressed = buttonHovered && topMousePressed,
-                                           .disabled = false,
-                                           .outlined = false,
+                                           .pressed = state.pressed,
+                                           .disabled = state.disabled,
+                                           .outlined = state.focused,
                                            .use_custom_fill = false,
                                            .use_custom_outline = false,
                                            .tier = CORE_FONT_TEXT_SIZE_CAPTION

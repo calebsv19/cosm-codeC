@@ -3,7 +3,8 @@
 #ifndef ICON_BAR_H
 #define ICON_BAR_H
 
-#include <SDL2/SDL.h> 
+#include <SDL2/SDL.h>
+#include <stdint.h>
 #include <SDL2/SDL_rect.h>
 
 
@@ -33,6 +34,7 @@ SDL_Rect getIconRect(struct UIPane* pane, int index);
 // Current selected icon
 void setActiveIcon(IconTool tool);
 IconTool getActiveIcon();
+uint64_t getActiveIconGeneration(void);
 
 // UI usage
 const char* getIconLabel(IconTool tool);

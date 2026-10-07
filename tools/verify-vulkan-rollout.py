@@ -51,6 +51,21 @@ def verify_shared_source(root: Path, canonical: Path) -> None:
                          ", ".join(mismatches[:12]))
 
 
+def verify_native_ui_calls(app_root: Path, shared_root: Path) -> None:
+    # Native UI adapters must not send the VkRenderer alias to unmapped SDL calls.
+    compatibility = (shared_root / "vk_renderer/include/vk_renderer_compat_sdl.h").read_text()
+    mapped = set(re.findall(r"^#define\s+(SDL_\w+)\s*\(", compatibility, re.MULTILINE))
+    for name in ("render_ui_button.c", "render_ui_text_field.c"):
+        path = app_root / "src/engine/Render" / name
+        if not path.is_file():
+            continue
+        calls = set(re.findall(r"\b(SDL_Render\w+|SDL_SetRender\w+)\s*\(", path.read_text()))
+        unsupported = calls - mapped
+        if unsupported:
+            raise SystemExit(f"unmapped SDL render calls in native UI adapter {name}: {sorted(unsupported)}")
+    print("IDE native UI renderer bindings: pass")
+
+
 def bmp_evidence(path: Path) -> tuple[int, int, int]:
     data = path.read_bytes()
     if len(data) < 54 or data[:2] != b"BM":
@@ -134,6 +149,7 @@ def main() -> int:
 
     root = args.shared_root.resolve()
     canonical = args.canonical_shared_root.resolve()
+    verify_native_ui_calls(Path(__file__).resolve().parents[1], root)
     verify_shared_source(root, canonical)
     runtime = read_version(root / "vk_runtime/VERSION")
     renderer = read_version(root / "vk_renderer/VERSION")

@@ -234,10 +234,10 @@ test-control-panel-composite-tree:
 	@echo "Control panel composite tree test passed."
 
 .PHONY: test-control-panel-unit-focus-mode
-test-control-panel-unit-focus-mode:
+test-control-panel-unit-focus-mode: $(KIT_UI_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling Control panel unit focus mode test..."
-	@$(CC) $(CFLAGS) tests/control_panel_unit_focus_mode_test.c src/ide/Panes/ControlPanel/control_panel_search_filters_helpers.c -o $(TEST_BUILD_DIR)/control_panel_unit_focus_mode_test $(LIB_DIRS) -lSDL2 || (echo "Control panel unit focus mode test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/control_panel_unit_focus_mode_test.c src/ide/Panes/ControlPanel/control_panel_search_filters_helpers.c -o $(TEST_BUILD_DIR)/control_panel_unit_focus_mode_test $(KIT_UI_LIB) $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 || (echo "Control panel unit focus mode test compile failed."; exit 1)
 	@echo "Running Control panel unit focus mode test..."
 	@$(TEST_BUILD_DIR)/control_panel_unit_focus_mode_test || (echo "Control panel unit focus mode test failed."; exit 1)
 	@echo "Control panel unit focus mode test passed."

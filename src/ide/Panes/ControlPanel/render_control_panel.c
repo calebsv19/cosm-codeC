@@ -1,3 +1,4 @@
+#include "ide/UI/panel_button_scope.h"
 #include "ide/Panes/ControlPanel/render_control_panel.h"
 #include "engine/Render/render_pipeline.h"  // renderUIPane, drawText
 #include "engine/Render/render_helpers.h"
@@ -361,11 +362,13 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     bool clearHovered = ui_panel_rect_contains(&clearBtn, mouseX, mouseY);
     ui_panel_text_field_render(renderer,
                                &(UIPanelTextFieldSpec){
+                                   .owner_pane = pane, .owner_group = IDE_PANEL_CONTROL,
                                    .rect = searchBox,
                                    .text = query,
                                    .placeholder = "type to filter...",
                                    .focused = control_panel_is_search_focused(),
                                    .cursor = control_panel_get_search_cursor(),
+                                   .edit = control_panel_get_search_edit(),
                                    .tier = CORE_FONT_TEXT_SIZE_CAPTION
                                });
 
@@ -410,6 +413,14 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
                                              CORE_FONT_TEXT_SIZE_CAPTION,
                                              &filterHeader);
     control_panel_set_filter_header_rect(filterHeader);
+    KitUiButtonState headerState={0};
+    if (ide_panel_buttons_paint_state(filterHeader,&headerState) && headerState.focused) {
+        IDEThemePalette palette={0};
+        (void)ide_shared_theme_resolve_palette(&palette);
+        SDL_SetRenderDrawColor(renderer,palette.input_focus_border.r,palette.input_focus_border.g,palette.input_focus_border.b,255);
+        SDL_RenderDrawLine(renderer,filterHeader.x,filterHeader.y+filterHeader.h-1,
+                           filterHeader.x+filterHeader.w-1,filterHeader.y+filterHeader.h-1);
+    }
     y += d.info_line_gap - 2;
 
     control_panel_begin_filter_button_frame();
@@ -597,6 +608,16 @@ void renderControlPanelContents(UIPane* pane, bool hovered, struct IDECoreState*
     } else {
         y += 2;
     }
+
+    UIPanelTaggedRect controlItems[IDE_BUTTON_SCOPE_CAPACITY] = {0};
+    UIPanelTaggedRectList controlHits = {controlItems,0,IDE_BUTTON_SCOPE_CAPACITY};
+    UIPanelTaggedRectList* filters = control_panel_get_filter_button_hit_list();
+    if (filters) for (int i=0;i<filters->count;++i)
+        (void)ui_panel_tagged_rect_list_add(&controlHits,filters->items[i].tag,filters->items[i].rect);
+    (void)ui_panel_tagged_rect_list_add(&controlHits,1001,control_panel_get_search_strip_layout().aux_button_rect);
+    (void)ui_panel_tagged_rect_list_add(&controlHits,1002,control_panel_get_search_strip_layout().trailing_button_rect);
+    (void)ui_panel_tagged_rect_list_add(&controlHits,1003,control_panel_get_filter_header_rect());
+    ide_panel_buttons_publish_field(IDE_PANEL_CONTROL,pane,&controlHits,hasSearchQuery ? 0 : 1002,control_panel_get_search_strip_layout().text_field_rect);
 
     ToolPanelHeaderMetrics headerMetrics = {
         .controls_y = searchRow.y,

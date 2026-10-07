@@ -100,12 +100,11 @@ bool ide_ui_button_resolve_style(const IDEThemePalette* palette,
 bool ide_ui_button_compact_appearance(KitUiButtonAppearance* out_appearance,
                                       KitUiButtonLayout* out_layout) {
     if (!out_appearance || !out_layout) return false;
-    if (!kit_ui_button_appearance_preset(KIT_UI_BUTTON_APPEARANCE_DEFAULT,
+    if (!kit_ui_button_appearance_preset(KIT_UI_BUTTON_APPEARANCE_COMPACT_ROUNDED,
                                          out_appearance)) {
         return false;
     }
 
-    out_appearance->corner_radius = 0.0f;
     out_appearance->border_thickness = 1.0f;
     out_appearance->padding_x = 4.0f;
     out_appearance->padding_y = 2.0f;

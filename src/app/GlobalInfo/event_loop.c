@@ -1,3 +1,4 @@
+#include "ide/UI/button_scope.h"
 #include "core/Ipc/ide_ipc_workspace.h"
 #include <SDL2/SDL.h>
 #include <stdio.h>
@@ -8,6 +9,8 @@
 
 
 #include "event_loop.h"
+#include "ide/UI/panel_field_focus.h"
+#include "core/BuildSystem/build_diagnostics.h"
 #include "event_loop_diag_helpers.h"
 #include "system_control.h"
 #include "core_state.h"
@@ -40,6 +43,9 @@
 #include "ide/UI/ui_state.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include "ide/UI/resize.h"
+#include "ide/UI/window_lifecycle.h"
+#include "ide/UI/window_lifecycle_proof.h"
+#include "ide/Panes/MenuBar/input_menu_bar.h"
 #include "engine/Render/render_pipeline.h"
 #include "core/Analysis/library_index.h"
 #include "core/Analysis/analysis_cache.h"
@@ -548,8 +554,11 @@ static bool process_single_input_event(FrameContext* ctx,
         printf("KEYDOWN: %s (%d)\n", SDL_GetKeyName(key), key);
     }
 
+    ide_window_lifecycle_event(&e, ctx->panes, ctx->paneCount);
     if (core &&
         ide_workspace_authoring_host_handle_sdl_event(&core->workspaceAuthoring, &e, false)) {
+        ide_menu_bar_cancel();
+        ide_button_scopes_cancel_except(NULL);
         requestFullRedraw(RENDER_INVALIDATION_OVERLAY | RENDER_INVALIDATION_INPUT);
         return true;
     }
@@ -699,6 +708,7 @@ static bool checkRenderFrame(FrameContext* ctx, Uint64 now) {
     const bool heartbeatDue = (!invalidated) && (timeSinceLastRender >= heartbeat);
 
     if (invalidationDue || heartbeatDue) {
+        if (!ide_window_lifecycle_refresh(ctx->panes, ctx->paneCount)) return false;
         const bool timerHudActive = isTimerHudEnabled();
         RenderContext* rctx = getRenderContext();
 
@@ -736,6 +746,15 @@ static bool checkRenderFrame(FrameContext* ctx, Uint64 now) {
 
 
 void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
+    static uint64_t diagnostics_workspace_generation;
+    static bool diagnostics_workspace_observed;
+    uint64_t workspace_generation = ide_ipc_workspace_generation();
+    if (diagnostics_workspace_observed && workspace_generation != diagnostics_workspace_generation)
+        build_diagnostics_load(projectPath);
+    diagnostics_workspace_observed = true;
+    diagnostics_workspace_generation = workspace_generation;
+    build_diagnostics_poll();
+    ide_panel_fields_reconcile();
     mainthread_context_assert_owner("event_loop.runFrameLoop");
     IDECoreState* core = getCoreState();
     const bool timerHudActive = core->timerHudEnabled;
@@ -746,6 +765,8 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     if (timerHudActive) ts_session_start_timer(timer_hud_session(), "SystemLoop");
 
     ensure_loop_timers_registered();
+    ide_window_proof_tick(ctx->running);
+    (void)ide_window_lifecycle_refresh(ctx->panes, ctx->paneCount);
 
     EditorView* savedView = saveEditorViewState();
 
@@ -798,7 +819,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     analysis_scheduler_tick(projectPath, buildArgs);
     if (timerHudActive) ts_session_stop_timer(timer_hud_session(), "BackgroundTick");
 
-    if (tickRenameAnimation(loop_time_now_ms32())) {
+    if (tickRenameAnimation(SDL_GetTicks())) {
         requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
     }
 

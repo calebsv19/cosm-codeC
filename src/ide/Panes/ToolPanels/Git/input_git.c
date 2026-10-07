@@ -1,3 +1,4 @@
+#include "ide/UI/panel_button_scope.h"
 #include "input_tool_git.h"
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
 #include "ide/UI/editor_navigation.h"
@@ -44,10 +45,27 @@ static void git_tree_activate(void* user_data) {
     }
 }
 
+static bool git_header_event(UIPane* pane, SDL_Event* event) {
+    uint32_t id=0;
+    bool consumed=ide_panel_buttons_event(IDE_PANEL_GIT,pane,event,git_panel_is_message_focused(),&id);
+    if(consumed && ((event->type==SDL_KEYDOWN && event->key.keysym.sym==SDLK_TAB) ||
+        ((event->type==SDL_MOUSEBUTTONDOWN || event->type==SDL_MOUSEBUTTONUP) && event->button.button==SDL_BUTTON_LEFT)))
+        git_panel_set_message_focus(ide_panel_buttons_field_focused(IDE_PANEL_GIT,pane));
+    size_t position = 0; bool extend = false;
+    if (ide_panel_text_pointer(IDE_PANEL_GIT, pane, event, git_panel_get_message(), &position, &extend)) {
+        (void)git_panel_message_pointer(position, extend);
+        consumed = true;
+    }
+    if (id==1) { git_stage_all_changes(); git_panel_set_message_focus(false); }
+    if (id==2) { git_commit_with_message(); git_panel_set_message_focus(false); }
+    return consumed;
+}
+
 void handleGitKeyboardInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
+    if (git_header_event(pane,event)) return;
 
-    if (event->type == SDL_TEXTINPUT && git_panel_is_message_focused()) {
+    if ((event->type == SDL_TEXTINPUT || event->type == SDL_TEXTEDITING) && git_panel_is_message_focused()) {
         (void)git_panel_handle_message_text_input(event);
         return;
     }
@@ -58,7 +76,7 @@ void handleGitKeyboardInput(UIPane* pane, SDL_Event* event) {
     bool accel = ui_input_has_primary_accel(mod);
 
     if (git_panel_is_message_focused()) {
-        if (git_panel_handle_message_edit_key(key)) {
+        if (git_panel_handle_message_edit_key_mod(key,(SDL_Keymod)mod)) {
             return;
         }
         switch (key) {
@@ -103,6 +121,7 @@ void handleGitKeyboardInput(UIPane* pane, SDL_Event* event) {
 
 void handleGitMouseInput(UIPane* pane, SDL_Event* event) {
     if (!pane || !event) return;
+    if (git_header_event(pane,event)) return;
 
     if (ui_scroll_input_consume(git_panel_scroll(),
                                 event,
@@ -116,16 +135,6 @@ void handleGitMouseInput(UIPane* pane, SDL_Event* event) {
         int my = event->button.y;
         UIPanelThreeSegmentStripLayout topStrip = git_panel_get_top_strip_layout();
 
-        if (ui_panel_rect_contains(&topStrip.leading_rect, mx, my)) {
-            git_stage_all_changes();
-            git_panel_set_message_focus(false);
-            return;
-        }
-        if (ui_panel_rect_contains(&topStrip.trailing_rect, mx, my)) {
-            git_commit_with_message();
-            git_panel_set_message_focus(false);
-            return;
-        }
         if (ui_panel_rect_contains(&topStrip.middle_rect, mx, my)) {
             git_panel_set_message_focus(true);
             const char* msg = git_panel_get_message();

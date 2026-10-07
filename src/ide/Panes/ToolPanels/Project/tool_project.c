@@ -52,6 +52,7 @@ typedef struct {
     DirEntry* renaming_entry;
     char rename_buffer[PROJECT_RENAME_BUFFER_CAP];
     int rename_cursor;
+    KitUiTextEdit rename_edit;
     char newly_created_path[PROJECT_PATH_BUFFER_CAP];
     char run_target_path[PROJECT_PATH_BUFFER_CAP];
     char selected_file_path[PROJECT_PATH_BUFFER_CAP];
@@ -104,7 +105,8 @@ static UIPanelTextEditBuffer project_rename_text_edit_buffer(void) {
     return (UIPanelTextEditBuffer){
         .text = state ? state->rename_buffer : NULL,
         .capacity = PROJECT_RENAME_BUFFER_CAP,
-        .cursor = state ? &state->rename_cursor : NULL
+        .cursor = state ? &state->rename_cursor : NULL,
+        .retained = &project_panel_state_internal()->rename_edit
     };
 }
 
@@ -213,10 +215,16 @@ int project_get_rename_cursor(void) {
 void project_begin_inline_rename(DirEntry* entry) {
     renamingEntry = entry;
     UIPanelTextEditBuffer buffer = project_rename_text_edit_buffer();
-    (void)ui_panel_text_edit_set_text(&buffer, (entry && entry->name) ? entry->name : "");
+    if (!ui_panel_text_edit_set_text(&buffer, (entry && entry->name) ? entry->name : "")) {
+        /* A name that cannot fit intact must never reuse another rename draft. */
+        (void)ui_panel_text_edit_clear(&buffer);
+        renamingEntry = NULL;
+    }
 }
 
 void project_end_inline_rename(void) {
+    UIPanelTextEditBuffer buffer = project_rename_text_edit_buffer();
+    ui_panel_text_edit_blur(&buffer);
     renamingEntry = NULL;
     renameCursor = 0;
 }
@@ -226,10 +234,12 @@ bool project_handle_rename_text_input(const SDL_Event* event) {
     return ui_panel_text_edit_handle_text_input(&buffer, event);
 }
 
-bool project_handle_rename_edit_key(SDL_Keycode key) {
+bool project_handle_rename_edit_key_mod(SDL_Keycode key,SDL_Keymod mod) {
     UIPanelTextEditBuffer buffer = project_rename_text_edit_buffer();
-    return ui_panel_text_edit_handle_keydown(&buffer, key);
+    return ui_panel_text_edit_handle_keydown_mod(&buffer, key,mod);
 }
+bool project_handle_rename_edit_key(SDL_Keycode key) { return project_handle_rename_edit_key_mod(key,KMOD_NONE); }
+
 
 void selectDirectoryEntry(DirEntry* entry) {
     setSelectedDirectory(entry);
@@ -509,7 +519,10 @@ static void project_row_select_single(void* user_data) {
 
     if (state->entry->type == ENTRY_FOLDER) {
         selectDirectoryEntry(state->entry);
-        snprintf(renameBuffer, PROJECT_RENAME_BUFFER_CAP, "%s", state->entry->name ? state->entry->name : "");
+        if (!renamingEntry) {
+            UIPanelTextEditBuffer buffer = project_rename_text_edit_buffer();
+            (void)ui_panel_text_edit_set_text(&buffer,state->entry->name ? state->entry->name : "");
+        }
     } else if (state->entry->type == ENTRY_FILE) {
         selectFileEntry(state->entry);
     }
@@ -947,4 +960,10 @@ DirEntry* getCurrentTargetDirectory(void) {
     }
 
     return projectRoot;
+}
+
+const KitUiTextEdit* project_get_rename_edit(void) {
+    UIPanelTextEditBuffer buffer=project_rename_text_edit_buffer();KitUiTextEdit edit={0};
+    if(!ui_panel_text_edit_bind(&buffer,&edit))return NULL;
+    ui_panel_text_edit_save(&buffer,&edit);return buffer.retained;
 }

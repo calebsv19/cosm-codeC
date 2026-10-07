@@ -44,7 +44,8 @@ UIPanelTextEditBuffer control_panel_search_buffer(void) {
     UIPanelTextEditBuffer buffer = {
         searchQuery,
         CONTROL_PANEL_SEARCH_MAX,
-        &searchCursor
+        &searchCursor,
+        &control_panel_state()->ui.search_edit
     };
     return buffer;
 }
@@ -118,7 +119,7 @@ bool control_panel_is_search_focused(void) {
     return searchFocused;
 }
 
-void control_panel_set_search_focused(bool focused) {
+void control_panel_set_search_focused(bool focused) { if(!focused){UIPanelTextEditBuffer buffer=control_panel_search_buffer();ui_panel_text_edit_blur(&buffer);}
     (void)ui_text_input_focus_set(&searchFocused, focused);
 }
 
@@ -144,12 +145,8 @@ void control_panel_set_search_enabled(bool enabled) {
 }
 
 bool control_panel_set_search_query_text(const char* text) {
-    snprintf(searchQuery, sizeof(searchQuery), "%s", text ? text : "");
-    searchCursor = (int)strlen(searchQuery);
-    if (searchCursor < 0) searchCursor = 0;
-    if (searchCursor >= CONTROL_PANEL_SEARCH_MAX) {
-        searchCursor = CONTROL_PANEL_SEARCH_MAX - 1;
-    }
+    UIPanelTextEditBuffer buffer = control_panel_search_buffer();
+    if (!ui_panel_text_edit_set_text(&buffer,text)) return false;
     control_panel_after_search_text_edit();
     return true;
 }
@@ -363,21 +360,23 @@ bool control_panel_clear_search_query(void) {
 }
 
 bool control_panel_handle_search_text_input(const SDL_Event* event) {
-    if (!event || event->type != SDL_TEXTINPUT) return false;
+    if (!event || (event->type != SDL_TEXTINPUT && event->type != SDL_TEXTEDITING)) return false;
     UIPanelTextEditBuffer buffer = control_panel_search_buffer();
     if (!ui_panel_text_edit_handle_text_input(&buffer, event)) return false;
-    control_panel_after_search_text_edit();
+    if(event->type==SDL_TEXTINPUT)control_panel_after_search_text_edit();
     return true;
 }
 
-bool control_panel_handle_search_edit_key(SDL_Keycode key) {
+bool control_panel_handle_search_edit_key_mod(SDL_Keycode key,SDL_Keymod mod) {
     UIPanelTextEditBuffer buffer = control_panel_search_buffer();
-    if (!ui_panel_text_edit_handle_keydown(&buffer, key)) return false;
-    if (key == SDLK_BACKSPACE || key == SDLK_DELETE) {
+    if (!ui_panel_text_edit_handle_keydown_mod(&buffer, key,mod)) return false;
+    if (key == SDLK_BACKSPACE || key == SDLK_DELETE || ((mod&(KMOD_CTRL|KMOD_GUI)) && (key==SDLK_x || key==SDLK_v))) {
         control_panel_after_search_text_edit();
     }
     return true;
 }
+bool control_panel_handle_search_edit_key(SDL_Keycode key) { return control_panel_handle_search_edit_key_mod(key,KMOD_NONE); }
+
 
 bool control_panel_has_active_search_state(void) {
     if (searchEnabled && searchQuery[0] != '\0') return true;
@@ -591,4 +590,15 @@ bool control_panel_move_selected_match_button(int direction, bool jump_to_edge) 
     reset_symbol_scroll_to_top();
     control_panel_refresh_visible_symbol_tree();
     return true;
+}
+
+const KitUiTextEdit* control_panel_get_search_edit(void) {
+    UIPanelTextEditBuffer buffer=control_panel_search_buffer();KitUiTextEdit edit={0};
+    if(!ui_panel_text_edit_bind(&buffer,&edit))return NULL;
+    ui_panel_text_edit_save(&buffer,&edit);return buffer.retained;
+}
+
+bool control_panel_search_pointer(size_t position, bool extend) {
+    UIPanelTextEditBuffer buffer = control_panel_search_buffer();
+    return ui_panel_text_edit_pointer(&buffer, position, extend);
 }

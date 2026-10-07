@@ -6,6 +6,7 @@
 #include "core_font.h"
 #include <SDL2/SDL_ttf.h>
 #include <stdbool.h>
+#include "kit_ui.h"
 
 struct UIPane;
 
@@ -48,6 +49,7 @@ void drawSelectableText(const SelectableTextOptions* options);
 
 // UI widgets
 void renderButton(struct UIPane* pane, SDL_Rect rect, const char* label);
+void renderSharedButton(struct UIPane* pane, SDL_Rect rect, const char* label, KitUiButtonState state);
 
 void pushClipRect(const SDL_Rect* rect);
 void popClipRect(void);

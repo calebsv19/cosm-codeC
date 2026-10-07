@@ -1,4 +1,6 @@
 #include "input_keyboard.h"
+#include "ide/UI/panel_field_focus.h"
+#include "ide/Panes/ToolPanels/Errors/tool_errors.h"
 #include "core/InputManager/UserInput/rename_flow.h"
 #include "core/InputManager/UserInput/rename_access.h"
 #include "core/Analysis/analysis_scheduler.h"
@@ -47,6 +49,8 @@ static bool text_entry_is_active(const IDECoreState* core) {
 }
 
 static bool global_shortcut_text_capture_active(void) {
+    ide_panel_fields_reconcile();
+    if (errors_is_search_focused()) return true;
     if (isRenaming()) return true;
     if (control_panel_is_search_focused()) return true;
     if (git_panel_is_message_focused()) return true;
@@ -156,19 +160,8 @@ void handleKeyboardInput(SDL_Event* event,
     if (isRenaming()) {
 	    if (key == SDLK_RETURN) { submitRenameWithMod((SDL_Keymod)mod); return; }
 	    else if (key == SDLK_ESCAPE) { cancelRename(); return; }
-	    else if (key == SDLK_BACKSPACE) { handleRenameTextInput('\b'); return; }
-	
-	    else if (key == SDLK_LEFT) {
-	        if (RENAME->cursorPosition > 0)
-	            RENAME->cursorPosition--;
-	        return;
-	    }
-	
-	    else if (key == SDLK_RIGHT) {
-	        if (RENAME->cursorPosition < (int)strlen(RENAME->inputBuffer))
-	            RENAME->cursorPosition++;
-	        return;
-	    }
+        else if (handleRenameEditingKeyWithMod(key,(SDL_Keymod)mod)) return;
+        return; /* The single-field modal owns unhandled editing keys too. */
     }
 
 

@@ -1,4 +1,16 @@
 # Ecosystem Core & Kit Catalog
+
+## BBF7 point/plane query adoption checkpoint — 2026-10-07
+
+`core_collision3d 0.1.1` is committed and independently tested. Ball Bounce retained Main Edit consumes it in actual multi-sphere wall queries through its normal live shared root; the minimum supported version is0.1.1. Both native compiler variants preserve complete original2400-tick trajectories and pass shared-query refusal/recovery, native/app MCP, full-cache and protected B5/B6 tests. Actual desktop and isolated development-package qualification are distinct from canonical/install/release adoption. FP contraction is scoped inside the query implementation, preserving existing app solver flags.
+
+Connected Mechanics surface3d static-plane integration remains pending its active BE2 owner's reserved writer boundary and default managed adoption. Its planned minimum is0.1.1; copied seam tests are qualified contract evidence, not current adoption. A sanctioned module-only managed rollout has been prepared in a clean temporary clone and changes only the six new module files, retaining every existing vendor path/pin. No original CMS source/vendor/index was modified. World construction, integration, response, XPBD/materials, accepted-state, sessions, caches, UI and rendering remain app-owned. Full BBF7 and its separate secondary closure remain pending.
+
+
+## BBF7 shared point/plane query foundation — 2026-10-07
+
+`core_collision3d 0.1.0` supplies a renderer-free, allocation-free C11 double-precision point/plane signed distance and clearance gap. It rejects invalid input without changing caller output; callers declare one Cartesian meter frame and retain integration, response, contacts, material, lifecycle and presentation policy. FP contraction is disabled for the documented arithmetic order. Core math float vectors cannot preserve this double contract; core_space remains the coordinate conversion owner. The initial adoption targets are Ball Bounce multi-sphere room walls and Connected Mechanics surface3d static-plane predicates. Production consumer cutover and qualification are pending; copied seam probes do not establish adoption. See `core/core_collision3d/README.md`. No general 3D collision solver is claimed.
+
 ## Purpose
 This document is the canonical catalog of shared ecosystem components.
 It describes what exists now, what is planned next, and how responsibilities stay separated.

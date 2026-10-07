@@ -4,6 +4,11 @@
 #include "input_resize.h"
 #include "input_hover.h"
 #include "input_global.h"
+#include "ide/Panes/MenuBar/input_menu_bar.h"
+#include "ide/Panes/IconBar/input_icon_bar.h"
+#include "ide/Panes/IconBar/icon_bar.h"
+#include "ide/Panes/ToolPanels/Project/project_toolbar.h"
+#include "ide/UI/button_scope.h"
 
 
 #include "app/GlobalInfo/core_state.h"
@@ -32,12 +37,9 @@ void handleInput(SDL_Event* event,
 
     handleWindowGlobalEvents(event, panes, paneCountRef, running);  // simplified
 
-    if (event->type == SDL_TEXTINPUT) {
+    if (event->type == SDL_TEXTINPUT || event->type == SDL_TEXTEDITING) {
         if (isRenaming()) {
-            const char* text = event->text.text;
-            for (int i = 0; text[i] != '\0'; i++) {
-                handleRenameTextInput(text[i]);
-            }
+            (void)handleRenameTextEvent(event);
             return;  // steal input from other systems
         } else {
             UIPane* focused = getCoreState()->focusedPane;
@@ -52,7 +54,23 @@ void handleInput(SDL_Event* event,
         handleKeyboardInput(event, panes, paneCountRef, running);
     }
 
+    if (event->type == SDL_KEYUP) {
+        UIPane* focused = getCoreState()->focusedPane;
+        if (focused && focused->role == PANE_ROLE_MENUBAR) handleMenuBarKeyboardInput(focused, event);
+        if (focused && focused->role == PANE_ROLE_ICONBAR) handleIconBarKeyboardInput(focused, event);
+        if (focused && (focused->role == PANE_ROLE_CONTROLPANEL ||
+            (focused->role == PANE_ROLE_TOOLPANEL && (getActiveIcon()==ICON_PROJECT_FILES || getActiveIcon()==ICON_ERRORS || getActiveIcon()==ICON_VERSION_CONTROL || getActiveIcon()==ICON_LIBRARIES || getActiveIcon()==ICON_TASKS || getActiveIcon()==ICON_ASSET_MANAGER))))
+            if (focused->inputHandler && focused->inputHandler->onKeyboard)
+                focused->inputHandler->onKeyboard(focused, event);
+    }
+    bool was_resizing = gResizeDrag.active;
     handleResizeDragging(event, zones, zoneCount, panes, paneCountRef);
+    if (gResizeDrag.active || was_resizing) {
+        ide_button_scopes_cancel_except(NULL);
+        cancelMouseInputCapture();
+        ide_menu_bar_cancel();
+        return;
+    }
 
     if (event->type == SDL_MOUSEMOTION ||
         event->type == SDL_MOUSEBUTTONDOWN ||

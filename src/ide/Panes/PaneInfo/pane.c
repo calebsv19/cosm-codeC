@@ -17,6 +17,7 @@
 #include "ide/Panes/Terminal/command_terminal.h"
 #include "ide/Panes/ControlPanel/command_control_panel.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
+#include "ide/UI/button_scope.h"
 #include "ide/Panes/Popup/command_popup.h"
 #include "ide/Panes/ToolPanels/command_tool_panel.h"
 #include "core/CommandBus/command_metadata.h"
@@ -247,9 +248,9 @@ bool isPointInsidePane(UIPane* pane, int x, int y) {
 
     return (
         x >= pane->x &&
-        x <= (pane->x + pane->w) &&
+        x < (pane->x + pane->w) &&
         y >= pane->y &&
-        y <= (pane->y + pane->h)
+        y < (pane->y + pane->h)
     );
 }
 
@@ -334,6 +335,7 @@ void paneReleaseCache(UIPane* pane) {
 
 void destroyPane(UIPane* pane) {
     if (!pane) return;
+    ide_button_scopes_forget_pane(pane);
 
     if (pane->role == PANE_ROLE_EDITOR && pane->editorView) {
         destroyEditorView(pane->editorView);

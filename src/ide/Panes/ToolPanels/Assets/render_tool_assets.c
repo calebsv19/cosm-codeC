@@ -1,3 +1,4 @@
+#include "ide/UI/panel_button_scope.h"
 #include "ide/Panes/ToolPanels/Assets/render_tool_assets.h"
 #include "engine/Render/render_helpers.h"
 #include "engine/Render/render_pipeline.h"
@@ -91,6 +92,8 @@ void renderAssetManagerPanel(UIPane* pane) {
                                        (int)(sizeof(controlItems) / sizeof(controlItems[0])),
                                        CORE_FONT_TEXT_SIZE_CAPTION,
                                        controlHits);
+
+    ide_panel_buttons_publish(IDE_PANEL_ASSETS,pane,controlHits,0);
 
     int contentTop = tool_panel_single_row_content_top(pane);
     ToolPanelSplitLayout split = {0};

@@ -439,3 +439,17 @@ bool loadFontByID(FontID id) {
     }
     return true;
 }
+
+#include "kit_render_native_font.h"
+int measureNativeFontText(TTF_Font* font, const char* text, int* width, int* height) {
+    const FontSourceEntry* source = find_font_source(font);
+    return source && kit_render_native_font_measure(source->path,source->point_size,text,width,height);
+}
+int measureNativeFallbackText(TTF_Font* font, const char* text, int* width, int* height) {
+    return kit_render_native_font_needs_fallback(font,text) && measureNativeFontText(font,text,width,height);
+}
+SDL_Surface* rasterizeNativeFallbackText(TTF_Font* font, const char* text, SDL_Color color, float scale) {
+    const FontSourceEntry* source = find_font_source(font);
+    if (!source || !kit_render_native_font_needs_fallback(font,text)) return NULL;
+    return kit_render_native_font_rasterize(source->path,source->point_size,text,color,scale);
+}

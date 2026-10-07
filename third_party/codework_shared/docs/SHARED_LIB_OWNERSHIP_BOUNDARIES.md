@@ -9,6 +9,7 @@ This document defines what each shared library owns so behavior does not overlap
 - `core_data`: structured in-memory data containers and typed table/object model.
 - `core_memdb`: active durable SQLite connection, query, migration, event/replay, and graph-storage boundary; CLI and agent workflows remain higher tooling layers in the same shared subtree.
 - `core_math`: generic numeric primitives and math helpers.
+- `core_collision3d`: allocation-free double point/plane distance and clearance gap in a caller-declared frame; no solver, conversion, response, session or renderer policy.
 - `core_collision2d`: UI-free 2D collision shape, geometry, AABB, manifold, bounded compound-descriptor and compound mass-property helpers, and primitive contact-generation semantics.
 - `core_rigid2d`: UI-free 2D rigid-body descriptors, mass/inertia helpers, integration helpers, and deterministic contact-solver primitives over `core_collision2d`.
 - `core_time`: monotonic time reads and duration arithmetic (no sleep/scheduler behavior).

@@ -11,3 +11,8 @@ panels. Its structure mirrors other panes.
 | `command_icon_bar.h/c` | Implements the icon-selection commands the bus dispatches. |
 
 Use this pane as an example when building other simple button matrices.
+
+The rail uses seven shared KitUI interaction IDs, matching left-button release,
+Tab/Shift-Tab focus and Enter/Space activation. Numeric shortcuts remain. Shared
+compact rendering reflects selection and clipped/hidden eligibility; lifecycle,
+modal and geometry changes cancel pending activation.

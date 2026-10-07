@@ -1,4 +1,9 @@
 #include "input_mouse.h"
+#include "ide/UI/panel_field_focus.h"
+#include "ide/UI/button_scope.h"
+#include "ide/UI/pane_composition.h"
+#include "engine/Render/render_pipeline.h"
+#include "ide/Panes/MenuBar/input_menu_bar.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "ide/Panes/Editor/editor.h"
 #include "ide/Panes/Editor/Input/editor_input_mouse.h"
@@ -21,29 +26,27 @@ static UIPane* activeMousePane = NULL;
 static void routeMouseToTargetPane(SDL_Event* event, UIPane** panes, int paneCount, int mx, int my) {
     IDECoreState* core = getCoreState();  // Get core state
 
-    for (int i = 0; i < paneCount; i++) {
-        UIPane* pane = panes[i];
-        if (isPointInsidePane(pane, mx, my)) {
-            activeMousePane = pane;
-            core->activeMousePane = pane;
-
-            // Set focus on click
-            if (event->type == SDL_MOUSEBUTTONDOWN) {
-                core->focusedPane = pane;
-            }
-
-	    if (event->type == SDL_MOUSEWHEEL) {
-		if (pane->inputHandler && pane->inputHandler->onScroll)
-		        pane->inputHandler->onScroll(pane, event);
-	    } else {
-		if (pane->inputHandler && pane->inputHandler->onMouse)
-		        pane->inputHandler->onMouse(pane, event);
-	    }
-
-            break;
-        }
+    RenderContext* render = getRenderContext();
+    int width = 0, height = 0;
+    if (!render || !render->window) return;
+    SDL_GetWindowSize(render->window,&width,&height);
+    KitPaneComposition view = {0};
+    if (!ide_pane_composition_build(&view,panes,paneCount,width,height)) return;
+    UIPane* pane = ide_pane_composition_hit(&view,panes,paneCount,mx,my);
+    if (!pane) return;
+    activeMousePane = pane;
+    core->activeMousePane = pane;
+    if (event->type == SDL_MOUSEBUTTONDOWN) {
+        ide_button_scopes_cancel_except(pane);
+        ide_panel_fields_blur_except(pane);
+        core->focusedPane = pane;
+        if (pane->role != PANE_ROLE_MENUBAR) ide_menu_bar_cancel();
     }
+    if (event->type == SDL_MOUSEWHEEL) {
+        if (pane->inputHandler && pane->inputHandler->onScroll) pane->inputHandler->onScroll(pane,event);
+    } else if (pane->inputHandler && pane->inputHandler->onMouse) pane->inputHandler->onMouse(pane,event);
 }
+
 
 
 static void routeMouseDragToPane(SDL_Event* event, UIPane** panes, int paneCount, int mx, int my) {
@@ -88,6 +91,12 @@ void handleMouseInput(SDL_Event* event, UIPane** panes, int paneCount) {
         default:                      return;
     }
 
+    if (event->type == SDL_MOUSEMOTION) {
+        ide_button_scopes_pointer_move(mx, my);
+        UIPane* menu = getUIState()->menuBar;
+        if (menu) handleMenuBarHoverInput(menu, mx, my);
+    }
+
     ProjectDragState* drag = &getCoreState()->projectDrag;
     bool projectDragActive = (drag->entry != NULL);
 
@@ -122,4 +131,10 @@ void handleMouseInput(SDL_Event* event, UIPane** panes, int paneCount) {
             routeMouseReleaseToLastPane(event);
             break;
     }
+}
+
+void cancelMouseInputCapture(void) {
+    activeMousePane = NULL;
+    IDECoreState* core = getCoreState();
+    if (core) core->activeMousePane = NULL;
 }

@@ -1,3 +1,4 @@
+#include "kit_ui_text_edit.h"
 #ifndef TOOL_GIT_H
 #define TOOL_GIT_H
 
@@ -81,4 +82,8 @@ void git_panel_tree_viewport(const UIPane* pane, UIPane* out_pane);
 bool git_stage_all_changes(void);
 bool git_commit_with_message(void);
 
+const KitUiTextEdit* git_panel_get_message_edit(void);
+bool git_panel_handle_message_edit_key_mod(SDL_Keycode key,SDL_Keymod mod);
+
+bool git_panel_message_pointer(size_t position, bool extend);
 #endif // TOOL_GIT_H

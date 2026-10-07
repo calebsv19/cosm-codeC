@@ -233,3 +233,63 @@ test-ipc-workspace-control:
 	@mkdir -p $(TEST_BUILD_DIR)
 	$(CC) $(CFLAGS) tests/ide_ipc_workspace_test.c src/core/Ipc/ide_ipc_workspace.c -o $(TEST_BUILD_DIR)/ide_ipc_workspace_test $(LIB_DIRS) -ljson-c -lpthread
 	$(TEST_BUILD_DIR)/ide_ipc_workspace_test
+
+.PHONY: test-ide-menu-window-ui
+test-ide-menu-window-ui: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(TARGET_HOMEBREW_PREFIX)/include/SDL2 tests/ide_menu_bar_interaction_test.c src/ide/Panes/MenuBar/menu_bar_controls.c src/ide/Panes/MenuBar/input_menu_bar.c $(KIT_UI_DIR)/src/kit_ui_interaction_sdl.c -o $(TEST_BUILD_DIR)/ide_menu_bar_interaction_test $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 -lSDL2_ttf $(VULKAN_LIBS) -lm
+	$(TEST_BUILD_DIR)/ide_menu_bar_interaction_test
+	$(CC) $(CFLAGS) -I$(TARGET_HOMEBREW_PREFIX)/include/SDL2 tests/ide_window_lifecycle_test.c src/ide/UI/window_lifecycle.c src/core/InputManager/input_resize.c $(KIT_UI_DIR)/src/kit_ui_window_sdl.c -o $(TEST_BUILD_DIR)/ide_window_lifecycle_test $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 $(VULKAN_LIBS) -lm
+	$(TEST_BUILD_DIR)/ide_window_lifecycle_test
+
+TEST_SMOKE_TARGETS += test-ide-menu-window-ui
+
+.PHONY: test-ide-shared-panel-ui
+test-ide-shared-panel-ui: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(CC) $(CFLAGS) tests/ide_shared_panel_controls_test.c src/ide/Panes/IconBar/command_icon_bar.c src/ide/UI/button_scope.c src/ide/Panes/IconBar/icon_bar.c src/ide/Panes/IconBar/input_icon_bar.c src/ide/Panes/ToolPanels/Project/project_toolbar.c $(KIT_UI_DIR)/src/kit_ui_interaction_sdl.c -o $(TEST_BUILD_DIR)/ide_shared_panel_controls_test $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 -lSDL2_ttf $(VULKAN_LIBS) -lm
+	$(TEST_BUILD_DIR)/ide_shared_panel_controls_test
+	$(CC) $(CFLAGS) tests/ide_pane_composition_test.c src/ide/UI/pane_composition.c $(PANE_COMPOSITION_SRC) -o $(TEST_BUILD_DIR)/ide_pane_composition_test $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 -lm
+	$(TEST_BUILD_DIR)/ide_pane_composition_test
+TEST_SMOKE_TARGETS += test-ide-shared-panel-ui
+
+.PHONY: test-ide-panel-text-ui
+test-ide-panel-text-ui: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(CC) $(CFLAGS) tests/ide_panel_text_edit_test.c -o $(TEST_BUILD_DIR)/ide_panel_text_edit_test $(KIT_UI_LIB) $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 -lm
+	$(TEST_BUILD_DIR)/ide_panel_text_edit_test
+	$(CC) $(CFLAGS) tests/ide_panel_text_presentation_test.c src/ide/UI/panel_text_presentation.c -o $(TEST_BUILD_DIR)/ide_panel_text_presentation_test $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 -lm
+	$(TEST_BUILD_DIR)/ide_panel_text_presentation_test
+	$(CC) $(CFLAGS) tests/ide_panel_button_scope_test.c src/ide/UI/panel_button_scope.c src/ide/UI/button_scope.c $(KIT_UI_DIR)/src/kit_ui_interaction_sdl.c -o $(TEST_BUILD_DIR)/ide_panel_button_scope_test $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 -lSDL2_ttf $(VULKAN_LIBS) -lm
+	$(TEST_BUILD_DIR)/ide_panel_button_scope_test
+TEST_SMOKE_TARGETS += test-ide-panel-text-ui
+
+	$(CC) $(CFLAGS) tests/ide_panel_field_focus_test.c src/ide/UI/panel_field_focus.c -o $(TEST_BUILD_DIR)/ide_panel_field_focus_test
+	$(TEST_BUILD_DIR)/ide_panel_field_focus_test
+
+.PHONY: test-ide-tool-chrome-ui
+test-ide-tool-chrome-ui: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(CC) $(CFLAGS) tests/ide_tool_chrome_test.c src/ide/UI/panel_button_scope.c src/ide/UI/button_scope.c src/ide/Panes/ToolPanels/Libraries/input_tool_libraries.c src/ide/Panes/ToolPanels/Tasks/input_tool_tasks.c src/ide/Panes/Terminal/terminal_header_controls.c src/ide/Panes/Terminal/terminal_header_actions.c $(KIT_UI_DIR)/src/kit_ui_interaction_sdl.c -o $(TEST_BUILD_DIR)/ide_tool_chrome_test $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 -lSDL2_ttf $(VULKAN_LIBS) -lm
+	$(TEST_BUILD_DIR)/ide_tool_chrome_test
+TEST_SMOKE_TARGETS += test-ide-tool-chrome-ui
+
+.PHONY: test-ide-editor-header-ui
+test-ide-editor-header-ui: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(CC) $(CFLAGS) tests/ide_editor_header_test.c src/ide/Panes/Editor/editor_header_controls.c src/ide/Panes/Editor/Input/input_editor.c src/ide/UI/button_scope.c $(KIT_UI_DIR)/src/kit_ui_interaction_sdl.c -o $(TEST_BUILD_DIR)/ide_editor_header_test $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 -lSDL2_ttf $(VULKAN_LIBS) -lm
+	$(TEST_BUILD_DIR)/ide_editor_header_test
+TEST_SMOKE_TARGETS += test-ide-editor-header-ui
+
+.PHONY: test-ide-rename-ui
+test-ide-rename-ui: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(CC) $(CFLAGS) tests/ide_rename_ui_test.c src/core/InputManager/UserInput/rename_flow.c -o $(TEST_BUILD_DIR)/ide_rename_ui_test $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 -lSDL2_ttf $(VULKAN_LIBS) -lm
+	$(TEST_BUILD_DIR)/ide_rename_ui_test
+TEST_SMOKE_TARGETS += test-ide-rename-ui
+
+.PHONY: test-ide-diagnostics-cache
+test-ide-diagnostics-cache:
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(CC) $(CFLAGS) tests/ide_build_diagnostics_cache_test.c src/core/BuildSystem/build_diagnostics.c $(LIB_DIRS) -ljson-c -lpthread -o $(TEST_BUILD_DIR)/ide_build_diagnostics_cache_test
+	$(TEST_BUILD_DIR)/ide_build_diagnostics_cache_test

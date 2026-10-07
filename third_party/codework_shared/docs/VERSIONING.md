@@ -26,6 +26,7 @@ Modules covered:
 - `shared/core/core_math`
 - `shared/core/core_viewport3d`
 - `shared/core/core_screen_pick`
+- `shared/core/core_collision3d`
 - `shared/core/core_collision2d`
 - `shared/core/core_rigid2d`
 - `shared/core/core_pane`

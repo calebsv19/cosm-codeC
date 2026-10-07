@@ -135,3 +135,9 @@ APPLE_NOTARY_PROFILE ?=
 APPLE_TEAM_ID ?=
 STAPLE_MAX_ATTEMPTS ?= 6
 STAPLE_RETRY_DELAY_SEC ?= 15
+
+# Optional shared SDL adapters use the standard flat SDL header include path.
+SDL_PKG_CFLAGS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --cflags sdl2 2>/dev/null)
+INC_DIRS += $(SDL_PKG_CFLAGS)
+
+INC_DIRS += -I$(KIT_UI_DIR)/../kit_pane/include

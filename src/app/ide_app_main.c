@@ -17,6 +17,7 @@
 #include "app/GlobalInfo/runtime_startup_defaults.h"
 #include "app/GlobalInfo/workspace_prefs.h"
 #include "app/GlobalInfo/visual_artifact_proof.h"
+#include "ide/UI/window_lifecycle_proof.h"
 #include "app/GlobalInfo/ide_vulkan_rollout.h"
 #include "engine/Render/timer_hud_adapter.h"
 
@@ -746,5 +747,5 @@ int ide_app_main_legacy(int argc, char *argv[]) {
     }
 
     shutdownSystem(panes, pane_count);
-    return ide_visual_artifact_proof_exit_code();
+    return ide_visual_artifact_proof_exit_code() || ide_window_proof_exit_code();
 }

@@ -59,6 +59,7 @@ typedef struct {
     char search_query[CONTROL_PANEL_SEARCH_MAX];
     char marker_focus_query[CONTROL_PANEL_SEARCH_MAX];
     int search_cursor;
+    KitUiTextEdit search_edit;
     bool search_focused;
     bool search_enabled;
     bool filters_collapsed;

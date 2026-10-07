@@ -9,19 +9,6 @@
 
 #define CURSOR_EDGE_BIAS 2
 
-static void enqueue_editor_mouse_command(UIPane* pane, InputCommand cmd, SDL_Keymod keyMod) {
-    InputCommandMetadata meta = {
-        .cmd = cmd,
-        .originRole = pane ? pane->role : PANE_ROLE_UNKNOWN,
-        .mouseX = -1,
-        .mouseY = -1,
-        .keyMod = keyMod,
-        .targetPane = pane,
-        .payload = NULL
-    };
-    enqueueCommand(meta);
-}
-
 static SDL_Rect compute_tab_header_viewport(const EditorView* view) {
     int boxX = view->x + EDITOR_PADDING;
     int boxY = view->y + EDITOR_PADDING;
@@ -37,17 +24,6 @@ static SDL_Rect compute_tab_header_viewport(const EditorView* view) {
     if (viewport.w < 0) viewport.w = 0;
     if (viewport.h < 0) viewport.h = 0;
     return viewport;
-}
-
-static SDL_Rect compute_tab_close_button_rect(const EditorView* view) {
-    int boxX = view->x + EDITOR_PADDING;
-    int boxW = view->w - 2 * EDITOR_PADDING;
-    int boxY = view->y + EDITOR_PADDING;
-
-    int xButtonSize = EDITOR_TAB_CLOSE_BTN_SIZE;
-    int xButtonX = boxX + boxW - xButtonSize - EDITOR_TAB_CLOSE_BTN_MARGIN;
-    int xButtonY = boxY + 4;
-    return (SDL_Rect){ xButtonX, xButtonY, xButtonSize, xButtonSize };
 }
 
 static bool editor_input_projection_active(const OpenFile* file) {
@@ -394,26 +370,6 @@ static bool handleCommandClickOnScrollbar(int mouseX, int mouseY, SDL_Event* eve
 }
 
 
-static bool handleCommandClickOnTabBar(EditorView* view, int mouseX, int mouseY) {
-    EditorViewState* vs  = getCoreState()->editorViewState;
-    for (int i = 0; i < vs->viewTabHitboxCount; i++) {
-        if (vs->viewTabHitboxes[i].view != view) continue;
-        
-        SDL_Rect tabRect = vs->viewTabHitboxes[i].rect;
-        if (SDL_PointInRect(&(SDL_Point){mouseX, mouseY}, &tabRect)) {
-            int tabIndex = vs->viewTabHitboxes[i].tabIndex;
-            if (tabIndex >= 0 && tabIndex < view->fileCount) {
-                view->activeTab = tabIndex;
-                setActiveEditorView(view);
-                printf("[Tab] Switched to tab %d in view %p\n", tabIndex, (void*)view);
-            }
-            return true;
-        }
-    }
-    return false;
-}
-
-
 bool handleEditorScrollbarThumbClick(SDL_Event* event, int mx, int my) {
     if (event->type != SDL_MOUSEBUTTONDOWN || event->button.button != SDL_BUTTON_LEFT)
         return false;
@@ -476,18 +432,7 @@ void handleEditorMouseClick(UIPane* pane, SDL_Event* event, EditorView* clickedV
     int mouseX = event->button.x;
     int mouseY = event->button.y;
 
-    // === Check for click on close "X" button
-    if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
-        SDL_Rect xRect = compute_tab_close_button_rect(clickedView);
-        if (mouseX >= xRect.x && mouseX <= xRect.x + xRect.w &&
-            mouseY >= xRect.y && mouseY <= xRect.y + xRect.h) {
-            enqueue_editor_mouse_command(pane, COMMAND_CLOSE_TAB, SDL_GetModState());
-            return;
-        }
-    }
-
     if (handleCommandClickOnScrollbar(mouseX, mouseY, event)) return;
-    if (handleCommandClickOnTabBar(clickedView, mouseX, mouseY)) return;
 
     OpenFile* file = getActiveOpenFile(clickedView);
     if (!file || !file->buffer) return;

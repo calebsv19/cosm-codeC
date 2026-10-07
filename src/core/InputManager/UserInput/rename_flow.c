@@ -1,4 +1,6 @@
 #include "rename_flow.h"
+#include "ide/UI/panel_text_edit.h"
+#include "ide/UI/button_scope.h"
 #include "ide/Panes/ToolPanels/Project/rename_callbacks.h"
 #include "app/GlobalInfo/core_state.h"
 #include "app/GlobalInfo/project.h"
@@ -51,11 +53,13 @@ void beginRenameWithPrompt(const char* promptLabel,
                            void* context,
                            bool acceptUnchanged) {
     const char* initial = oldName ? oldName : "";
-    strncpy(RENAME->originalName, initial, MAX_PATH_LENGTH - 1);
-    RENAME->originalName[MAX_PATH_LENGTH - 1] = '\0';
-
-    strncpy(RENAME->inputBuffer, initial, MAX_PATH_LENGTH - 1);
-    RENAME->inputBuffer[MAX_PATH_LENGTH - 1] = '\0';
+    UIPanelTextEditBuffer buffer={RENAME->inputBuffer,sizeof(RENAME->inputBuffer),&RENAME->cursorPosition,&RENAME->retainedEdit};
+    if(!ui_panel_text_edit_set_text(&buffer,initial)){
+        cancelRename();
+        return;
+    }
+    memmove(RENAME->originalName,RENAME->inputBuffer,strlen(RENAME->inputBuffer)+1);
+    ide_button_scopes_cancel_except(NULL);
 
     const char* prompt = (promptLabel && promptLabel[0]) ? promptLabel : "Rename:";
     strncpy(RENAME->promptLabel, prompt, sizeof(RENAME->promptLabel) - 1);
@@ -89,6 +93,7 @@ void beginRename(const char* oldName, RenameCallback callback, RenameValidateFn 
 }
 
 void cancelRename(void) {
+    kit_ui_text_cancel_composition(&RENAME->retainedEdit);
     RENAME->active = false;
     getCoreState()->popupPaneActive = false;
     RENAME->lastError[0] = '\0';
@@ -106,11 +111,13 @@ void submitRenameWithMod(SDL_Keymod mod) {
     if (!RENAME->active) return;
     RENAME->submitWithShift = (mod & KMOD_SHIFT) != 0;
 
+    if(RENAME->retainedEdit.composition[0])return; /* Preedit is not a submitted name. */
     const char* newName = RENAME->inputBuffer;
     const char* oldName = RENAME->originalName;
 
     if (!RENAME->acceptUnchanged && strcmp(oldName, newName) == 0) {
-        RENAME->active = false;
+        kit_ui_text_cancel_composition(&RENAME->retainedEdit);
+    RENAME->active = false;
         getCoreState()->popupPaneActive = false;
         renameErrorVisible = false;
         requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
@@ -137,6 +144,7 @@ void submitRenameWithMod(SDL_Keymod mod) {
         RENAME->onRenameComplete(oldName, newName, RENAME->context);
     }
 
+    kit_ui_text_cancel_composition(&RENAME->retainedEdit);
     RENAME->active = false;
     getCoreState()->popupPaneActive = false;
     renameErrorVisible = false;
@@ -147,37 +155,34 @@ void submitRenameWithMod(SDL_Keymod mod) {
 }
 
 
-void handleRenameTextInput(char ch) {
-    if (!RENAME->active) return;
-
-    size_t len = strlen(RENAME->inputBuffer);
-    int pos = RENAME->cursorPosition;
-
-    if (ch == '\b') {
-        if (pos > 0) {
-            // Shift everything left
-            memmove(&RENAME->inputBuffer[pos - 1],
-                    &RENAME->inputBuffer[pos],
-                    len - pos + 1);
-            RENAME->cursorPosition--;
-        }
-    } else if (ch >= 32 && ch < 127 && len < MAX_PATH_LENGTH - 1) {
-        // Shift everything right
-        memmove(&RENAME->inputBuffer[pos + 1],
-                &RENAME->inputBuffer[pos],
-                len - pos + 1);
-        RENAME->inputBuffer[pos] = ch;
-        RENAME->cursorPosition++;
-    }
-
-    if (renameErrorVisible) {
-        renameErrorVisible = false;
-        RENAME->lastError[0] = '\0';
-    }
-
-    lastCaretBlink = SDL_GetTicks();
-    caretVisible = true;
+static void rename_edit_changed(void) {
+    if(renameErrorVisible){renameErrorVisible=false;RENAME->lastError[0]='\0';}
+    lastCaretBlink=SDL_GetTicks();caretVisible=true;
     requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
+}
+bool handleRenameUtf8TextInput(const char* text) {
+    if(!RENAME->active)return false;
+    UIPanelTextEditBuffer buffer={RENAME->inputBuffer,sizeof(RENAME->inputBuffer),&RENAME->cursorPosition,&RENAME->retainedEdit};
+    if(!ui_panel_text_edit_insert(&buffer,text))return false;
+    rename_edit_changed();return true;
+}
+bool handleRenameEditingKeyWithMod(SDL_Keycode key,SDL_Keymod mod) {
+    if(!RENAME->active)return false;
+    UIPanelTextEditBuffer buffer={RENAME->inputBuffer,sizeof(RENAME->inputBuffer),&RENAME->cursorPosition,&RENAME->retainedEdit};
+    if(!ui_panel_text_edit_handle_keydown_mod(&buffer,key,mod))return false;
+    rename_edit_changed();return true;
+}
+bool handleRenameEditingKey(SDL_Keycode key) { return handleRenameEditingKeyWithMod(key,KMOD_NONE); }
+bool handleRenameTextEvent(const SDL_Event* event) {
+    if(!RENAME->active)return false;
+    UIPanelTextEditBuffer buffer={RENAME->inputBuffer,sizeof(RENAME->inputBuffer),&RENAME->cursorPosition,&RENAME->retainedEdit};
+    if(!ui_panel_text_edit_handle_text_input(&buffer,event))return false;
+    rename_edit_changed();return true;
+}
+
+void handleRenameTextInput(char ch) {
+    if(ch=='\b'){(void)handleRenameEditingKey(SDLK_BACKSPACE);return;}
+    if(ch>=32 && ch<127){char text[2]={ch,0};(void)handleRenameUtf8TextInput(text);}
 }
 
 bool isRenaming(void) {

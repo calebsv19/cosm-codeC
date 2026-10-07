@@ -459,3 +459,83 @@ color/picker/opacity/drawing/scrolling controls. Test semantic dispatch with a h
 hook that fails on spatial fallback, plus positive domain effects, stale/reordered
 targets, keyboard/pointer parity and native modal transition checks. UI rendering
 and GPU composition remain separate qualification boundaries.
+
+## Carta control pilot feedback — 2026-10-06
+
+A complex app can adopt a semantic button surface and presentation against its
+existing geometry before pane composition. Keep those claims separate. Place
+interaction and presentation in small adapters, leave product action bodies and
+layout policy authoritative, and use fixed semantic domain/action keys rather
+than visible row indices or fabricated pointer coordinates.
+
+Synchronize before modal/staging early returns. On geometry, selected-target or
+scope invalidation, retain ownership of the outstanding release so it cannot
+activate a new owner. An empty eligible inventory through shared SYNC, or scoped
+modal takeover, preserves that release guard; full CANCEL resets it and is not an
+interchangeable substitute. Check window dimensions even when capped control
+rectangles remain identical. Still forward lifecycle events to the host. Register
+only controls actually drawn; keep guarded Undo visible if filtering removes its
+target. Search/form editing keeps its input until its explicit migration.
+
+Center captions using the active font's measured metrics and retain text storage
+through submission. Carta's existing text bridge draws synchronously; queued
+hosts need per-item storage or a frame arena. Apply drawable/font scale once.
+Qualify native geometry plus the optional SDL expression, actual down/up events,
+keyboard release/repeat, modal/selection/resize cancellation and positive product
+effects. Update old replay harnesses to real down/up pairs rather than bypassing
+new activation semantics. Requalify map/terrain alignment after backend changes;
+separate controlled performance measurements from replay/capture evidence.
+
+## Carta text/modal pilot feedback — 2026-10-06
+
+Adopt an existing bounded editor through a small caller-owned adapter; keep actual
+field capacities and product validation/preview/commit/cancel policy in the app.
+Bind on target change, preserve cursor/selection on stable ownership, and reject
+an invalid new buffer without retaining a stale field owner. Select-all selects;
+replacement/preview invalidation follows an accepted edit, not a selection key.
+When finishing a draft can replace JSON strings, snapshot the next field value
+before finishing the prior one. Field traversal uses actual drawn eligibility.
+
+Use accepted font metrics and scale for both text presentation and pointer hits.
+Verify the host text bridge's coordinate convention: Carta's text bridge accepts
+absolute coordinates while primitive drawing applies viewport offsets. A clip
+viewport therefore does not imply relative text coordinates. Native captures
+caught invisible text despite correct buffers/caret; add a production coordinate
+assertion and inspect a nonempty, scrolled editor before claiming conformance.
+Queued hosts must retain presentation text through submission; synchronous hosts
+can paint directly from caller-owned presentation storage.
+
+Use semantic focus keys for modal return, checking current eligibility after
+rebuilding controls. Full interaction CANCEL forgets outstanding releases; do not
+substitute it for SYNC/scope invalidation when a release must remain swallowed.
+Native sessions follow a visible, focused field, and owner/window/resize changes
+cancel composition without changing persisted data. Keep SDL caret mapping, OS
+IME candidate acceptance, font fallback/glyph coverage and backend expression
+as separate qualifications. Test clipboard in isolated dummy SDL storage rather
+than modifying the operator's clipboard. Reinitialize SDL_Event when switching
+union variants in diagnostic fixtures; stale modifier/repeat bytes change meaning.
+
+## Carta completion pilot feedback — 2026-10-06
+
+Adopt shared composition in actual geometry, input hit/capture and rendering,
+not only in a parallel layout snapshot. Declare whether a sidebar overlays the
+map or reserves its viewport; preserve that product projection policy. Use broad
+splitter hit bounds with thin visible chrome and keep authoring an explicit mode.
+Persist only accepted layout intent through the app's existing view preferences.
+
+Forward actual window changes before subsequent input, and cancel all app-owned
+transient gestures, including modal-local surfaces and sliders. Preserve draft
+bytes and outstanding releases. Stop presentations while hidden/minimized; count
+successful presents, resume actual geometry and test the real event/update/render
+loop. Window-notification helpers must not route TEXTINPUT a second time. Quit
+must reach lifecycle control even when a modal consumes ordinary input.
+
+For modal lists, invalidate visible inventory after scroll/reload/accepted mutation;
+recheck current identity before dispatch. Keep direct semantic intent apart from
+true spatial gestures. Qualify positive product effects and stale target/capture
+cancellation. Direct-source test fixtures need explicit source dependencies for
+all newly linked kit adapters; fresh app objects alone do not qualify those tests.
+Run timing-sensitive performance gates without overlapping native capture jobs.
+Keep OS IME/font, mixed traversal, catastrophic device loss and other-platform
+proof distinct from completed local adoption. Record scoped deviations rather
+than rebuilding unrelated product layouts or declaring every available kit adopted.

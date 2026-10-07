@@ -477,8 +477,8 @@ void handleTaskHoverAt(UIPane* pane, int mx, int my) {
     }
 }
 
-static bool task_handle_top_control_click(int mx, int my) {
-    switch ((TaskTopControlId)ui_panel_tagged_rect_list_hit_test(task_panel_control_hits(), mx, my)) {
+bool task_activate_top_control(TaskTopControlId id) {
+    switch (id) {
         case TASK_TOP_CONTROL_ADD:
             handleCommandAddTask();
             return true;
@@ -529,8 +529,6 @@ static void handleTaskRenameCallback(const char* oldName, const char* newName, v
 void handleTaskLeftClick(UIPane* pane, SDL_Event* event) {
     int mx = event->button.x;
     int my = event->button.y;
-
-    if (task_handle_top_control_click(mx, my)) return;
 
     UITaskHitResult hit = {0};
     if (!task_find_hit_node(pane, mx, my, &hit)) {

@@ -1,6 +1,8 @@
 
 
 #include "menu_buttons.h"
+#include "menu_bar_controls.h"
+#include "engine/Render/render_text_helpers.h"
 #include "app/GlobalInfo/core_state.h"
 #include "ide/UI/layout_config.h"
 #include "ide/UI/ui_state.h"
@@ -18,27 +20,16 @@ MenuBarLayoutMode currentMenuBarLayout = MENU_BAR_MODE_CENTER_FILENAME;
 // MenuBarLayoutMode currentMenuBarLayout = MENU_BAR_MODE_STANDARD;
 
 
-SDL_Rect getLeftMenuButtonRect(UIPane* pane, int index) {
-    int x = LEFT_START_X(pane) + index * (LEFT_BUTTON_WIDTH + BUTTON_SPACING);
-    int y = pane->y + BUTTON_HEIGHT_PADDING / 2;
-    int width = LEFT_BUTTON_WIDTH;
-    int height = pane->h - BUTTON_HEIGHT_PADDING;
-
-    SDL_Rect rect = { x, y, width, height };
-    return rect;
+static SDL_Rect menu_button_rect(UIPane* pane, int index) {
+    if (!pane || index < 0 || index >= IDE_MENU_CONTROL_COUNT) return (SDL_Rect){0};
+    KitUiInteractionControl controls[IDE_MENU_CONTROL_COUNT];
+    ide_menu_bar_geometry(pane, currentMenuBarLayout, getTextWidth(getActiveFileName()), controls);
+    KitRenderRect bounds = controls[index].bounds;
+    if (!controls[index].enabled) return (SDL_Rect){0};
+    return (SDL_Rect){(int)bounds.x, (int)bounds.y, (int)bounds.width, (int)bounds.height};
 }
-
-SDL_Rect getRightMenuButtonRect(UIPane* pane, int index) {
-    int totalRightWidth = MENU_BUTTON_RIGHT_COUNT * (RIGHT_BUTTON_WIDTH + BUTTON_SPACING);
-    int startX = pane->x + pane->w - totalRightWidth - 10;
-    int x = startX + index * (RIGHT_BUTTON_WIDTH + BUTTON_SPACING);
-    int y = pane->y + BUTTON_HEIGHT_PADDING / 2;
-    int height = pane->h - BUTTON_HEIGHT_PADDING;
-
-    SDL_Rect rect = { x, y, RIGHT_BUTTON_WIDTH, height };
-    return rect;
-}
-
+SDL_Rect getLeftMenuButtonRect(UIPane* pane, int index) { return menu_button_rect(pane, index); }
+SDL_Rect getRightMenuButtonRect(UIPane* pane, int index) { return menu_button_rect(pane, index + 2); }
 
 const char* getActiveFileName() {
     IDECoreState* core = getCoreState();
