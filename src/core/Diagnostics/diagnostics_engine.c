@@ -5,6 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <pthread.h>
+#include <stdint.h>
+#include <time.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "Compiler/diagnostic_metadata.h"
 
@@ -14,6 +19,21 @@
 static Diagnostic diagnostics[MAX_DIAGNOSTICS];
 static int diagnosticCount = 0;
 static DiagnosticIoReport g_last_io_report;
+
+/* Background readers own bytes only. Parsing and diagnostic publication remain
+ * on the UI thread. Slots remain bounded even if a filesystem open stalls. */
+typedef struct AnalysisCacheRead {
+    bool busy, done;
+    uint64_t generation;
+    struct timespec started;
+    char path[4096];
+    char* bytes;
+    size_t size;
+} AnalysisCacheRead;
+static AnalysisCacheRead cache_reads[2];
+static pthread_mutex_t cache_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t cache_generation;
+
 
 static void diagnostics_io_report_init(DiagnosticIoReport* report,
                                        DiagnosticIoOperation operation,
@@ -180,6 +200,7 @@ void initDiagnosticsEngine() {
 }
 
 void clearDiagnostics() {
+    ++cache_generation;
     for (int i = 0; i < diagnosticCount; ++i) {
         free_diagnostic(&diagnostics[i]);
     }
@@ -221,6 +242,7 @@ void addDiagnosticWithDetails(const char* file,
                               int codeId,
                               const char* codeName,
                               const char* stage) {
+    ++cache_generation;
     if (diagnosticCount >= MAX_DIAGNOSTICS) return;
 
     Diagnostic* d = &diagnostics[diagnosticCount];
@@ -345,71 +367,7 @@ void diagnostics_save(const char* workspaceRoot) {
     (void)diagnostics_save_report(workspaceRoot, NULL);
 }
 
-bool diagnostics_load_report(const char* workspaceRoot, DiagnosticIoReport* outReport) {
-    DiagnosticIoReport report;
-    diagnostics_io_report_init(&report, DIAGNOSTIC_IO_LOAD, workspaceRoot);
-    clearDiagnostics();
-    if (!workspaceRoot || !*workspaceRoot) {
-        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_INVALID_WORKSPACE, false, true);
-        if (outReport) *outReport = report;
-        return false;
-    }
-
-    struct stat st;
-    if (stat(report.path, &st) != 0) {
-        bool missing = (errno == ENOENT);
-        diagnostics_io_report_finish(&report,
-                                     missing
-                                         ? DIAGNOSTIC_IO_REASON_MISSING_OK
-                                         : DIAGNOSTIC_IO_REASON_LOAD_OPEN_MISSING,
-                                     missing,
-                                     !missing);
-        if (outReport) *outReport = report;
-        return missing;
-    }
-    if (!S_ISREG(st.st_mode)) {
-        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_STAT_FAILED, false, true);
-        if (outReport) *outReport = report;
-        return false;
-    }
-    report.size_bytes = (long)st.st_size;
-    if (st.st_size <= 0) {
-        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_EMPTY, false, true);
-        if (outReport) *outReport = report;
-        return false;
-    }
-    if (st.st_size > DIAGNOSTICS_ARTIFACT_MAX_BYTES) {
-        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_OVERSIZED, false, true);
-        if (outReport) *outReport = report;
-        return false;
-    }
-
-    FILE* f = fopen(report.path, "r");
-    if (!f) {
-        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_OPEN_MISSING, false, true);
-        if (outReport) *outReport = report;
-        return false;
-    }
-
-    char* buf = malloc((size_t)st.st_size + 1);
-    if (!buf) {
-        fclose(f);
-        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_ALLOC_FAILED, false, true);
-        if (outReport) *outReport = report;
-        return false;
-    }
-    size_t nread = fread(buf, 1, (size_t)st.st_size, f);
-    bool read_ok = (nread == (size_t)st.st_size);
-    if (ferror(f)) read_ok = false;
-    if (fclose(f) != 0) read_ok = false;
-    if (!read_ok) {
-        free(buf);
-        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_READ_FAILED, false, true);
-        if (outReport) *outReport = report;
-        return false;
-    }
-    buf[nread] = '\0';
-
+static bool diagnostics_parse_cache(char* buf, DiagnosticIoReport report, DiagnosticIoReport* outReport) {
     json_object* root = json_tokener_parse(buf);
     free(buf);
     if (!root) {
@@ -480,8 +438,151 @@ bool diagnostics_load_report(const char* workspaceRoot, DiagnosticIoReport* outR
     return true;
 }
 
+bool diagnostics_load_report(const char* workspaceRoot, DiagnosticIoReport* outReport) {
+    DiagnosticIoReport report;
+    diagnostics_io_report_init(&report, DIAGNOSTIC_IO_LOAD, workspaceRoot);
+    clearDiagnostics();
+    if (!workspaceRoot || !*workspaceRoot) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_INVALID_WORKSPACE, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+
+    struct stat st;
+    if (stat(report.path, &st) != 0) {
+        bool missing = (errno == ENOENT);
+        diagnostics_io_report_finish(&report,
+                                     missing
+                                         ? DIAGNOSTIC_IO_REASON_MISSING_OK
+                                         : DIAGNOSTIC_IO_REASON_LOAD_OPEN_MISSING,
+                                     missing,
+                                     !missing);
+        if (outReport) *outReport = report;
+        return missing;
+    }
+    if (!S_ISREG(st.st_mode)) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_STAT_FAILED, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+    report.size_bytes = (long)st.st_size;
+    if (st.st_size <= 0) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_EMPTY, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+    if (st.st_size > DIAGNOSTICS_ARTIFACT_MAX_BYTES) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_OVERSIZED, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+
+    FILE* f = fopen(report.path, "r");
+    if (!f) {
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_OPEN_MISSING, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+
+    char* buf = malloc((size_t)st.st_size + 1);
+    if (!buf) {
+        fclose(f);
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_ALLOC_FAILED, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+    size_t nread = fread(buf, 1, (size_t)st.st_size, f);
+    bool read_ok = (nread == (size_t)st.st_size);
+    if (ferror(f)) read_ok = false;
+    if (fclose(f) != 0) read_ok = false;
+    if (!read_ok) {
+        free(buf);
+        diagnostics_io_report_finish(&report, DIAGNOSTIC_IO_REASON_LOAD_READ_FAILED, false, true);
+        if (outReport) *outReport = report;
+        return false;
+    }
+    buf[nread] = '\0';
+
+    return diagnostics_parse_cache(buf, report, outReport);
+}
+
+static void* diagnostics_read_cache(void* argument) {
+    AnalysisCacheRead* request = argument;
+    char* bytes = NULL;
+    size_t size = 0;
+    int fd = open(request->path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+    struct stat st;
+    if (fd >= 0 && fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+        st.st_size > 0 && st.st_size <= DIAGNOSTICS_ARTIFACT_MAX_BYTES) {
+        size = (size_t)st.st_size;
+        bytes = malloc(size + 1);
+        if (bytes) {
+            size_t used = 0;
+            while (used < size) {
+                ssize_t got = read(fd, bytes + used, size - used);
+                if (got < 0 && errno == EINTR) continue;
+                if (got <= 0) break;
+                used += (size_t)got;
+            }
+            if (used == size) bytes[size] = '\0';
+            else { free(bytes); bytes = NULL; }
+        }
+    }
+    if (fd >= 0) close(fd);
+    pthread_mutex_lock(&cache_lock);
+    request->bytes = bytes;
+    request->size = size;
+    request->done = true;
+    pthread_mutex_unlock(&cache_lock);
+    return NULL;
+}
+
+void diagnostics_poll(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    for (size_t i = 0; i < 2; ++i) {
+        pthread_mutex_lock(&cache_lock);
+        AnalysisCacheRead* request = &cache_reads[i];
+        if (!request->busy || !request->done) {
+            pthread_mutex_unlock(&cache_lock);
+            continue;
+        }
+        char* bytes = request->bytes;
+        bool current = request->generation == cache_generation &&
+            (now.tv_sec - request->started.tv_sec +
+             (now.tv_nsec - request->started.tv_nsec) / 1e9) < 2.0;
+        DiagnosticIoReport report;
+        memset(&report, 0, sizeof(report));
+        report.operation = DIAGNOSTIC_IO_LOAD;
+        snprintf(report.path, sizeof(report.path), "%s", request->path);
+        report.size_bytes = (long)request->size;
+        memset(request, 0, sizeof(*request));
+        pthread_mutex_unlock(&cache_lock);
+        if (bytes && current) (void)diagnostics_parse_cache(bytes, report, NULL);
+        else free(bytes);
+    }
+}
+
 void diagnostics_load(const char* workspaceRoot) {
-    (void)diagnostics_load_report(workspaceRoot, NULL);
+    clearDiagnostics();
+    diagnostics_poll();
+    if (!workspaceRoot || !*workspaceRoot) return;
+    pthread_mutex_lock(&cache_lock);
+    for (size_t i = 0; i < 2; ++i) {
+        AnalysisCacheRead* request = &cache_reads[i];
+        if (request->busy) continue;
+        request->busy = true;
+        request->generation = cache_generation;
+        clock_gettime(CLOCK_MONOTONIC, &request->started);
+        snprintf(request->path, sizeof(request->path),
+                 "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
+        pthread_t reader;
+        if (pthread_create(&reader, NULL, diagnostics_read_cache, request) == 0)
+            pthread_detach(reader);
+        else memset(request, 0, sizeof(*request));
+        break;
+    }
+    pthread_mutex_unlock(&cache_lock);
 }
 
 void diagnostics_last_io_report(DiagnosticIoReport* outReport) {

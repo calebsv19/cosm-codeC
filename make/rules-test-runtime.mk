@@ -290,5 +290,5 @@ TEST_SMOKE_TARGETS += test-ide-rename-ui
 .PHONY: test-ide-diagnostics-cache
 test-ide-diagnostics-cache:
 	@mkdir -p $(TEST_BUILD_DIR)
-	$(CC) $(CFLAGS) tests/ide_build_diagnostics_cache_test.c src/core/BuildSystem/build_diagnostics.c $(LIB_DIRS) -ljson-c -lpthread -o $(TEST_BUILD_DIR)/ide_build_diagnostics_cache_test
+	$(CC) $(CFLAGS) tests/ide_build_diagnostics_cache_test.c src/core/BuildSystem/build_diagnostics.c src/core/Diagnostics/diagnostics_engine.c $(LIB_DIRS) -ljson-c -lpthread -o $(TEST_BUILD_DIR)/ide_build_diagnostics_cache_test
 	$(TEST_BUILD_DIR)/ide_build_diagnostics_cache_test

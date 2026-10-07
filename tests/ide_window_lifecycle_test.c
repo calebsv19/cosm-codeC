@@ -1,3 +1,5 @@
+void ide_panel_text_cancel_pointer_drafts(void) {}
+void cancelRenameComposition(void) {}
 #include "ide/UI/window_lifecycle.h"
 #include "ide/UI/layout_config.h"
 #include "core/InputManager/input_resize.h"

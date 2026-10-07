@@ -92,6 +92,11 @@ void beginRename(const char* oldName, RenameCallback callback, RenameValidateFn 
     beginRenameWithPrompt("Rename Item:", "Invalid name", oldName, callback, validate, context, false);
 }
 
+void cancelRenameComposition(void) {
+    kit_ui_text_cancel_composition(&RENAME->retainedEdit);
+    requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
+}
+
 void cancelRename(void) {
     kit_ui_text_cancel_composition(&RENAME->retainedEdit);
     RENAME->active = false;

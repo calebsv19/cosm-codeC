@@ -13,6 +13,7 @@ enum { IDE_PANEL_TEXT_FIELD_ID=0x7fffffff };
 void ide_panel_buttons_publish_field(IDEPanelButtonGroup group,UIPane* pane,const UIPanelTaggedRectList* hits,uint32_t disabled_id,SDL_Rect field);
 bool ide_panel_buttons_field_focused(IDEPanelButtonGroup group,UIPane* pane);
 bool ide_panel_buttons_paint_state(SDL_Rect rect, KitUiButtonState* state);
+void ide_panel_text_cancel_pointer_drafts(void);
 void ide_panel_text_publish(IDEPanelButtonGroup group, UIPane* pane, const KitUiTextPresentation* view,
     const char* source, KitUiTextMeasure measure, void* user);
 bool ide_panel_text_pointer(IDEPanelButtonGroup group, UIPane* pane, const SDL_Event* event,

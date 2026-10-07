@@ -1,3 +1,4 @@
+#include "core/Diagnostics/diagnostics_engine.h"
 #include "ide/UI/button_scope.h"
 #include "core/Ipc/ide_ipc_workspace.h"
 #include <SDL2/SDL.h>
@@ -749,11 +750,14 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
     static uint64_t diagnostics_workspace_generation;
     static bool diagnostics_workspace_observed;
     uint64_t workspace_generation = ide_ipc_workspace_generation();
-    if (diagnostics_workspace_observed && workspace_generation != diagnostics_workspace_generation)
+    if (diagnostics_workspace_observed && workspace_generation != diagnostics_workspace_generation) {
         build_diagnostics_load(projectPath);
+        diagnostics_load(projectPath);
+    }
     diagnostics_workspace_observed = true;
     diagnostics_workspace_generation = workspace_generation;
     build_diagnostics_poll();
+    diagnostics_poll();
     ide_panel_fields_reconcile();
     mainthread_context_assert_owner("event_loop.runFrameLoop");
     IDECoreState* core = getCoreState();

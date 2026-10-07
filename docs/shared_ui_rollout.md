@@ -3,7 +3,7 @@
 Last updated: 2026-10-07
 
 The retained lane `_worktrees/ide_main_edit` uses immutable shared source
-`55b650d0ab7b492f6aa376bf89d208098166919f`: kit_ui 0.18.0,
+`8744d0eff37c0c93b86d063f99e32db0c7f260a5`: kit_ui 0.18.0,
 kit_pane 0.5.0, kit_render 0.15.0, vk_renderer 1.7.0 and vk_runtime 0.6.0.
 Exact source parity is checked; version equality alone does not qualify a build.
 The compiler is separately pinned in `make/fisics-source-pin.txt` to
@@ -282,8 +282,8 @@ same CoreText line for missing CJK/color emoji measurement and 1x/2x rasterizati
 all field prefix hits use that line's font path. Existing ASCII and non-native
 paths remain. Font role/zoom/cache/clip and editor/PTY behavior stay app owned.
 
-Persisted build diagnostics are optional derived data. A bounded pair of
-background readers handles at most 1 MiB from regular, non-symlink cache files.
+Persisted build and analysis diagnostics are optional derived data. Each uses a bounded pair of
+background readers handling at most 1 MiB from regular, non-symlink cache files.
 Reads cannot block UI startup; results older than two seconds, a newer build
 or a workspace generation are discarded. Saturation skips the optional cache.
 No retained output or user workspace is deleted to recover startup.
@@ -296,3 +296,9 @@ parent completion packet `artifacts/ide/ui-standardization-closeout-20261007`
 for package/native/runtime receipts, preservation hashes and checkpoint identity.
 Source VERSION remains 0.4.0. Public release, version selection, signing,
 notarization and publication remain the release-control workflow.
+
+Final native review corrected raster orientation and added an asymmetric-glyph
+regression. Window interruption clears panel pointer drafts and rename preedit
+while retaining committed rename text. The synchronous diagnostics report API
+remains available to headless callers; startup uses background byte reads and
+UI-thread parsing. Analysis updates invalidate pending cached reports.

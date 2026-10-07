@@ -23,6 +23,21 @@ int main(int argc, char** argv) {
         assert(ink>50 && colored>10); /* Native emoji color survives straight-alpha conversion. */
         SDL_FreeSurface(surface);
     }
+    /* An asymmetric glyph catches a vertical inversion that size/ink/color
+     * checks cannot detect. The F bars occupy the upper half of this font. */
+    SDL_Surface* upright = kit_render_native_font_rasterize(argv[1],18,"F",(SDL_Color){255,255,255,255},2);
+    assert(upright);
+    int upper=0,lower=0,first=upright->h,last=0;
+    for(int y=0;y<upright->h;++y)for(int x=0;x<upright->w;++x) {
+        unsigned char* px=(unsigned char*)upright->pixels+y*upright->pitch+x*4;
+        if(px[3]) { if(y<first) first=y; if(y>last) last=y; }
+    }
+    for(int y=0;y<upright->h;++y)for(int x=0;x<upright->w;++x) {
+        unsigned char* px=(unsigned char*)upright->pixels+y*upright->pitch+x*4;
+        if(y<=(first+last)/2) upper+=px[3]; else lower+=px[3];
+    }
+    assert(upper>lower);
+    SDL_FreeSurface(upright);
     assert(!kit_render_native_font_measure("/absent-font",18,mixed,&width,&height));
     assert(!kit_render_native_font_rasterize(argv[1],18,mixed,(SDL_Color){0},0));
 #else

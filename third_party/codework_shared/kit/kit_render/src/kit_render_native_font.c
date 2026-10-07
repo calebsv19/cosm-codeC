@@ -82,7 +82,7 @@ SDL_Surface* kit_render_native_font_rasterize(const char* path, float points, co
         surface = SDL_CreateRGBSurfaceWithFormat(0,rw,rh,32,SDL_PIXELFORMAT_RGBA32);
         if (surface) for (int y=0;y<rh;++y) {
             unsigned char* dst = (unsigned char*)surface->pixels + y*surface->pitch;
-            const unsigned char* src = bytes + (size_t)(rh-1-y)*rw*4;
+            const unsigned char* src = bytes + (size_t)y*rw*4;
             for (int x=0;x<rw;++x) {
                 unsigned alpha=src[x*4+3];
                 for (int c=0;c<3;++c) dst[x*4+c]=(unsigned char)(alpha ? fmin(255,(src[x*4+c]*255u+alpha/2)/alpha) : 0);

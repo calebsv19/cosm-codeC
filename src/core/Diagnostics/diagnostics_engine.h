@@ -104,7 +104,9 @@ const char* diagnostic_stage_name(int codeId);
 
 // Persistence helpers (store under workspace/ide_files/analysis_diagnostics.json)
 void diagnostics_save(const char* workspaceRoot);
+/* Optional startup cache request; poll publishes on the calling UI thread. */
 void diagnostics_load(const char* workspaceRoot);
+void diagnostics_poll(void);
 bool diagnostics_save_report(const char* workspaceRoot, DiagnosticIoReport* outReport);
 bool diagnostics_load_report(const char* workspaceRoot, DiagnosticIoReport* outReport);
 void diagnostics_last_io_report(DiagnosticIoReport* outReport);

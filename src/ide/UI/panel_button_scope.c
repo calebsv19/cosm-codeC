@@ -115,6 +115,12 @@ typedef struct PanelTextSnapshot {
     bool valid, dragging;
 } PanelTextSnapshot;
 static PanelTextSnapshot text_snapshots[IDE_PANEL_BUTTON_GROUP_COUNT];
+void ide_panel_text_cancel_pointer_drafts(void) {
+    for (int i=0;i<IDE_PANEL_BUTTON_GROUP_COUNT;++i) {
+        text_snapshots[i].dragging=false;
+        text_snapshots[i].valid=false;
+    }
+}
 static CoreResult snapshot_measure(void* user, const char* prefix, float* width) {
     PanelTextSnapshot* snapshot = user;
     size_t length = strlen(prefix);

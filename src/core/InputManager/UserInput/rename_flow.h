@@ -47,6 +47,7 @@ void beginRenameWithPrompt(const char* promptLabel,
                            void* context,
                            bool acceptUnchanged);
 void cancelRename(void);
+void cancelRenameComposition(void);
 void submitRename(void);
 void submitRenameWithMod(SDL_Keymod mod);
 void handleRenameTextInput(char ch);

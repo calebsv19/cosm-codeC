@@ -39,5 +39,6 @@ int main(void){
  assert(!strcmp(core.renameFlow.inputBuffer,"renamed") && !core.renameFlow.retainedEdit.composition[0]);
  submitRename();assert(calls==before_calls+1 && !strcmp(completed,"renamed"));
  beginRename("keep",complete,validate,&core);assert(handleRenameTextEvent(&composition));cancelRename();assert(!core.renameFlow.retainedEdit.composition[0]);
+ beginRename("keep",complete,validate,&core);assert(handleRenameTextEvent(&composition));cancelRenameComposition();assert(isRenaming() && !strcmp(core.renameFlow.inputBuffer,"keep") && !core.renameFlow.retainedEdit.composition[0]);cancelRename();
  puts("Global rename shared UTF-8 editing: intact rejection, scalar movement/delete and existing submit/validate/cancel policy pass");return 0;
 }
