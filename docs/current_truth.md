@@ -58,7 +58,7 @@ Last updated: 2026-08-25
   - `src/app`, `src/core`, `src/ide`, `src/engine`, `src/Parser`
 - Dependency lane:
   - vendored shared subtree under `third_party/codework_shared/`
-  - the default presentation path links vendored `vk_renderer 1.3.2` and
+  - the default presentation path links vendored `vk_renderer 1.7.0` and
     `vk_runtime 0.6.0`; renderer instance/device/queue ownership aliases the
     runtime lifecycle instead of creating a second Vulkan owner
   - this adoption is presentation-only: IDE source does not call the runtime
@@ -264,3 +264,10 @@ Last updated: 2026-08-25
 - Full phase/execution history is in:
   - `/Users/calebsv/Desktop/CodeWork/docs/private_program_docs/ide/`
 - This file is the compressed public current-state contract.
+
+Shared UI source preparation (2026-10-06, Main Edit only): the preserved
+development lane imports immutable shared commit
+`09ff89a0a32d80981010b15a7d45a2cdf8e5fd9f`. A fresh contained build and stable
+source regression passed for the selected candidate; IDE UI cutover and live
+installed acceptance remain pending. This does not change canonical or released
+source/package state. See `docs/main_edit_worktree.md` for contained verification.

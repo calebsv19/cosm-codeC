@@ -100,3 +100,14 @@ clean targets. For qualification after shared/header/compiler changes, use a
 fresh contained build to avoid stale dependency objects. Existing `build/`,
 package checkpoints, Desktop bundles and user projects remain retained.
 Neither source qualification nor this preparation authorizes app replacement.
+
+Shared UI preparation, 2026-10-06: existing development work is preserved at
+`aeb2721`, build preparation at `fe6d4f6`, and managed shared import at `0001e8a`.
+The immutable source pin is `make/shared-source-pin.txt`; contained verification
+checks all vendored source files against that commit. The compiler remains
+`83af7ab9c984981ae1f8044dd0f5b12caecfbaa9`. The importer updates tracked source
+without deleting ignored consumer outputs and refuses untracked collisions.
+Build/regression qualification is source proof. UI migration and installed
+visual acceptance have not started. Some bridge fixtures still use fixed
+`/tmp/idebridge_*` paths; serialize bridge suites. The contained helper supplies
+a short unique IPC cache root to avoid Unix socket path truncation.
