@@ -262,10 +262,9 @@ test-ide-panel-text-ui: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_
 	$(TEST_BUILD_DIR)/ide_panel_text_presentation_test
 	$(CC) $(CFLAGS) tests/ide_panel_button_scope_test.c src/ide/UI/panel_button_scope.c src/ide/UI/button_scope.c $(KIT_UI_DIR)/src/kit_ui_interaction_sdl.c -o $(TEST_BUILD_DIR)/ide_panel_button_scope_test $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB) $(LIB_DIRS) -lSDL2 -lSDL2_ttf $(VULKAN_LIBS) -lm
 	$(TEST_BUILD_DIR)/ide_panel_button_scope_test
-TEST_SMOKE_TARGETS += test-ide-panel-text-ui
-
 	$(CC) $(CFLAGS) tests/ide_panel_field_focus_test.c src/ide/UI/panel_field_focus.c -o $(TEST_BUILD_DIR)/ide_panel_field_focus_test
 	$(TEST_BUILD_DIR)/ide_panel_field_focus_test
+TEST_SMOKE_TARGETS += test-ide-panel-text-ui
 
 .PHONY: test-ide-tool-chrome-ui
 test-ide-tool-chrome-ui: $(KIT_UI_LIB) $(KIT_RENDER_LIB) $(VK_RENDERER_LIB) $(VK_RUNTIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB)
