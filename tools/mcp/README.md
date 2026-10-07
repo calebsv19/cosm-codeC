@@ -1,5 +1,12 @@
 # codeC local MCP adapter
 
+For interactive lesson examples, `example_run` accepts optional `stdin_text`
+(UTF-8, at most 4096 bytes, no NUL). Input is supplied through a private file,
+so an example that ignores stdin cannot block a pipe writer. The default is
+EOF, preserving existing examples. The runtime records the supplied input and
+shows it with the exact-hash completed result through `example_present`.
+This is a reproducible input demonstration, not live keyboard entry.
+
 This source-level stdio adapter exposes the existing `idebridge` session to
 an agent. It requires Python 3.11+, `mcp==1.30.0`, a built `idebridge`, and
 the exact active IDE project path. A Main Edit app publishes a short-lived
@@ -71,3 +78,34 @@ python3 tests/test_ide_mcp_runtime.py
 
 The full stdio discovery test in `tests/test_ide_mcp.py` additionally requires
 the optional Python `mcp` package.
+
+## Workspace control (Main Edit development candidate)
+
+`workspace_open(path)` validates an existing absolute directory, rejects unsaved
+documents and active build/run tasks, queues the normal project reload, and waits
+for workspace readiness. The running IDE session remains stable; workspace
+generation changes. MCP requests carry the expected root and generation.
+`workspace_refresh()` explicitly adopts a workspace changed through the UI after
+validating the private session file and ping. A process restart still requires a
+new client. Launch with `--workspace /absolute/path` to override remembered state;
+`IDE_DEFAULT_WORKSPACE` remains the fallback when no explicit path is supplied.
+
+The converter live proof is in Desktop Video Projects/C Lessons/celsius-fahrenheit/
+receipts/workspace-live-proof.json. Save control is described below. Robust
+recovery after a publication/reload failure, and old interactive-terminal rebinding
+remain separate hardening work. The current MCP path rejects stale bindings;
+legacy unbound raw protocol clients are not covered by that guarantee.
+
+## Checked live-buffer save (development candidate)
+
+`document_buffer_inspect(path)` reads a workspace document's live buffer, modified
+state, saved-file FNV-1a hash and buffer FNV-1a hash. A closed document has no live
+buffer. `document_save(path, expected_buffer_fnv64, expected_disk_fnv64)` saves
+exactly that inspected buffer on the UI thread and returns saved UTF-8 readback.
+A changed buffer, changed disk file, pending save queue, independent duplicate
+buffers, or failed write refuses the save and preserves unsaved state. The path
+must already exist inside the workspace; Save As and new untitled documents
+remain unsupported. The buffer limit is 32 KiB. Successful writes use a sibling
+temporary file and atomic rename, then request normal saved-file analysis.
+These hashes detect conflicts; session authentication still protects requests.
+Source/module/MCP tests passed on 2026-10-03. Installed live UI proof is pending.

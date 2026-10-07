@@ -1,3 +1,4 @@
+#include "core/Ipc/ide_ipc_workspace.h"
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -837,6 +838,7 @@ void runFrameLoop(FrameContext* ctx, Uint64 now, float dt) {
         // Keep Git panel refresh bounded to watcher-observed changes.
         pollGitStatusWatcher();
         pendingProjectRefresh = false;
+        ide_ipc_workspace_mark_ready();
         pendingProjectRefreshReasonMask = 0;
         invalidateAll(ctx->panes, *ctx->paneCount,
                       RENDER_INVALIDATION_CONTENT | RENDER_INVALIDATION_BACKGROUND);

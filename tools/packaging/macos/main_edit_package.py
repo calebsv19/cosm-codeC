@@ -51,8 +51,16 @@ def verify(source: Path) -> Path:
         env.pop("IDE_LOG_DIR", None)
         env.pop("IDE_RUNTIME_DIR", None)
         env.pop("XDG_CACHE_HOME", None)
+        env.pop("IDE_DEFAULT_WORKSPACE", None)
         launcher = contents / "MacOS" / "ide-launcher"
         output = run(str(launcher), "--self-test", env=env).stdout
+        config = run(str(launcher), "--print-config", env=env).stdout
+        if f"IDE_DEFAULT_WORKSPACE={test_home}/Desktop/CodeWork\n" not in config:
+            raise ValueError("Main Edit default workspace used the isolated preference home")
+        env["IDE_DEFAULT_WORKSPACE"] = str(test_home / "lesson")
+        config = run(str(launcher), "--print-config", env=env).stdout
+        if f"IDE_DEFAULT_WORKSPACE={test_home}/lesson\n" not in config:
+            raise ValueError("Main Edit default workspace override was lost")
         profile_root = test_home / "Library" / "Application Support" / "codeC Main Edit"
         if "self-test: ok" not in output or "IDE_PROFILE=main-edit" not in output:
             raise ValueError("Main Edit launcher self-test failed")

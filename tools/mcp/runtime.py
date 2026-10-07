@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import stat
+import time
 from example_run import run_example
 
 
@@ -20,6 +21,7 @@ class Runtime:
         self._bound_session_id = None
         self._last_example = None
         self._last_build = None
+        self._workspace_generation = None
 
     def _session(self) -> dict | None:
         if self.session_file is None:
@@ -48,6 +50,8 @@ class Runtime:
         env = os.environ.copy()
         env["MYIDE_PROJECT_ROOT"] = str(self.project_root)
         session = self._session()
+        if self._workspace_generation is not None:
+            env["MYIDE_WORKSPACE_GENERATION"] = str(self._workspace_generation)
         if session:
             env["MYIDE_SOCKET"] = session["socket_path"]
             env["MYIDE_AUTH_TOKEN"] = session["auth_token"]
@@ -73,6 +77,62 @@ class Runtime:
             raise ValueError("connected_ide_session_mismatch")
         if session:
             self._bound_session_id = session["session_id"]
+        self._workspace_generation = result.get("workspace_generation")
+        return result
+
+    def inspect_buffer(self, path: str) -> dict:
+        self.live()
+        self.read_document(path)  # Apply the same saved-file confinement and size bounds.
+        return self.call("document-inspect", path)
+
+    def save_buffer(self, path: str, expected_buffer_fnv64: str, expected_disk_fnv64: str) -> dict:
+        for value in (expected_buffer_fnv64, expected_disk_fnv64):
+            if len(value) != 16 or any(c not in "0123456789abcdef" for c in value):
+                raise ValueError("document_save_requires_inspected_hashes")
+        self.live()
+        self.read_document(path)
+        result = self.call("document-save", path, "--expected_before_fnv64", expected_buffer_fnv64,
+                           "--expected_fnv64", expected_disk_fnv64)
+        saved = self.read_document(path)
+        if self._fnv64(saved["text"].encode()) != result["buffer_fnv64"]:
+            raise ValueError("document_save_readback_mismatch")
+        return {"buffer": result, "document": saved}
+
+    def workspace_open(self, path: str) -> dict:
+        target = Path(path)
+        if not target.is_absolute() or not target.is_dir():
+            raise ValueError("workspace_must_be_existing_absolute_directory")
+        self.live()
+        old_session = self._bound_session_id
+        result = self.call("workspace-open", str(target.resolve()), timeout=15)
+        self.project_root = target.resolve()
+        self._workspace_generation = result["workspace_generation"]
+        self._last_example = self._last_build = None
+        deadline=time.monotonic()+30
+        verified=self.live()
+        while not verified.get("workspace_ready", True):
+            if time.monotonic()>=deadline:
+                raise ValueError("workspace_reload_pending_inspect_same_binding")
+            time.sleep(0.1)
+            verified=self.live()
+        if verified["session_id"] != old_session:
+            raise ValueError("workspace_switch_changed_ide_session")
+        return result
+
+    def workspace_refresh(self) -> dict:
+        if self.session_file is None:
+            raise ValueError("workspace_refresh_requires_private_session_file")
+        # Preserve validation of ownership, permissions and structure before adoption.
+        previous = self.project_root
+        raw = json.loads(self.session_file.read_text())
+        self.project_root = Path(raw.get("project_root", "")).resolve(strict=True)
+        self._workspace_generation = None
+        try:
+            result = self.live()
+        except Exception:
+            self.project_root = previous
+            raise
+        self._last_example = self._last_build = None
         return result
 
     def source(self, relative: str) -> Path:
@@ -82,6 +142,7 @@ class Runtime:
         return path
 
     def read_document(self, relative: str) -> dict:
+        self.live()
         path = self.source(relative)
         data = path.read_bytes()
         if len(data) > 32768 or b"\0" in data:
@@ -238,11 +299,12 @@ class Runtime:
                 "terminal": "Run", "visible_content_reviewed": False}
 
     def example_run(self, expected_executable_sha256: str,
-                    timeout_seconds: int = 3) -> dict:
+                    timeout_seconds: int = 3, stdin_text: str = "") -> dict:
         """Run only build/app from the connected workspace, with no arguments."""
         session = self.live()
         result = run_example(self.project_root, expected_executable_sha256,
-                             timeout_seconds)
+                             timeout_seconds, stdin_text)
+        result["stdin_text"] = stdin_text
         if self.live()["session_id"] != session["session_id"]:
             raise ValueError("ide_session_changed_during_example_run")
         self._last_example = (session["session_id"], result)
@@ -258,7 +320,7 @@ class Runtime:
         result = self._last_example[1]
         if result["status"] != "completed":
             raise ValueError("only_completed_example_runs_can_be_presented")
-        output = result["output"]
+        output = ("Input: " + result["stdin_text"] + "\n" if result.get("stdin_text") else "") + result["output"]
         safe_output = "".join(c if c == "\n" or c == "\t" or ord(c) >= 32 and ord(c) != 127
                               else f"\\x{ord(c):02x}" for c in output)
         header = (f"[Agent example: build/app sha256={expected_executable_sha256[:12]} "

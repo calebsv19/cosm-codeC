@@ -25,6 +25,8 @@ bool ide_ipc_start(const char* project_root);
 void ide_ipc_stop(void);
 bool ide_ipc_is_running(void);
 void ide_ipc_pump(void);
+void ide_ipc_copy_project_root(char* out, size_t cap);
+bool ide_ipc_rebind_workspace(const char* path);
 
 void ide_ipc_set_open_handler(IdeIpcOpenHandler handler, void* userdata);
 void ide_ipc_set_edit_handler(IdeIpcEditApplyHandler handler, void* userdata);

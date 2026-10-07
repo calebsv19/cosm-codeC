@@ -33,10 +33,20 @@ void renderPopupQueueContents() {
 }
 
 void renderSinglePopup(Popup* popup, SDL_Renderer* renderer, int index) {
-    int baseY = 300 + index * 220;
+    RenderContext* ctx = getRenderContext();
+    int winW = 0, winH = 0;
+    if (!ctx || !ctx->window) return;
+    SDL_GetWindowSize(ctx->window, &winW, &winH);
+    if (winW < 48 || winH < 48) return;
+    int width = winW - 40;
+    if (width > 760) width = 760;
+    int height = winH - 40;
+    if (height > 160) height = 160;
+    int baseY = (winH - height) / 2 + index * 24;
+    if (baseY + height > winH - 20) baseY = winH - height - 20;
     IDEThemePalette palette = {0};
 
-    SDL_Rect popupBox = { 400, baseY, 600, 200 };
+    SDL_Rect popupBox = { (winW - width) / 2, baseY, width, height };
     ide_shared_theme_resolve_palette(&palette);
     SDL_SetRenderDrawColor(renderer,
                            palette.modal_fill.r,

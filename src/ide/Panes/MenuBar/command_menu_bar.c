@@ -20,6 +20,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
+#include "core/Ipc/ide_ipc_server.h"
+#include "ide/Panes/Terminal/terminal_internal.h"
 #include <stdlib.h>
 #include <limits.h>
 #include <ctype.h>
@@ -267,12 +269,54 @@ static void applyWorkspaceSelection(const char* oldValue, const char* newValue, 
         }
     }
 
+    if (!ide_ipc_rebind_workspace(finalPath)) {
+        fprintf(stderr, "[Workspace] Session publication failed; preserving current workspace\n");
+        return;
+    }
     ide_apply_workspace_root_input(finalPath, true);
     suppressWorkspaceWatchRefreshForMs(4000);
     setRunTargetPath(NULL);
     saveRunTargetPreference(NULL);
     queueProjectRefresh(ANALYSIS_REASON_WORKSPACE_RELOAD);
     printf("[Workspace Root] Reloading input root: %s\n", projectPath);
+}
+
+static bool workspace_has_unsaved(EditorView* view) {
+    if (!view) return false;
+    if (view->type == VIEW_LEAF) {
+        for (int i = 0; i < view->fileCount; ++i)
+            if (view->openFiles[i] && view->openFiles[i]->isModified) return true;
+        return false;
+    }
+    return workspace_has_unsaved(view->childA) || workspace_has_unsaved(view->childB);
+}
+
+bool ide_open_workspace_checked(const char* path, char* error, size_t cap) {
+    char resolved[PATH_MAX]; struct stat st;
+    IDECoreState* core = getCoreState();
+    if (!path || path[0] != '/' || !realpath(path, resolved) ||
+        stat(resolved, &st) != 0 || !S_ISDIR(st.st_mode) || strlen(resolved) >= sizeof(projectPath)) {
+        snprintf(error, cap, "invalid_workspace_directory"); return false;
+    }
+    if (workspace_has_unsaved(core ? core->persistentEditorView : NULL)) {
+        snprintf(error, cap, "workspace_has_unsaved_documents"); return false;
+    }
+    if (getBuildStatus() == BUILD_STATUS_RUNNING) {
+        snprintf(error, cap, "workspace_build_running"); return false;
+    }
+    for (int i=0; i<g_session_count; ++i) {
+        TerminalSession* session=&g_sessions[i];
+        if (session->inUse && (session->isBuild || session->isRun) && session->backend && !session->backend->dead) {
+            snprintf(error,cap,"workspace_task_running"); return false;
+        }
+    }
+    WorkspaceSelectionContext context = {0};
+    snprintf(context.resolvedPath, sizeof(context.resolvedPath), "%s", resolved);
+    if (!ide_ipc_rebind_workspace(resolved)) {
+        snprintf(error, cap, "workspace_session_publish_failed"); return false;
+    }
+    applyWorkspaceSelection(NULL, resolved, &context);
+    return true;
 }
 
 static void promptWorkspaceSelection(void) {

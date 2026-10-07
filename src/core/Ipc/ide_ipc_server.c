@@ -1,3 +1,4 @@
+#include "core/Ipc/ide_ipc_document.h"
 #include "ide_ipc_server.h"
 #include "core/BuildSystem/build_diagnostics.h"
 #include "app/GlobalInfo/workspace_prefs.h"
@@ -10,6 +11,7 @@
 #include "core/Ipc/ide_ipc_server_utils.h"
 #include "core/Ipc/ide_ipc_session_export.h"
 #include "core/Ipc/ide_ipc_typing.h"
+#include "core/Ipc/ide_ipc_workspace.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -215,7 +217,7 @@ static bool timing_safe_equal(const char* a, const char* b) {
 
 static bool command_requires_auth(const char* cmd) {
     if (!cmd || !*cmd) return false;
-    return (strcmp(cmd, "open") == 0 ||
+    return (strcmp(cmd, "document") == 0 || strcmp(cmd, "workspace_open") == 0 || strcmp(cmd, "open") == 0 ||
             strcmp(cmd, "build") == 0 ||
             strcmp(cmd, "edit") == 0 ||
             strcmp(cmd, "type") == 0 ||
@@ -337,12 +339,50 @@ static char* handle_request_payload(const char* payload) {
         return ide_ipc_build_response_json(req_id, false, NULL, err);
     }
 
+    json_object *expected_root_value=NULL, *expected_generation_value=NULL;
+    if (j_args && json_object_object_get_ex(j_args,"expected_workspace",&expected_root_value)) {
+        char current[1024]; ide_ipc_copy_project_root(current,sizeof(current));
+        if (!json_object_is_type(expected_root_value,json_type_string) ||
+            strcmp(json_object_get_string(expected_root_value),current) ||
+            !json_object_object_get_ex(j_args,"workspace_generation",&expected_generation_value) ||
+            !json_object_is_type(expected_generation_value,json_type_int) ||
+            (uint64_t)json_object_get_int64(expected_generation_value)!=ide_ipc_workspace_generation()) {
+            json_object_put(root);
+            return ide_ipc_build_response_json(req_id,false,NULL,
+                ide_ipc_build_error_obj("stale_workspace_binding","Refresh the workspace binding before retrying",NULL));
+        }
+    }
     char* out = NULL;
 
-    if (strcmp(cmd, "ping") == 0) {
+    if (strcmp(cmd,"document")==0) {
+        json_object* result=NULL; char error[256]={0};
+        if (!j_args || !expected_root_value)
+            out=ide_ipc_build_response_json(req_id,false,NULL,ide_ipc_build_error_obj("bad_request","document requires workspace binding",NULL));
+        else if (ide_ipc_document_request(j_args,&result,error,sizeof(error)))
+            out=ide_ipc_build_response_json(req_id,true,result,NULL);
+        else out=ide_ipc_build_response_json(req_id,false,NULL,ide_ipc_build_error_obj("document_control_failed",error,NULL));
+    } else if (strcmp(cmd, "workspace_open") == 0) {
+        json_object* path=NULL; char error[256]={0};
+        if (!expected_root_value || !j_args || !json_object_object_get_ex(j_args,"path",&path) ||
+            !json_object_is_type(path,json_type_string)) {
+            out=ide_ipc_build_response_json(req_id,false,NULL,ide_ipc_build_error_obj("bad_request","workspace_open requires path and expected workspace binding",NULL));
+        } else if (ide_ipc_workspace_request(json_object_get_string(path),
+                    json_object_get_string(expected_root_value),json_object_get_int64(expected_generation_value),error,sizeof(error))) {
+            char current[1024]; ide_ipc_copy_project_root(current,sizeof(current));
+            json_object* result=json_object_new_object();
+            json_object_object_add(result,"project_root",json_object_new_string(current));
+            json_object_object_add(result,"workspace_generation",json_object_new_int64(ide_ipc_workspace_generation()));
+            json_object_object_add(result,"reload_queued",json_object_new_boolean(true));
+            out=ide_ipc_build_response_json(req_id,true,result,NULL);
+        } else out=ide_ipc_build_response_json(req_id,false,NULL,ide_ipc_build_error_obj("workspace_open_failed",error,NULL));
+    } else if (strcmp(cmd, "ping") == 0) {
+        uint64_t workspace_generation=ide_ipc_workspace_generation();
+        bool workspace_ready=ide_ipc_workspace_ready();
         pthread_mutex_lock(&g_server.lock);
         long long uptime = now_ms() - g_server.started_at_ms;
         json_object* result = json_object_new_object();
+        json_object_object_add(result, "workspace_ready", json_object_new_boolean(workspace_ready));
+        json_object_object_add(result, "workspace_generation", json_object_new_int64(workspace_generation));
         json_object_object_add(result, "proto", json_object_new_int(IDE_IPC_PROTO_VERSION));
         json_object_object_add(result, "ide_pid", json_object_new_int((int)getpid()));
         json_object_object_add(result, "session_id", json_object_new_string(g_server.session_id));
@@ -717,7 +757,16 @@ static void* client_thread_main(void* arg) {
     }
     buf[used] = '\0';
 
-    char* response = handle_request_payload(buf);
+    static pthread_rwlock_t workspace_transactions = PTHREAD_RWLOCK_INITIALIZER;
+    json_object* request_preview=json_tokener_parse(buf); json_object* preview_cmd=NULL;
+    bool switching=request_preview && json_object_object_get_ex(request_preview,"cmd",&preview_cmd) &&
+        json_object_is_type(preview_cmd,json_type_string) && !strcmp(json_object_get_string(preview_cmd),"workspace_open");
+    if (request_preview) json_object_put(request_preview);
+    int locked=switching ? pthread_rwlock_trywrlock(&workspace_transactions) : pthread_rwlock_tryrdlock(&workspace_transactions);
+    char* response;
+    if (locked) response=ide_ipc_build_response_json("",false,NULL,
+        ide_ipc_build_error_obj("workspace_transaction_busy","Another request owns the workspace transaction",NULL));
+    else { response = handle_request_payload(buf); pthread_rwlock_unlock(&workspace_transactions); }
     if (response) {
         size_t left = strlen(response);
         const char* p = response;
@@ -968,7 +1017,19 @@ void ide_ipc_set_edit_handler(IdeIpcEditApplyHandler handler, void* userdata) {
     pthread_mutex_unlock(&g_server.edit_lock);
 }
 
+void ide_ipc_copy_project_root(char* out, size_t cap) {
+    pthread_mutex_lock(&g_server.lock); str_copy(out,cap,g_server.project_root); pthread_mutex_unlock(&g_server.lock);
+}
+bool ide_ipc_rebind_workspace(const char* path) {
+    pthread_mutex_lock(&g_server.lock);
+    if (!g_server.running || !strcmp(g_server.project_root,path)) { pthread_mutex_unlock(&g_server.lock); return true; }
+    bool ok=ide_ipc_agent_session_write_generation(path,g_server.socket_path,g_server.session_id,g_server.auth_token,ide_ipc_workspace_generation()+1);
+    if (ok) { str_copy(g_server.project_root,sizeof(g_server.project_root),path); ide_ipc_workspace_changed(); }
+    pthread_mutex_unlock(&g_server.lock); return ok;
+}
 void ide_ipc_pump(void) {
+    ide_ipc_workspace_pump();
+    ide_ipc_document_pump();
     ide_ipc_presentation_pump();
     ide_ipc_typing_pump();
     IdeIpcOpenHandler handler = NULL;

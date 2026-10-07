@@ -5,6 +5,8 @@ ANALYSIS_ARTIFACT_IO_SRC := src/core/Analysis/analysis_artifact_io.c
 TEST_FIXTURE_UTILS_SRC := tests/test_fixture_utils.c
 IDEBRIDGE_PHASE_TEST_SUPPORT_SRCS := \
 	src/core/Ipc/ide_ipc_server.c \
+	src/core/Ipc/ide_ipc_workspace.c \
+	src/core/Ipc/ide_ipc_document.c \
 	src/core/Ipc/ide_ipc_server_utils.c \
 	src/core/Ipc/ide_ipc_session_export.c \
 	src/core/Ipc/ide_ipc_presentation.c \

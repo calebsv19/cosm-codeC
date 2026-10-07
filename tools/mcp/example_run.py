@@ -14,13 +14,16 @@ import time
 MAX_OUTPUT = 16 * 1024
 
 
-def run_example(project_root: Path, expected_sha256: str, timeout_seconds: int = 3) -> dict:
+def run_example(project_root: Path, expected_sha256: str, timeout_seconds: int = 3,
+                stdin_text: str = "") -> dict:
     project_root = project_root.resolve(strict=True)
     if (len(expected_sha256) != 64 or
             any(c not in "0123456789abcdef" for c in expected_sha256)):
         raise ValueError("invalid_executable_sha256")
     if not 1 <= timeout_seconds <= 10:
         raise ValueError("example_timeout_out_of_range")
+    if not isinstance(stdin_text, str) or len(stdin_text.encode("utf-8")) > 4096 or "\0" in stdin_text:
+        raise ValueError("example_input_out_of_range")
 
     executable = project_root / "build" / "app"
     info = executable.lstat()
@@ -42,10 +45,14 @@ def run_example(project_root: Path, expected_sha256: str, timeout_seconds: int =
         env = {"PATH": "/usr/bin:/bin", "HOME": private_home,
                "TMPDIR": private_home, "LANG": "C", "LC_ALL": "C"}
         started = time.monotonic()
+        input_path = Path(private_home) / "stdin.txt"
+        input_path.write_bytes(stdin_text.encode("utf-8"))
+        input_stream = input_path.open("rb")
         process = subprocess.Popen([str(executable)], cwd=project_root, env=env,
-                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stdin=input_stream, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, start_new_session=True,
                                    close_fds=True)
+        input_stream.close()
         output = bytearray()
         status = "completed"
         try:

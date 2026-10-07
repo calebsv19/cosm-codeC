@@ -261,6 +261,12 @@ static int send_request(const char* cmd,
         json_object_object_add(req, "auth_token", json_object_new_string(auth_token));
     }
     if (!args) args = json_object_new_object();
+    const char* generation=getenv("MYIDE_WORKSPACE_GENERATION");
+    const char* workspace=getenv("MYIDE_PROJECT_ROOT");
+    if (generation && workspace) {
+        json_object_object_add(args,"expected_workspace",json_object_new_string(workspace));
+        json_object_object_add(args,"workspace_generation",json_object_new_int64(strtoll(generation,NULL,10)));
+    }
     json_object_object_add(req, "args", args);
 
     const char* req_text = json_object_to_json_string_ext(req, JSON_C_TO_STRING_PLAIN);
@@ -620,6 +626,28 @@ static int run_symbols(bool json_output, const char* file_filter, bool top_level
     json_object_put(root);
     free(response_text);
     return IDEBRIDGE_EXIT_OK;
+}
+
+static int run_document(const char* op,const char* path,const char* buffer_hash,const char* disk_hash,const CliGlobalOptions* opts) {
+    json_object* args=json_object_new_object();
+    json_object_object_add(args,"op",json_object_new_string(op));
+    json_object_object_add(args,"path",json_object_new_string(path));
+    if (buffer_hash) json_object_object_add(args,"expected_buffer_fnv64",json_object_new_string(buffer_hash));
+    if (disk_hash) json_object_object_add(args,"expected_disk_fnv64",json_object_new_string(disk_hash));
+    char* text=NULL; json_object* root=NULL;
+    int rc=send_request("document",args,opts,&text,&root);
+    if (rc!=IDEBRIDGE_EXIT_OK) return rc;
+    json_object* result=NULL; return print_or_validate_response(true,text,root,&result);
+}
+
+static int run_workspace_open(const char* path, const CliGlobalOptions* opts) {
+    json_object* args=json_object_new_object();
+    json_object_object_add(args,"path",json_object_new_string(path));
+    char* text=NULL; json_object* root=NULL;
+    int rc=send_request("workspace_open",args,opts,&text,&root);
+    if (rc!=IDEBRIDGE_EXIT_OK) return rc;
+    json_object* result=NULL;
+    return print_or_validate_response(true,text,root,&result);
 }
 
 static int run_open(bool json_output, const char* target_spec, const CliGlobalOptions* opts) {
@@ -1020,7 +1048,7 @@ int main(int argc, char** argv) {
                 return IDEBRIDGE_EXIT_USAGE;
             }
             out_path = argv[++i];
-        } else if (strcmp(cmd, "open") == 0 && !open_target) {
+        } else if ((strcmp(cmd, "open") == 0 || strcmp(cmd,"workspace-open")==0 || strcmp(cmd,"document-inspect")==0 || strcmp(cmd,"document-save")==0) && !open_target) {
             open_target = argv[i];
         } else if (strcmp(cmd, "search") == 0 && !search_pattern) {
             search_pattern = argv[i];
@@ -1030,6 +1058,15 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (strcmp(cmd,"document-inspect")==0 || strcmp(cmd,"document-save")==0) {
+        if (!open_target) return IDEBRIDGE_EXIT_USAGE;
+        return run_document(strcmp(cmd,"document-save")==0 ? "save" : "inspect",open_target,
+                            type_options.before_hash,expected_fnv64,&opts);
+    }
+    if (strcmp(cmd,"workspace-open")==0) {
+        if (!open_target) return IDEBRIDGE_EXIT_USAGE;
+        return run_workspace_open(open_target,&opts);
+    }
     if (strcmp(cmd, "ping") == 0) return run_ping(json_output, &opts);
     if (strcmp(cmd, "diag") == 0) return run_diag(json_output, max_items, &opts);
     if (strcmp(cmd, "diag-pack") == 0) return run_diag_pack(out_path, max_items, &opts);

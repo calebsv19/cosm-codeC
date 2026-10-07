@@ -58,7 +58,8 @@ void initProjectPaths(void) {
 
     char defaultProjectPath[1024];
     resolveDefaultWorkspacePath(defaultProjectPath, sizeof(defaultProjectPath));
-    const char* persistedPath = loadWorkspacePreference();
+    const char* explicitPath = getenv("IDE_OPEN_WORKSPACE");
+    const char* persistedPath = explicitPath && explicitPath[0] ? explicitPath : loadWorkspacePreference();
     if (persistedPath && persistedPath[0] != '\0') {
         setWorkspacePath(persistedPath);
     }
@@ -226,7 +227,9 @@ static DirEntry* loadProjectDirectoryInternal(const char* path, DirEntry* parent
         }
 
         struct stat st;
-        if (stat(fullPath, &st) == -1) {
+        // Never follow directory links: a workspace can contain a link back
+        // to itself or to the entire portfolio.
+        if (lstat(fullPath, &st) == -1) {
             if (project_loader_debug_enabled()) {
                 fprintf(stderr,
                         "[ProjectLoad] stat failed: %s (errno=%d: %s)\n",
@@ -239,11 +242,25 @@ static DirEntry* loadProjectDirectoryInternal(const char* path, DirEntry* parent
         }
 
         if (S_ISDIR(st.st_mode)) {
+            // Keep generated/metadata folders visible, but do not enumerate
+            // their contents as editable project source during startup.
+            const char* name = entry->d_name;
+            bool generated = name[0] == '.' ||
+                strcmp(name, "build") == 0 || strcmp(name, "dist") == 0 ||
+                strcmp(name, "node_modules") == 0 || strcmp(name, "_worktrees") == 0 ||
+                strcmp(name, "artifacts") == 0 || strcmp(name, "ide_files") == 0;
+            if (generated) {
+                DirEntry* folder = createDirEntry(name, fullPath, ENTRY_FOLDER);
+                if (folder) { folder->parent = root; addChildEntry(root, folder); }
+                free(fullPath);
+                continue;
+            }
             DirEntry* childFolder = loadProjectDirectoryInternal(fullPath, root);
             if (childFolder) {
                 addChildEntry(root, childFolder);
             }
-        } else if (S_ISREG(st.st_mode)) {
+        } else if (S_ISREG(st.st_mode) ||
+                   (S_ISLNK(st.st_mode) && stat(fullPath, &st) == 0 && S_ISREG(st.st_mode))) {
             DirEntry* childFile = createDirEntry(entry->d_name, fullPath, ENTRY_FILE);
             if (childFile) {
                 childFile->parent = root;

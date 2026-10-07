@@ -127,6 +127,7 @@ fi
 
 if [ "${1:-}" = "--print-config" ]; then
     echo "IDE_PROFILE=${IDE_PROFILE:-release}"
+    echo "IDE_DEFAULT_WORKSPACE=${IDE_DEFAULT_WORKSPACE:-}"
     echo "APP_CONTENTS_DIR=$APP_CONTENTS_DIR"
     echo "RES_DIR=$RES_DIR"
     echo "LOG_FILE=$LOG_FILE"

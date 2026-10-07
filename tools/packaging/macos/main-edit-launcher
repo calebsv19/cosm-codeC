@@ -8,6 +8,8 @@ case "$REAL_HOME" in /*) ;; *) echo "Main Edit requires absolute HOME" >&2; exit
 umask 077
 
 PROFILE_ROOT="$REAL_HOME/Library/Application Support/codeC Main Edit"
+# Resolve the user's workspace before isolating preferences through HOME.
+export IDE_DEFAULT_WORKSPACE="${IDE_DEFAULT_WORKSPACE:-$REAL_HOME/Desktop/CodeWork}"
 mkdir -p "$PROFILE_ROOT/home" "$PROFILE_ROOT/cache" "$PROFILE_ROOT/logs" "$PROFILE_ROOT/runtime"
 export HOME="$PROFILE_ROOT/home"
 export XDG_CACHE_HOME="$PROFILE_ROOT/cache"

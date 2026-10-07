@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <SDL2/SDL.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -631,6 +632,20 @@ static IDETimerHUDStartupMode resolve_timer_hud_startup_mode(int argc, char *arg
 }
 
 int ide_app_main_legacy(int argc, char *argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--workspace") == 0) {
+            if (++i >= argc || argv[i][0] != '/') {
+                fprintf(stderr, "--workspace requires an absolute directory path\n");
+                return 2;
+            }
+            char resolved[4096];
+            struct stat workspace_stat;
+            if (!realpath(argv[i], resolved) || stat(resolved, &workspace_stat) || !S_ISDIR(workspace_stat.st_mode)) {
+                fprintf(stderr, "Explicit workspace does not exist\n"); return 2;
+            }
+            setenv("IDE_OPEN_WORKSPACE", resolved, 1);
+        }
+    }
     IDETimerHUDStartupMode timer_hud_startup_mode = resolve_timer_hud_startup_mode(argc, argv);
     setTimerHudStartupMode(timer_hud_startup_mode);
     setTimerHudEnabled(false);

@@ -89,6 +89,13 @@ test-git-command-runner:
 	@$(TEST_BUILD_DIR)/git_command_runner_test || (echo "Git command runner test failed."; exit 1)
 	@echo "Git command runner test passed."
 
+.PHONY: test-project-directory-scan
+TEST_SMOKE_TARGETS += test-project-directory-scan
+test-project-directory-scan:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@$(CC) $(CFLAGS) $(INC_DIRS) tests/project_directory_scan_test.c src/app/GlobalInfo/project.c src/app/GlobalInfo/workspace_startup_policy.c -o $(TEST_BUILD_DIR)/project_directory_scan_test $(LIB_DIRS)
+	@$(TEST_BUILD_DIR)/project_directory_scan_test
+
 .PHONY: test-workspace-startup-policy
 test-workspace-startup-policy:
 	@mkdir -p $(TEST_BUILD_DIR)
@@ -212,3 +219,11 @@ test-editor-session-control-panel:
 	@echo "Running editor session Control panel test..."
 	@$(EDITOR_SESSION_CONTROL_PANEL_TEST_OUT) || (echo "editor session Control panel test failed."; exit 1)
 	@echo "Editor session Control panel test passed."
+
+.PHONY: test-ipc-document-control
+test-ipc-document-control:
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(CC) $(CFLAGS) tests/ide_ipc_document_test.c src/core/Ipc/ide_ipc_document.c -o $(TEST_BUILD_DIR)/ide_ipc_document_test $(LIB_DIRS) -ljson-c -lpthread
+	$(TEST_BUILD_DIR)/ide_ipc_document_test
+	$(CC) $(CFLAGS) tests/ide_ipc_document_ui_test.c src/core/Ipc/ide_ipc_document_ui.c src/core/Ipc/ide_ipc_path_guard.c -o $(TEST_BUILD_DIR)/ide_ipc_document_ui_test $(LIB_DIRS) -ljson-c -lSDL2
+	$(TEST_BUILD_DIR)/ide_ipc_document_ui_test

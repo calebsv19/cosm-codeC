@@ -231,7 +231,10 @@ void renderControlPanel(UIPane* pane, bool hovered, IDECoreState* core) {
 }
 
 void renderPopupQueue(UIPane* pane, bool hovered, IDECoreState* core) {
-    renderUIPane(pane, hovered);
+    (void)pane;
+    (void)hovered;
+    (void)core;
+    // Popup contents own their overlay geometry, not the placeholder pane.
     renderPopupQueueContents();
 }
 
@@ -274,7 +277,8 @@ static void render_pane_borders(UIPane** panes, int paneCount, int winW, int win
 
     for (int i = 0; i < paneCount; ++i) {
         UIPane* pane = panes[i];
-        if (!pane || !pane->visible || pane->w <= 0 || pane->h <= 0) continue;
+        if (!pane || !pane->visible || pane->role == PANE_ROLE_POPUP ||
+            pane->w <= 0 || pane->h <= 0) continue;
 
         SDL_Rect rect = { pane->x, pane->y, pane->w, pane->h };
         const int left = rect.x;

@@ -30,16 +30,17 @@ static int private_runtime_fd(void) {
     return fd;
 }
 
-bool ide_ipc_agent_session_write(const char* project_root,
+bool ide_ipc_agent_session_write_generation(const char* project_root,
                                  const char* socket_path,
                                  const char* session_id,
-                                 const char* auth_token) {
+                                 const char* auth_token, uint64_t generation) {
     if (!is_main_edit()) return true;
     if (!project_root || !socket_path || !session_id || !auth_token) return false;
     int dirfd = private_runtime_fd();
     if (dirfd < 0) return false;
 
     json_object* payload = json_object_new_object();
+    json_object_object_add(payload, "workspace_generation", json_object_new_int64(generation));
     json_object_object_add(payload, "schema", json_object_new_string("ide_agent_session_v1"));
     json_object_object_add(payload, "project_root", json_object_new_string(project_root));
     json_object_object_add(payload, "socket_path", json_object_new_string(socket_path));
@@ -68,6 +69,10 @@ bool ide_ipc_agent_session_write(const char* project_root,
     json_object_put(payload);
     close(dirfd);
     return ok;
+}
+
+bool ide_ipc_agent_session_write(const char* root, const char* socket, const char* session, const char* token) {
+    return ide_ipc_agent_session_write_generation(root,socket,session,token,1);
 }
 
 void ide_ipc_agent_session_clear(const char* session_id) {

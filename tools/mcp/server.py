@@ -26,6 +26,16 @@ def create_server(runtime: Runtime) -> FastMCP:
         return await asyncio.to_thread(runtime.read_document, path)
 
     @server.tool()
+    async def document_buffer_inspect(path: str) -> dict:
+        """Read the live editor buffer and disk/buffer hashes without saving."""
+        return await asyncio.to_thread(runtime.inspect_buffer, path)
+
+    @server.tool()
+    async def document_save(path: str, expected_buffer_fnv64: str, expected_disk_fnv64: str) -> dict:
+        """Save exactly the inspected live buffer; reject changed buffer or disk contents."""
+        return await asyncio.to_thread(runtime.save_buffer, path, expected_buffer_fnv64, expected_disk_fnv64)
+
+    @server.tool()
     async def document_open(path: str, line: int = 1, column: int = 1) -> dict:
         """Open a workspace document at a visible line and column in codeC."""
         return await asyncio.to_thread(runtime.open_document, path, line, column)
@@ -59,11 +69,21 @@ def create_server(runtime: Runtime) -> FastMCP:
         return await asyncio.to_thread(runtime.build_present, expected_output_sha256, focus)
 
     @server.tool()
+    async def workspace_open(path: str) -> dict:
+        """Switch an existing workspace without discarding unsaved documents."""
+        return await asyncio.to_thread(runtime.workspace_open, path)
+
+    @server.tool()
+    async def workspace_refresh() -> dict:
+        """Adopt and verify the current workspace binding after a UI switch."""
+        return await asyncio.to_thread(runtime.workspace_refresh)
+
+    @server.tool()
     async def example_run(expected_executable_sha256: str,
-                          timeout_seconds: int = 3) -> dict:
+                          timeout_seconds: int = 3, stdin_text: str = "") -> dict:
         """Run only workspace build/app after an exact SHA-256 check; return bounded output."""
         return await asyncio.to_thread(runtime.example_run,
-                                       expected_executable_sha256, timeout_seconds)
+                                       expected_executable_sha256, timeout_seconds, stdin_text)
 
     @server.tool()
     async def example_present(expected_executable_sha256: str) -> dict:

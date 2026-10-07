@@ -26,6 +26,17 @@ runtime root while an IDE session is live. An external MCP client must pin
 this session file and the exact workspace; it should restart on a changed
 session ID. The release app's IPC and preference namespaces remain separate.
 
+Startup repair, 2026-09-30: Main Edit resolves `IDE_DEFAULT_WORKSPACE` from
+the real user home before isolating preferences, preserving explicit overrides.
+Workspace selection uses Cmd/Ctrl+L (native chooser) or Cmd/Ctrl+Shift+L
+(typed path). Error popups own their overlay geometry and do not paint a
+placeholder pane at the top left. Project loading does not follow directory
+symlinks or descend into hidden metadata, build, dist, node_modules,
+_worktrees, artifacts, or ide_files folders; these folders remain listed and
+can be selected explicitly as a workspace root. Regular file links remain
+visible. `test-project-directory-scan` covers source retention, generated
+folders, and a link cycle.
+
 Source verification for IDE bridge edits: `make debug` with the pinned compiler, focused
 `test-idebridge-phase4`, `test-idebridge-regression`, then
 `run-headless-smoke` at a meaningful checkpoint. `git diff --check` applies
@@ -62,3 +73,13 @@ Main Edit source work does not authorize canonical adoption, VERSION changes,
 package publication, Registry mutation, release-app installation or refresh.
 The Main Edit refresh target is a separate development-app action. Preserve
 both source lanes and the released 0.4.0 application.
+
+## Main Edit icon packaging
+
+The existing product icon is retained at
+`tools/packaging/macos/local_app_icon/AppIcon.icns`; this file is deliberately
+excluded from the local-icon ignore rule so future source checkpoints and
+worktrees retain it. Main Edit packaging requires an icon input. Its self-test
+requires the bundled icon, the matching `CFBundleIconFile`, and byte equality
+with the selected `.icns` input. Missing icons must fail rather than silently
+produce a generic Desktop icon. Other local icon experiments remain ignored.

@@ -1,3 +1,4 @@
+#include "core/Ipc/ide_ipc_document.h"
 #include "build_config.h"
 #include "system_control.h"
 #include "core_state.h"
@@ -51,6 +52,8 @@
 #include "core/LoopJobs/mainthread_jobs.h"
 #include "core/LoopKernel/mainthread_kernel.h"
 #include "core/Ipc/ide_ipc_server.h"
+#include "core/Ipc/ide_ipc_workspace.h"
+#include "ide/Panes/MenuBar/command_menu_bar.h"
 #include "core/Ipc/ide_ipc_edit_apply.h"
 #include "core/Ipc/ide_ipc_presentation.h"
 #include "core/Ipc/ide_ipc_typing.h"
@@ -226,6 +229,10 @@ static void loadInitialWorkspace(void) {
     bool defaultPathValid = pathIsDirectory(defaultPath);
     bool pathChanged = false;
 
+    if (getenv("IDE_OPEN_WORKSPACE") && !requestedPathValid) {
+        fprintf(stderr, "[Workspace] Explicit workspace is unavailable: %s\n", requestedPath);
+        return;
+    }
     bool workspaceSelected = ide_workspace_startup_select_root(requestedPath,
                                                                requestedPathValid,
                                                                defaultPath,
@@ -253,7 +260,7 @@ static void loadInitialWorkspace(void) {
         fprintf(stderr, "[Workspace] No valid workspace directory available.\n");
         snprintf(workspaceUnavailableMessage,
                  sizeof(workspaceUnavailableMessage),
-                 "No valid workspace root available. Use Cmd/Ctrl+B to select a workspace root.");
+                 "No valid workspace root available. Use Cmd/Ctrl+L to select a workspace root.");
         enqueuePopup(POPUP_TYPE_ERROR, workspaceUnavailableMessage);
         projectRoot = NULL;
         return;
@@ -554,6 +561,8 @@ bool initializeSystem(const char* argv0) {
                                                  "listening",
                                                  ide_ipc_socket_path(),
                                                  ide_ipc_session_id());
+        ide_ipc_workspace_set_handler(ide_open_workspace_checked);
+        ide_ipc_document_set_handler(ide_ipc_document_from_ui);
         ide_ipc_set_open_handler(ide_ipc_open_from_ui, NULL);
         ide_ipc_set_edit_handler(ide_ipc_edit_apply_from_ui, NULL);
         ide_ipc_typing_set_handler(ide_ipc_typing_edit_step, projectPath);
