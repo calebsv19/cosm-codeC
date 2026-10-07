@@ -83,3 +83,20 @@ worktrees retain it. Main Edit packaging requires an icon input. Its self-test
 requires the bundled icon, the matching `CFBundleIconFile`, and byte equality
 with the selected `.icns` input. Missing icons must fail rather than silently
 produce a generic Desktop icon. Other local icon experiments remain ignored.
+
+## Contained source verification
+
+Use `make verify-contained` for a fresh build and source regression check. The
+workspace helper `bin/verify_ide_contained.py` copies tracked and non-ignored
+source inputs into a new retained `/private/tmp/ide-contained-*` directory.
+It excludes prior outputs and runtime `src/ide_files/`, uses isolated HOME/TMPDIR,
+and keeps source hashes, command results, and logs beside the new outputs.
+The existing clean pinned compiler checkout is read-only; its frontend archive
+and objects are built inside this new output root. `--output-root` refuses an
+existing directory; only reviewed source build/test targets are accepted.
+
+Broad `make clean` refuses deletion. Ordinary builds no longer invoke dependency
+clean targets. For qualification after shared/header/compiler changes, use a
+fresh contained build to avoid stale dependency objects. Existing `build/`,
+package checkpoints, Desktop bundles and user projects remain retained.
+Neither source qualification nor this preparation authorizes app replacement.

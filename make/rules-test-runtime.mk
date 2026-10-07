@@ -227,3 +227,9 @@ test-ipc-document-control:
 	$(TEST_BUILD_DIR)/ide_ipc_document_test
 	$(CC) $(CFLAGS) tests/ide_ipc_document_ui_test.c src/core/Ipc/ide_ipc_document_ui.c src/core/Ipc/ide_ipc_path_guard.c -o $(TEST_BUILD_DIR)/ide_ipc_document_ui_test $(LIB_DIRS) -ljson-c -lSDL2
 	$(TEST_BUILD_DIR)/ide_ipc_document_ui_test
+
+.PHONY: test-ipc-workspace-control
+test-ipc-workspace-control:
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(CC) $(CFLAGS) tests/ide_ipc_workspace_test.c src/core/Ipc/ide_ipc_workspace.c -o $(TEST_BUILD_DIR)/ide_ipc_workspace_test $(LIB_DIRS) -ljson-c -lpthread
+	$(TEST_BUILD_DIR)/ide_ipc_workspace_test

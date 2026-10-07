@@ -30,7 +30,6 @@ $(SHARED_BUILD_DIR):
 
 define build_copy_static_lib
 $($(1)_LIB): FORCE $(3) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C $($(1)_DIR) clean $(2)
 	@PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" PKG_CONFIG="$(PKG_CONFIG)" $(MAKE) -C $($(1)_DIR) CC="$(SHARED_CC)" $(2)
 	@cp "$($(1)_LIB_SRC)" "$$@"
 endef
@@ -107,5 +106,9 @@ $(TOOLS_BUILD_DIR)/idebridge_objs/%.o: tools/idebridge/%.c
 	@$(CC) $(CFLAGS) $(ARCH_FLAGS) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
 clean:
-	@rm -rf build $(OUT) $(IDEBRIDGE_OUT)
-	@echo "Cleaned up build artifacts."
+	@echo "Refusing broad cleanup: build/ may contain retained packages and evidence. Use verify-contained for a fresh build." >&2
+	@exit 2
+
+.PHONY: verify-contained
+verify-contained:
+	@python3 "$(CODEWORK_ROOT)/bin/verify_ide_contained.py" --source "$(CURDIR)"
