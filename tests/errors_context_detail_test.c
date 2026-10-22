@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "ide/Panes/ToolPanels/Errors/errors_context_detail.h"
 #include "core/Diagnostics/diagnostic_context.h"
 
@@ -10,17 +11,17 @@ static const char* k_context_json =
     "\"profile\":\"fisics_diagnostics_v1\","
     "\"diagnostics\":["
     "{"
-    "\"file\":\"/tmp/diag_context/main.c\","
+    "\"file\":\"" IDE_TEST_TMPDIR "/diag_context/main.c\","
     "\"line\":4,\"column\":12,\"length\":5,"
     "\"code_id\":3000,\"code_name\":\"preprocessor.generic\","
     "\"message\":\"unterminated include\","
     "\"include_stack\":["
-    "{\"file\":\"/tmp/diag_context/main.c\",\"line\":4,\"column\":3,\"origin\":\"#include \\\"bad.h\\\"\",\"resolved\":true},"
-    "{\"file\":\"/tmp/diag_context/bad.h\",\"line\":1,\"column\":1,\"origin\":\"bad.h\",\"resolved\":true}"
+    "{\"file\":\"" IDE_TEST_TMPDIR "/diag_context/main.c\",\"line\":4,\"column\":3,\"origin\":\"#include \\\"bad.h\\\"\",\"resolved\":true},"
+    "{\"file\":\"" IDE_TEST_TMPDIR "/diag_context/bad.h\",\"line\":1,\"column\":1,\"origin\":\"bad.h\",\"resolved\":true}"
     "],"
     "\"macro_trace\":["
-    "{\"macro\":\"NEED2\",\"role\":\"call_site\",\"file\":\"/tmp/diag_context/main.c\",\"line\":4,\"column\":12},"
-    "{\"macro\":\"NEED2\",\"role\":\"definition\",\"file\":\"/tmp/diag_context/main.c\",\"line\":1,\"column\":9}"
+    "{\"macro\":\"NEED2\",\"role\":\"call_site\",\"file\":\"" IDE_TEST_TMPDIR "/diag_context/main.c\",\"line\":4,\"column\":12},"
+    "{\"macro\":\"NEED2\",\"role\":\"definition\",\"file\":\"" IDE_TEST_TMPDIR "/diag_context/main.c\",\"line\":1,\"column\":9}"
     "],"
     "\"details\":{"
     "\"context\":\"assignment\","
@@ -35,7 +36,7 @@ int main(void) {
     assert(diagnostic_context_load_json_text(k_context_json));
 
     Diagnostic diag = {0};
-    diag.filePath = "/tmp/diag_context/main.c";
+    diag.filePath = "" IDE_TEST_TMPDIR "/diag_context/main.c";
     diag.line = 4;
     diag.column = 12;
     diag.codeId = 3000;
@@ -49,7 +50,7 @@ int main(void) {
     assert(detail.hasDetails);
     assert(detail.rowCount >= 6);
     assert(detail.hasNavigationTarget);
-    assert(strcmp(detail.targetPath, "/tmp/diag_context/main.c") == 0);
+    assert(strcmp(detail.targetPath, "" IDE_TEST_TMPDIR "/diag_context/main.c") == 0);
     assert(detail.targetLine == 4);
     assert(detail.targetColumn == 3);
     assert(strstr(detail.rows[0].text, "includes 2"));

@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,7 +40,7 @@ static void check_contract_base(const FisicsAnalysisResult* result) {
 }
 
 int main(void) {
-    char temp_template[] = "/tmp/ide-s2-frontend-XXXXXX";
+    char temp_template[] = "" IDE_TEST_TMPDIR "/ide-s2-frontend-XXXXXX";
     char* temp_dir = mkdtemp(temp_template);
     check(temp_dir != NULL, "temporary fixture directory");
     if (!temp_dir) return 1;

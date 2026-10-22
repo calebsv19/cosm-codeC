@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Analysis/analysis_units_store.h"
 #include "core/Diagnostics/diagnostic_context.h"
 #include "ide/Panes/ToolPanels/Errors/errors_units_detail.h"
@@ -10,7 +11,7 @@ static const char* k_context_json =
     "{"
     "\"diagnostics\":["
     "{"
-    "\"file\":\"/tmp/errors_units_detail/units.c\","
+    "\"file\":\"" IDE_TEST_TMPDIR "/errors_units_detail/units.c\","
     "\"line\":8,\"column\":7,\"length\":6,"
     "\"code_id\":4103,\"code_name\":\"extension.units.assign_dim_mismatch\","
     "\"message\":\"assignment dimension mismatch\","
@@ -32,7 +33,7 @@ int main(void) {
     assert(diagnostic_context_load_json_text(k_context_json));
 
     Diagnostic diag = {
-        .filePath = "/tmp/errors_units_detail/units.c",
+        .filePath = "" IDE_TEST_TMPDIR "/errors_units_detail/units.c",
         .line = 8,
         .column = 7,
         .length = 6,
@@ -64,7 +65,7 @@ int main(void) {
     units[0].unit_symbol = "ft/s";
     units[0].unit_family = "velocity";
     units[0].unit_resolved = true;
-    analysis_units_store_upsert("/tmp/errors_units_detail/units.c", units, 1, true);
+    analysis_units_store_upsert("" IDE_TEST_TMPDIR "/errors_units_detail/units.c", units, 1, true);
 
     memset(&detail, 0, sizeof(detail));
     assert(errors_units_detail_for_diagnostic(&diag, &detail));

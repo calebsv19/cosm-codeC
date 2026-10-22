@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Analysis/analysis_incremental_policy.h"
 
 #include <assert.h>
@@ -17,13 +18,13 @@ static AnalysisFileFingerprint make_file(const char* path,
 
 static void test_saved_file_hint_hash_filter(void) {
     AnalysisFileFingerprint cached_files[] = {
-        make_file("/tmp/project/src/a.c", 10, 4, 100),
-        make_file("/tmp/project/src/b.c", 11, 4, 200),
+        make_file("" IDE_TEST_TMPDIR "/project/src/a.c", 10, 4, 100),
+        make_file("" IDE_TEST_TMPDIR "/project/src/b.c", 11, 4, 200),
     };
     AnalysisFileFingerprint current_files[] = {
-        make_file("/tmp/project/src/a.c", 20, 4, 100),
-        make_file("/tmp/project/src/b.c", 21, 5, 201),
-        make_file("/tmp/project/src/new.c", 22, 3, 300),
+        make_file("" IDE_TEST_TMPDIR "/project/src/a.c", 20, 4, 100),
+        make_file("" IDE_TEST_TMPDIR "/project/src/b.c", 21, 5, 201),
+        make_file("" IDE_TEST_TMPDIR "/project/src/new.c", 22, 3, 300),
     };
     AnalysisSnapshot cached = {0};
     AnalysisSnapshot current = {0};
@@ -34,23 +35,23 @@ static void test_saved_file_hint_hash_filter(void) {
 
     assert(!analysis_incremental_policy_should_analyze_hint(&cached,
                                                             &current,
-                                                            "/tmp/project/src/a.c"));
+                                                            "" IDE_TEST_TMPDIR "/project/src/a.c"));
     assert(analysis_incremental_policy_should_analyze_hint(&cached,
                                                            &current,
-                                                           "/tmp/project/src/b.c"));
+                                                           "" IDE_TEST_TMPDIR "/project/src/b.c"));
     assert(analysis_incremental_policy_should_analyze_hint(&cached,
                                                            &current,
-                                                           "/tmp/project/src/new.c"));
+                                                           "" IDE_TEST_TMPDIR "/project/src/new.c"));
     assert(!analysis_incremental_policy_should_analyze_hint(&cached,
                                                             &current,
-                                                            "/tmp/project/docs/readme.md"));
+                                                            "" IDE_TEST_TMPDIR "/project/docs/readme.md"));
 }
 
 static void test_missing_include_graph_header_fallback(void) {
-    char* dirty_c[] = {(char*)"/tmp/project/src/a.c"};
-    char* dirty_h[] = {(char*)"/tmp/project/include/a.h"};
-    char* removed_h[] = {(char*)"/tmp/project/include/old.h"};
-    const char* hints_h[] = {"/tmp/project/include/saved.h"};
+    char* dirty_c[] = {(char*)"" IDE_TEST_TMPDIR "/project/src/a.c"};
+    char* dirty_h[] = {(char*)"" IDE_TEST_TMPDIR "/project/include/a.h"};
+    char* removed_h[] = {(char*)"" IDE_TEST_TMPDIR "/project/include/old.h"};
+    const char* hints_h[] = {"" IDE_TEST_TMPDIR "/project/include/saved.h"};
 
     assert(!analysis_incremental_policy_requires_full_for_missing_include_graph(
         0, dirty_c, 1, NULL, 0, NULL, 0));

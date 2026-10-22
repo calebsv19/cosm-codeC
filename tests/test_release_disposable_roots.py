@@ -8,10 +8,16 @@ import unittest
 SOURCE = pathlib.Path(__file__).resolve().parents[1]
 
 class DisposableRootTests(unittest.TestCase):
+    def copy_allocator(self, root):
+        target = root / "tools/packaging"
+        target.mkdir(parents=True)
+        shutil.copyfile(SOURCE / "tools/packaging/prepare_release_root.py", target / "prepare_release_root.py")
+
     def test_invalid_roots_leave_existing_bytes_untouched(self):
         with tempfile.TemporaryDirectory(prefix="ide-package-root-") as temporary:
             root = pathlib.Path(temporary)
             shutil.copyfile(SOURCE / "make/release-disposable.mk", root / "Makefile")
+            self.copy_allocator(root)
             parent = root / "build/release-authenticated"
             parent.mkdir(parents=True)
             existing = parent / "existing-job"
@@ -34,7 +40,7 @@ class DisposableRootTests(unittest.TestCase):
             result = subprocess.run(["make", "RELEASE_ROOT=build/release-authenticated/ancestor-job",
                 "release-artifact-disposable"], cwd=root, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("ancestor must not be a symlink", result.stdout + result.stderr)
+            self.assertIn("must not traverse a symlink", result.stdout + result.stderr)
             self.assertFalse((root / "ancestor-job").exists())
 
     def test_self_test_uses_and_removes_private_runtime_on_success_and_failure(self):
@@ -55,11 +61,11 @@ class DisposableRootTests(unittest.TestCase):
                     f'exit {exit_code}\n')
                 launcher.chmod(0o755)
                 result = subprocess.run([
-                    "make", "release-package-self-test", "PACKAGE_MACOS_DIR=" + str(root)
+                    "make", "release-package-self-test", "BUILD_DIR=" + str(root / "build"), "PACKAGE_MACOS_DIR=" + str(root)
                 ], cwd=root, capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, exit_code == 0)
                 runtime = pathlib.Path((root / "observed-runtime").read_text())
-                self.assertEqual(runtime.parent.parent, (root / "build").resolve())
+                self.assertEqual(runtime.parent.parent.resolve(), (root / "build/package-self-test").resolve())
                 self.assertFalse(runtime.exists())
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -11,8 +12,8 @@
 #include "core/LoopEvents/event_queue.h"
 
 int main(void) {
-    const char* project_root = "/tmp/analysis_runtime_events_startup_regression";
-    const char* file_path = "/tmp/analysis_runtime_events_startup_regression/src/main.c";
+    const char* project_root = "" IDE_TEST_TMPDIR "/analysis_runtime_events_startup_regression";
+    const char* file_path = "" IDE_TEST_TMPDIR "/analysis_runtime_events_startup_regression/src/main.c";
 
     loop_events_init();
     analysis_store_clear();

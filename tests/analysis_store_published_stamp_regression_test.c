@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -9,7 +10,7 @@ int main(void) {
     assert(analysis_store_published_stamp() == 0u);
 
     FisicsDiagnostic d = {0};
-    d.file_path = "/tmp/analysis_store_published_stamp_regression/a.c";
+    d.file_path = "" IDE_TEST_TMPDIR "/analysis_store_published_stamp_regression/a.c";
     d.line = 1;
     d.column = 1;
     d.length = 1;

@@ -24,3 +24,9 @@ CFLAGS += -DVK_RENDERER_FRAME_DEBUG=1
 endif
 endif
 LDFLAGS = $(ARCH_FLAGS) $(BASE_LDFLAGS) $(PROFILE_LDFLAGS)
+
+# Keep fixture paths inside the caller-owned temporary namespace. Production
+# translation units do not consume this test-only macro.
+ifneq ($(strip $(TMPDIR)),)
+CFLAGS += -DIDE_TEST_TMPDIR='"$(patsubst %/,%,$(TMPDIR))"'
+endif

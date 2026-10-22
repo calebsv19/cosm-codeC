@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Ipc/ide_ipc_server.h"
 
 #include <json-c/json.h>
@@ -194,7 +195,7 @@ static int expect_error_code(const char* response, const char* code) {
 }
 
 int main(void) {
-    const char* workspace = "/tmp/idebridge_phase4_workspace";
+    const char* workspace = "" IDE_TEST_TMPDIR "/idebridge_phase4_workspace";
     mkdir(workspace, 0755);
     char src_dir[1024];
     snprintf(src_dir, sizeof(src_dir), "%s/src", workspace);

@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,7 +30,7 @@ static void test_save_and_load_report(void) {
     assert(ide_test_prepare_workspace(workspace, sizeof(workspace), "diagnostics_artifact_io_roundtrip"));
 
     initDiagnosticsEngine();
-    addDiagnosticWithDetails("/tmp/diagnostics_artifact_io_roundtrip/src/main.c",
+    addDiagnosticWithDetails("" IDE_TEST_TMPDIR "/diagnostics_artifact_io_roundtrip/src/main.c",
                              4,
                              2,
                              3,
@@ -102,8 +103,8 @@ static void test_malformed_rows_report(void) {
     artifact_path(workspace, path, sizeof(path));
     assert(ide_test_write_text_file(
         path,
-        "[{\"file\":\"/tmp/a.c\",\"line\":1,\"col\":2,\"severity\":1,\"message\":\"ok\"},"
-        "{\"file\":\"/tmp/b.c\",\"message\":\"missing required fields\"}]"));
+        "[{\"file\":\"" IDE_TEST_TMPDIR "/a.c\",\"line\":1,\"col\":2,\"severity\":1,\"message\":\"ok\"},"
+        "{\"file\":\"" IDE_TEST_TMPDIR "/b.c\",\"message\":\"missing required fields\"}]"));
 
     initDiagnosticsEngine();
     assert(diagnostics_load_report(workspace, &report));

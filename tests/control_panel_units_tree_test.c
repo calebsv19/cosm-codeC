@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "ide/Panes/ControlPanel/control_panel_units_tree.h"
 
 #include "core/Analysis/analysis_symbols_store.h"
@@ -30,7 +31,7 @@ static int count_label_contains(UITreeNode* node, const char* text) {
 }
 
 int main(void) {
-    const char* filePath = "/tmp/control_panel_units_tree/src/units.c";
+    const char* filePath = "" IDE_TEST_TMPDIR "/control_panel_units_tree/src/units.c";
     analysis_symbols_store_clear();
     analysis_units_store_clear();
 
@@ -77,7 +78,7 @@ int main(void) {
     units[1].unit_family = "velocity";
     units[1].unit_resolved = true;
     analysis_units_store_upsert(filePath, units, 2, true);
-    analysis_units_store_upsert("/tmp/control_panel_units_tree/src/empty.c", NULL, 0, false);
+    analysis_units_store_upsert("" IDE_TEST_TMPDIR "/control_panel_units_tree/src/empty.c", NULL, 0, false);
 
     UITreeNode* tree = control_panel_build_units_tree(NULL, filePath);
     assert(tree != NULL);
@@ -165,7 +166,7 @@ int main(void) {
     preferredSourceUnit.symbol_stable_id = symbols[0].stable_id;
     preferredSourceUnit.has_symbol_stable_id = true;
     preferredSourceUnit.symbol_name = "mass_a";
-    preferredSourceUnit.source_file_path = "/tmp/control_panel_units_tree/src/main.c";
+    preferredSourceUnit.source_file_path = "" IDE_TEST_TMPDIR "/control_panel_units_tree/src/main.c";
     preferredSourceUnit.start_line = 31;
     preferredSourceUnit.start_col = 7;
     preferredSourceUnit.dim_text = "kg";
@@ -174,22 +175,22 @@ int main(void) {
     preferredSourceUnit.unit_name = "kilogram";
     preferredSourceUnit.unit_family = "mass";
     preferredSourceUnit.unit_resolved = true;
-    analysis_units_store_upsert("/tmp/control_panel_units_tree/src/main.c", &preferredSourceUnit, 1, true);
-    UITreeNode* preferredTree = control_panel_build_units_tree(NULL, "/tmp/control_panel_units_tree/src/main.c");
+    analysis_units_store_upsert("" IDE_TEST_TMPDIR "/control_panel_units_tree/src/main.c", &preferredSourceUnit, 1, true);
+    UITreeNode* preferredTree = control_panel_build_units_tree(NULL, "" IDE_TEST_TMPDIR "/control_panel_units_tree/src/main.c");
     assert(preferredTree != NULL);
     UITreeNode* preferredNode = find_label_contains(preferredTree, "mass_a");
     assert(preferredNode != NULL);
     const FisicsSymbol* preferredSym = (const FisicsSymbol*)preferredNode->userData;
     assert(preferredSym != NULL);
     assert(preferredSym->stable_id == symbols[0].stable_id);
-    assert(preferredSym->file_path && strcmp(preferredSym->file_path, "/tmp/control_panel_units_tree/src/main.c") == 0);
+    assert(preferredSym->file_path && strcmp(preferredSym->file_path, "" IDE_TEST_TMPDIR "/control_panel_units_tree/src/main.c") == 0);
     assert(preferredSym->start_line == 31);
     assert(preferredSym->start_col == 7);
     const ControlTreeNodePayload* preferredPayload = control_tree_node_payload(preferredNode);
     assert(preferredPayload != NULL);
     assert(preferredPayload->kind == CONTROL_TREE_NODE_UNIT);
     assert(preferredPayload->target.hasTarget);
-    assert(strcmp(preferredPayload->target.path, "/tmp/control_panel_units_tree/src/main.c") == 0);
+    assert(strcmp(preferredPayload->target.path, "" IDE_TEST_TMPDIR "/control_panel_units_tree/src/main.c") == 0);
     assert(preferredPayload->target.line == 31);
     assert(preferredPayload->target.column == 7);
     assert(strstr(preferredPayload->stableId, "mass_a"));

@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/BuildSystem/build_trust_notice.h"
 
 #include <stdio.h>
@@ -18,7 +19,7 @@ int main(void) {
                                   sizeof(notice),
                                   IDE_BUILD_TRUST_ACTION_BUILD,
                                   "workspace_config",
-                                  "/tmp/workspace",
+                                  "" IDE_TEST_TMPDIR "/workspace",
                                   "make all");
     if (expect_contains(notice, "User-triggered trusted workspace action: Build.", "build action")) return 1;
     if (expect_contains(notice, "may execute workspace/configured commands", "trust wording")) return 1;
@@ -29,11 +30,11 @@ int main(void) {
                                   sizeof(notice),
                                   IDE_BUILD_TRUST_ACTION_RUN,
                                   "selected_executable",
-                                  "/tmp/workspace",
-                                  "/tmp/workspace/build/app");
+                                  "" IDE_TEST_TMPDIR "/workspace",
+                                  "" IDE_TEST_TMPDIR "/workspace/build/app");
     if (expect_contains(notice, "User-triggered trusted workspace action: Run.", "run action")) return 1;
     if (expect_contains(notice, "Command source: selected_executable", "run source")) return 1;
-    if (expect_contains(notice, "Command: /tmp/workspace/build/app", "run target")) return 1;
+    if (expect_contains(notice, "Command: " IDE_TEST_TMPDIR "/workspace/build/app", "run target")) return 1;
 
     ide_build_trust_notice_format(notice,
                                   sizeof(notice),

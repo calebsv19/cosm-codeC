@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Analysis/analysis_build_graph_store.h"
 
 #include <stdio.h>
@@ -19,15 +20,15 @@ int main(void) {
         "{"
         "\"schema\":\"fisiCs.build_graph\","
         "\"version\":0,"
-        "\"project_root\":\"/tmp/project\","
+        "\"project_root\":\"" IDE_TEST_TMPDIR "/project\","
         "\"mode\":\"source\","
         "\"partial\":true,"
         "\"fatal\":false,"
         "\"diagnostic_summary\":{\"available\":true,\"total\":2,\"errors\":1,\"warnings\":1,\"notes\":0,\"partial\":true,\"fatal\":false},"
         "\"translation_units\":[{"
         "\"id\":\"tu0\","
-        "\"source\":\"/tmp/project/src/a.c\","
-        "\"object\":\"/tmp/project/build/a.o\","
+        "\"source\":\"" IDE_TEST_TMPDIR "/project/src/a.c\","
+        "\"object\":\"" IDE_TEST_TMPDIR "/project/build/a.o\","
         "\"status\":\"partial\","
         "\"diagnostic_summary\":{\"available\":true,\"total\":2,\"errors\":1,\"warnings\":1,\"notes\":0,\"partial\":true,\"fatal\":false}"
         "}],"
@@ -38,15 +39,15 @@ int main(void) {
         "{"
         "\"schema\":\"fisiCs.build_graph\","
         "\"version\":0,"
-        "\"project_root\":\"/tmp/project\","
+        "\"project_root\":\"" IDE_TEST_TMPDIR "/project\","
         "\"mode\":\"dry_run\","
         "\"partial\":false,"
         "\"fatal\":false,"
         "\"diagnostic_summary\":{\"available\":false,\"total\":0,\"errors\":0,\"warnings\":0,\"notes\":0,\"partial\":false,\"fatal\":false},"
         "\"translation_units\":[{"
         "\"id\":\"tu0\","
-        "\"source\":\"/tmp/project/src/b.c\","
-        "\"object\":\"/tmp/project/build/b.o\","
+        "\"source\":\"" IDE_TEST_TMPDIR "/project/src/b.c\","
+        "\"object\":\"" IDE_TEST_TMPDIR "/project/build/b.o\","
         "\"status\":\"ok\","
         "\"diagnostic_summary\":{\"available\":false,\"total\":0,\"errors\":0,\"warnings\":0,\"notes\":0,\"partial\":false,\"fatal\":false}"
         "}],"
@@ -56,8 +57,8 @@ int main(void) {
         "\"kind\":\"compile\","
         "\"status\":\"planned\","
         "\"will_execute\":false,"
-        "\"source\":\"/tmp/project/src/b.c\","
-        "\"object\":\"/tmp/project/build/b.o\","
+        "\"source\":\"" IDE_TEST_TMPDIR "/project/src/b.c\","
+        "\"object\":\"" IDE_TEST_TMPDIR "/project/build/b.o\","
         "\"diagnostic_summary\":{\"available\":false,\"total\":0,\"errors\":0,\"warnings\":0,\"notes\":0,\"partial\":false,\"fatal\":false}"
         "},"
         "{"
@@ -65,14 +66,14 @@ int main(void) {
         "\"kind\":\"link\","
         "\"status\":\"planned\","
         "\"will_execute\":false,"
-        "\"output\":\"/tmp/project/build/app\","
+        "\"output\":\"" IDE_TEST_TMPDIR "/project/build/app\","
         "\"diagnostic_summary\":{\"available\":false,\"total\":0,\"errors\":0,\"warnings\":0,\"notes\":0,\"partial\":false,\"fatal\":false}"
         "}"
         "]}"
         "}";
 
     analysis_build_graph_store_clear();
-    check(analysis_build_graph_store_load_json_text("/tmp/source_graph.json", source_graph), "load source graph");
+    check(analysis_build_graph_store_load_json_text("" IDE_TEST_TMPDIR "/source_graph.json", source_graph), "load source graph");
     check(analysis_build_graph_store_snapshot_count() == 1, "source graph count");
     const AnalysisBuildGraphSnapshot* source = analysis_build_graph_store_snapshot_at(0);
     check(source && strcmp(source->mode, "source") == 0, "source mode");
@@ -83,7 +84,7 @@ int main(void) {
     check(source && strcmp(source->translation_units[0].status, "partial") == 0, "source tu status");
     check(source && source->translation_units[0].diagnostic_summary.available, "source tu summary available");
 
-    check(analysis_build_graph_store_load_json_text("/tmp/dry_run_graph.json", dry_run_graph), "load dry-run graph");
+    check(analysis_build_graph_store_load_json_text("" IDE_TEST_TMPDIR "/dry_run_graph.json", dry_run_graph), "load dry-run graph");
     check(analysis_build_graph_store_snapshot_count() == 2, "two graph count");
     const AnalysisBuildGraphSnapshot* dry = analysis_build_graph_store_snapshot_at(0);
     check(dry && strcmp(dry->mode, "dry_run") == 0, "dry-run newest");
@@ -92,7 +93,7 @@ int main(void) {
     check(dry && !dry->actions[0].will_execute, "compile action planned");
     check(dry && !dry->actions[0].diagnostic_summary.available, "compile action summary unavailable");
     check(dry && strcmp(dry->actions[1].kind, "link") == 0, "link action kind");
-    check(dry && strcmp(dry->actions[1].output, "/tmp/project/build/app") == 0, "link action output");
+    check(dry && strcmp(dry->actions[1].output, "" IDE_TEST_TMPDIR "/project/build/app") == 0, "link action output");
 
     char workspace[256];
     check(ide_test_prepare_workspace(workspace, sizeof(workspace), "ide_build_graph_store_test"),

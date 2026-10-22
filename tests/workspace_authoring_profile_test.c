@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -8,7 +9,7 @@
 #include "app/GlobalInfo/workspace_authoring_profile_path.h"
 
 static void test_export_import_round_trip(void) {
-    char path[] = "/tmp/ide_wapp_profile_XXXXXX";
+    char path[] = "" IDE_TEST_TMPDIR "/ide_wapp_profile_XXXXXX";
     IDEWorkspaceAuthoringProjection source = {false, true, false, ICON_VERSION_CONTROL};
     IDEWorkspaceAuthoringProjection imported = {true, true, true, ICON_PROJECT_FILES};
     int fd = mkstemp(path);
@@ -21,7 +22,7 @@ static void test_export_import_round_trip(void) {
 }
 
 static void test_invalid_input_does_not_mutate_projection(void) {
-    char path[] = "/tmp/ide_wapp_invalid_XXXXXX";
+    char path[] = "" IDE_TEST_TMPDIR "/ide_wapp_invalid_XXXXXX";
     IDEWorkspaceAuthoringProjection unchanged = {true, false, true, ICON_TASKS};
     IDEWorkspaceAuthoringProjection expected = unchanged;
     const char bad[] = "not a WAPP profile";
@@ -36,8 +37,8 @@ static void test_invalid_input_does_not_mutate_projection(void) {
 
 static void test_workspace_local_default_path(void) {
     char path[256];
-    assert(ide_workspace_authoring_profile_default_path("/tmp/workspace", path, sizeof(path)));
-    assert(strcmp(path, "/tmp/workspace/ide_files/workspace_authoring.wapp") == 0);
+    assert(ide_workspace_authoring_profile_default_path("" IDE_TEST_TMPDIR "/workspace", path, sizeof(path)));
+    assert(strcmp(path, "" IDE_TEST_TMPDIR "/workspace/ide_files/workspace_authoring.wapp") == 0);
     assert(!ide_workspace_authoring_profile_default_path("", path, sizeof(path)));
 }
 

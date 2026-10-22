@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -152,11 +153,11 @@ static void test_distinct_keys_queue_and_tick_order(void) {
     assert(snapshot.pending_key_mask & (1u << ANALYSIS_JOB_KEY_SYMBOLS));
     assert(snapshot.pending_key_mask & (1u << ANALYSIS_JOB_KEY_DIAGNOSTICS));
 
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
     assert(g_worker_running);
     assert(g_last_started_run_id == 1);
-    assert(strcmp(g_last_started_project_root, "/tmp/test_project") == 0);
-    assert(strcmp(g_last_started_build_args, "-I/tmp") == 0);
+    assert(strcmp(g_last_started_project_root, "" IDE_TEST_TMPDIR "/test_project") == 0);
+    assert(strcmp(g_last_started_build_args, "-I" IDE_TEST_TMPDIR "") == 0);
     assert(g_internal_watch_suppress_ms == 2500);
 
     memset(&snapshot, 0, sizeof(snapshot));
@@ -168,7 +169,7 @@ static void test_distinct_keys_queue_and_tick_order(void) {
 
     // Simulate worker completion and ensure queued key starts next.
     g_worker_running = false;
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
     assert(g_last_started_run_id == 2);
 
     memset(&snapshot, 0, sizeof(snapshot));
@@ -192,7 +193,7 @@ static void test_index_lane_reason_normalizes_to_index_key(void) {
     assert((snapshot.pending_key_mask & (1u << ANALYSIS_JOB_KEY_INDEX)) != 0u);
     assert((snapshot.pending_key_mask & (1u << ANALYSIS_JOB_KEY_WORKSPACE)) == 0u);
 
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
     memset(&snapshot, 0, sizeof(snapshot));
     analysis_scheduler_snapshot(&snapshot);
     assert(snapshot.running);
@@ -216,7 +217,7 @@ static void test_file_hint_reaches_worker_start(void) {
     reset_stub_state();
     analysis_scheduler_init();
 
-    analysis_scheduler_request_file("/tmp/test_project/src/main.c",
+    analysis_scheduler_request_file("" IDE_TEST_TMPDIR "/test_project/src/main.c",
                                     ANALYSIS_REASON_EDITOR_SAVE,
                                     false);
 
@@ -229,11 +230,11 @@ static void test_file_hint_reaches_worker_start(void) {
     assert(snapshot.pending_reason_mask & ANALYSIS_REASON_EDITOR_SAVE);
     assert(snapshot.pending_editor_save_diagnostics);
 
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
     assert(g_worker_running);
     assert(g_last_started_run_id == 1);
     assert(g_last_started_file_hint_count == 1);
-    assert(strcmp(g_last_started_file_hint, "/tmp/test_project/src/main.c") == 0);
+    assert(strcmp(g_last_started_file_hint, "" IDE_TEST_TMPDIR "/test_project/src/main.c") == 0);
 }
 
 static void test_editor_save_diagnostics_preempts_pending_symbols(void) {
@@ -243,7 +244,7 @@ static void test_editor_save_diagnostics_preempts_pending_symbols(void) {
     analysis_scheduler_request_key(ANALYSIS_JOB_KEY_SYMBOLS,
                                    ANALYSIS_REASON_EDITOR_EDIT_TRANSACTION,
                                    false);
-    analysis_scheduler_request_file("/tmp/test_project/src/saved.c",
+    analysis_scheduler_request_file("" IDE_TEST_TMPDIR "/test_project/src/saved.c",
                                     ANALYSIS_REASON_EDITOR_SAVE,
                                     false);
 
@@ -254,11 +255,11 @@ static void test_editor_save_diagnostics_preempts_pending_symbols(void) {
     assert(snapshot.pending_key_mask & (1u << ANALYSIS_JOB_KEY_SYMBOLS));
     assert(snapshot.pending_key_mask & (1u << ANALYSIS_JOB_KEY_DIAGNOSTICS));
 
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
     assert(g_worker_running);
     assert(g_last_started_run_id == 1);
     assert(g_last_started_file_hint_count == 1);
-    assert(strcmp(g_last_started_file_hint, "/tmp/test_project/src/saved.c") == 0);
+    assert(strcmp(g_last_started_file_hint, "" IDE_TEST_TMPDIR "/test_project/src/saved.c") == 0);
 
     memset(&snapshot, 0, sizeof(snapshot));
     analysis_scheduler_snapshot(&snapshot);
@@ -275,7 +276,7 @@ static void test_editor_save_cancels_active_startup_workspace_run(void) {
     analysis_scheduler_request_key(ANALYSIS_JOB_KEY_WORKSPACE,
                                    ANALYSIS_REASON_STARTUP,
                                    false);
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
     assert(g_worker_running);
     assert(!g_cancel_requested);
 
@@ -286,7 +287,7 @@ static void test_editor_save_cancels_active_startup_workspace_run(void) {
     assert(snapshot.active_job_key == ANALYSIS_JOB_KEY_WORKSPACE);
     assert(snapshot.active_reason_mask & ANALYSIS_REASON_STARTUP);
 
-    analysis_scheduler_request_file("/tmp/test_project/src/saved.c",
+    analysis_scheduler_request_file("" IDE_TEST_TMPDIR "/test_project/src/saved.c",
                                     ANALYSIS_REASON_EDITOR_SAVE,
                                     false);
     assert(g_cancel_requested);
@@ -301,12 +302,12 @@ static void test_editor_save_cancels_active_startup_workspace_run(void) {
 
     g_worker_running = false;
     g_cancel_requested = false;
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
     assert(g_worker_running);
     assert(g_last_started_run_id == 2);
     assert(g_last_started_file_hint_count == 1);
-    assert(strcmp(g_last_started_file_hint, "/tmp/test_project/src/saved.c") == 0);
+    assert(strcmp(g_last_started_file_hint, "" IDE_TEST_TMPDIR "/test_project/src/saved.c") == 0);
 
     memset(&snapshot, 0, sizeof(snapshot));
     analysis_scheduler_snapshot(&snapshot);
@@ -321,7 +322,7 @@ static void test_live_buffer_snapshot_reaches_worker_start(void) {
     analysis_scheduler_init();
 
     const char* contents = "int main(void) { return broken }\n";
-    analysis_scheduler_request_live_buffer("/tmp/test_project/src/live.c",
+    analysis_scheduler_request_live_buffer("" IDE_TEST_TMPDIR "/test_project/src/live.c",
                                            contents,
                                            strlen(contents),
                                            42u,
@@ -335,10 +336,10 @@ static void test_live_buffer_snapshot_reaches_worker_start(void) {
     assert(snapshot.pending_key_mask & (1u << ANALYSIS_JOB_KEY_LIVE_DIAGNOSTICS));
     assert(snapshot.pending_reason_mask & ANALYSIS_REASON_EDITOR_LIVE_BUFFER);
 
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
     assert(g_worker_running);
     assert(g_last_started_run_id == 1);
-    assert(strcmp(g_last_started_live_file, "/tmp/test_project/src/live.c") == 0);
+    assert(strcmp(g_last_started_live_file, "" IDE_TEST_TMPDIR "/test_project/src/live.c") == 0);
     assert(strcmp(g_last_started_live_contents, contents) == 0);
     assert(g_last_started_live_length == strlen(contents));
     assert(g_last_started_live_revision == 42u);
@@ -355,13 +356,13 @@ static void test_live_buffer_latest_snapshot_wins(void) {
 
     const char* first = "int a;\n";
     const char* second = "int b;\n";
-    analysis_scheduler_request_live_buffer("/tmp/test_project/src/live.c",
+    analysis_scheduler_request_live_buffer("" IDE_TEST_TMPDIR "/test_project/src/live.c",
                                            first,
                                            strlen(first),
                                            10u,
                                            ANALYSIS_REASON_EDITOR_LIVE_BUFFER,
                                            false);
-    analysis_scheduler_request_live_buffer("/tmp/test_project/src/live.c",
+    analysis_scheduler_request_live_buffer("" IDE_TEST_TMPDIR "/test_project/src/live.c",
                                            second,
                                            strlen(second),
                                            11u,
@@ -379,7 +380,7 @@ static void test_live_buffer_latest_snapshot_wins(void) {
     assert(counters.jobs_scheduled == 2);
     assert(counters.jobs_coalesced_replaced == 1);
 
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
     assert(strcmp(g_last_started_live_contents, second) == 0);
     assert(g_last_started_live_revision == 11u);
 }
@@ -392,14 +393,14 @@ static void test_live_buffer_preempts_pending_symbols_but_not_save(void) {
                                    ANALYSIS_REASON_EDITOR_EDIT_TRANSACTION,
                                    false);
     const char* contents = "int live;\n";
-    analysis_scheduler_request_live_buffer("/tmp/test_project/src/live.c",
+    analysis_scheduler_request_live_buffer("" IDE_TEST_TMPDIR "/test_project/src/live.c",
                                            contents,
                                            strlen(contents),
                                            12u,
                                            ANALYSIS_REASON_EDITOR_LIVE_BUFFER,
                                            false);
 
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
     assert(g_worker_running);
     AnalysisSchedulerSnapshot snapshot;
     memset(&snapshot, 0, sizeof(snapshot));
@@ -409,16 +410,16 @@ static void test_live_buffer_preempts_pending_symbols_but_not_save(void) {
 
     reset_stub_state();
     analysis_scheduler_init();
-    analysis_scheduler_request_live_buffer("/tmp/test_project/src/live.c",
+    analysis_scheduler_request_live_buffer("" IDE_TEST_TMPDIR "/test_project/src/live.c",
                                            contents,
                                            strlen(contents),
                                            12u,
                                            ANALYSIS_REASON_EDITOR_LIVE_BUFFER,
                                            false);
-    analysis_scheduler_request_file("/tmp/test_project/src/saved.c",
+    analysis_scheduler_request_file("" IDE_TEST_TMPDIR "/test_project/src/saved.c",
                                     ANALYSIS_REASON_EDITOR_SAVE,
                                     false);
-    analysis_scheduler_tick("/tmp/test_project", "-I/tmp");
+    analysis_scheduler_tick("" IDE_TEST_TMPDIR "/test_project", "-I" IDE_TEST_TMPDIR "");
     memset(&snapshot, 0, sizeof(snapshot));
     analysis_scheduler_snapshot(&snapshot);
     assert(snapshot.active_job_key == ANALYSIS_JOB_KEY_DIAGNOSTICS);

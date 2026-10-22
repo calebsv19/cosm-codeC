@@ -32,3 +32,6 @@ tools/packaging/macos/local_app_icon/*
 
 # root static library outputs
 /*.a
+
+# Generated project-local runtime/cache and editor session data
+/src/ide_files/

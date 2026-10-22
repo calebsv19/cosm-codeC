@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -189,14 +190,14 @@ void fisics_free_analysis_result(FisicsAnalysisResult* result) {
 }
 
 int main(void) {
-    snprintf(projectPath, sizeof(projectPath), "%s", "/tmp/fisics_bridge_events_regression");
+    snprintf(projectPath, sizeof(projectPath), "%s", "" IDE_TEST_TMPDIR "/fisics_bridge_events_regression");
 
     loop_events_init();
     analysis_store_clear();
     analysis_symbols_store_clear();
     analysis_token_store_clear();
 
-    const char* file_path = "/tmp/fisics_bridge_events_regression/src/a.c";
+    const char* file_path = "" IDE_TEST_TMPDIR "/fisics_bridge_events_regression/src/a.c";
     const char* src = "int bridge_fn(void) { return 1; }";
     ide_analyze_buffer_for_file(file_path, src, strlen(src));
 

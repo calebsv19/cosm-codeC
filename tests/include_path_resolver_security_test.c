@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Analysis/include_path_resolver.h"
 
 #include <stdio.h>
@@ -61,7 +62,7 @@ static int write_manifest(const char* root) {
 
 int main(void) {
     char root[256];
-    snprintf(root, sizeof(root), "/tmp/ide_include_path_\"_security_%ld", (long)getpid());
+    snprintf(root, sizeof(root), "" IDE_TEST_TMPDIR "/ide_include_path_\"_security_%ld", (long)getpid());
     if (expect(mkdir(root, 0755) == 0, "expected workspace mkdir")) return 1;
 
     char include_dir[512];
@@ -72,7 +73,7 @@ int main(void) {
     if (expect(mkdir(manifest_include_dir, 0755) == 0, "expected manifest include mkdir")) return 1;
 
     char marker[256];
-    snprintf(marker, sizeof(marker), "/tmp/ide_include_path_resolver_marker_%ld", (long)getpid());
+    snprintf(marker, sizeof(marker), "" IDE_TEST_TMPDIR "/ide_include_path_resolver_marker_%ld", (long)getpid());
     unlink(marker);
 
     char makefile[512];

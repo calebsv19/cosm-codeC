@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Ipc/ide_ipc_session_export.h"
 
 #include <assert.h>
@@ -7,12 +8,12 @@
 #include <unistd.h>
 
 int main(void) {
-    char root[] = "/tmp/ide-agent-session-test.XXXXXX";
+    char root[] = "" IDE_TEST_TMPDIR "/ide-agent-session-test.XXXXXX";
     assert(mkdtemp(root));
     assert(chmod(root, 0700) == 0);
     assert(setenv("IDE_PROFILE", "main-edit", 1) == 0);
     assert(setenv("IDE_RUNTIME_DIR", root, 1) == 0);
-    assert(ide_ipc_agent_session_write("/tmp/lesson", "/tmp/ide.sock",
+    assert(ide_ipc_agent_session_write("" IDE_TEST_TMPDIR "/lesson", "" IDE_TEST_TMPDIR "/ide.sock",
                                        "session-one", "private-token"));
     char path[256];
     snprintf(path, sizeof(path), "%s/agent-session.json", root);
@@ -23,7 +24,7 @@ int main(void) {
     ide_ipc_agent_session_clear("session-one");
     assert(access(path, F_OK) != 0);
     assert(chmod(root, 0755) == 0);
-    assert(!ide_ipc_agent_session_write("/tmp/lesson", "/tmp/ide.sock",
+    assert(!ide_ipc_agent_session_write("" IDE_TEST_TMPDIR "/lesson", "" IDE_TEST_TMPDIR "/ide.sock",
                                         "session-two", "private-token"));
     assert(chmod(root, 0700) == 0);
     assert(rmdir(root) == 0);

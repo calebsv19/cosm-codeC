@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
@@ -73,7 +74,7 @@ static void realpath_or_copy(const char* in, char* out, size_t out_cap) {
 }
 
 static void test_env_override_wins(void) {
-    char tmp_template[] = "/tmp/ide_runtime_paths_env.XXXXXX";
+    char tmp_template[] = "" IDE_TEST_TMPDIR "/ide_runtime_paths_env.XXXXXX";
     char expected[PATH_MAX];
     const char* resolved;
 
@@ -89,7 +90,7 @@ static void test_env_override_wins(void) {
 }
 
 static void test_exe_parent_scan_finds_dev_root(void) {
-    char tmp_template[] = "/tmp/ide_runtime_paths_scan.XXXXXX";
+    char tmp_template[] = "" IDE_TEST_TMPDIR "/ide_runtime_paths_scan.XXXXXX";
     char root_expected[PATH_MAX];
     char exe_path[PATH_MAX];
     const char* resolved;
@@ -115,7 +116,7 @@ static void test_exe_parent_scan_finds_dev_root(void) {
 }
 
 static void test_probe_resource_path(void) {
-    char tmp_template[] = "/tmp/ide_runtime_paths_probe.XXXXXX";
+    char tmp_template[] = "" IDE_TEST_TMPDIR "/ide_runtime_paths_probe.XXXXXX";
     char file_path[PATH_MAX];
     char found[PATH_MAX];
 

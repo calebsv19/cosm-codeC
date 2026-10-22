@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -20,7 +21,7 @@ static const char* k_sample_catalog =
     "}]}";
 
 int main(void) {
-    const char* workspace_root = "/tmp/diagnostic_explanations_cache";
+    const char* workspace_root = "" IDE_TEST_TMPDIR "/diagnostic_explanations_cache";
     mkdir(workspace_root, 0755);
 
     diagnostic_explanations_clear();

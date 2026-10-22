@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Analysis/analysis_token_store.h"
 
 #include <assert.h>
@@ -21,7 +22,7 @@ static void test_small_token_cache_round_trip(void) {
     spans[1].kind = FISICS_TOK_KEYWORD;
 
     analysis_token_store_clear();
-    analysis_token_store_upsert("/tmp/project/src/a.c", spans, 2);
+    analysis_token_store_upsert("" IDE_TEST_TMPDIR "/project/src/a.c", spans, 2);
     analysis_token_store_save(root);
 
     char path[256];
@@ -33,7 +34,7 @@ static void test_small_token_cache_round_trip(void) {
     assert(analysis_token_store_file_count() == 1);
     const AnalysisFileTokens* file = analysis_token_store_file_at(0);
     assert(file && file->count == 2);
-    assert(strcmp(file->path, "/tmp/project/src/a.c") == 0);
+    assert(strcmp(file->path, "" IDE_TEST_TMPDIR "/project/src/a.c") == 0);
     assert(file->spans[1].kind == FISICS_TOK_KEYWORD);
     analysis_token_store_clear();
 }
@@ -49,7 +50,7 @@ static void test_oversized_token_cache_removes_stale_artifact(void) {
     small.kind = FISICS_TOK_IDENTIFIER;
 
     analysis_token_store_clear();
-    analysis_token_store_upsert("/tmp/project/src/small.c", &small, 1);
+    analysis_token_store_upsert("" IDE_TEST_TMPDIR "/project/src/small.c", &small, 1);
     analysis_token_store_save(root);
 
     char path[256];
@@ -64,7 +65,7 @@ static void test_oversized_token_cache_removes_stale_artifact(void) {
         spans[i].kind = FISICS_TOK_IDENTIFIER;
     }
     analysis_token_store_clear();
-    analysis_token_store_upsert("/tmp/project/src/large.c", spans,
+    analysis_token_store_upsert("" IDE_TEST_TMPDIR "/project/src/large.c", spans,
                                 sizeof(spans) / sizeof(spans[0]));
     analysis_token_store_save(root);
     assert(!ide_test_file_exists(path));

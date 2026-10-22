@@ -1,26 +1,22 @@
-include make/config.mk
-include make/target.mk
-include make/shared.mk
-include make/paths.mk
-include make/shared-libs.mk
-include make/flags.mk
-include make/sources-app.mk
-include make/objects.mk
-include make/sources-tests.mk
-# ===== RULES =====
-include make/phony.mk
-include make/rules-build.mk
-include make/rules-runtime.mk
-include make/rules-vulkan-runtime.mk
-include make/package-macos.mk
-include make/package-main-edit.mk
-include make/release.mk
-include make/rules-test-groups.mk
-include make/rules-test-idebridge.mk
-include make/rules-test-runtime.mk
-include make/rules-test-loop-events.mk
-include make/rules-test-diagnostics.mk
-
--include $(DEP_FILES)
-
-include make/release-disposable.mk
+# Route declared Registry producer attempts before legacy build rules load.
+ifneq ($(strip $(PREPARATION_ROOT)),)
+ifneq ($(PREPARATION_CHILD),1)
+PREPARATION_DISPATCH := 1
+endif
+endif
+ifeq ($(PREPARATION_DISPATCH),1)
+PREPARATION_AUTH_GOALS := release-bundle-audit release-verify-signed release-notarize release-artifact
+ifneq ($(filter $(PREPARATION_AUTH_GOALS),$(MAKECMDGOALS)),)
+ifneq ($(filter-out $(PREPARATION_AUTH_GOALS),$(MAKECMDGOALS)),)
+$(error Native authentication phases cannot mix with preparation goals)
+endif
+SHARED_ROOT := $(abspath $(PREPARATION_ROOT))/authentication-shared
+PREPARATION_AUTH_PHASE := 1
+include make/application.mk
+include make/preparation-auth.mk
+else
+include make/preparation.mk
+endif
+else
+include make/application.mk
+endif

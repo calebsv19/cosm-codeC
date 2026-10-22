@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "ide/Panes/ToolPanels/Git/git_command_runner.h"
 
 #include <stdbool.h>
@@ -19,7 +20,7 @@ static bool make_shell_sensitive_workdir(char* out_root,
                                          char* out_marker,
                                          size_t marker_cap) {
     if (!out_root || !out_workdir || !out_marker) return false;
-    snprintf(out_root, root_cap, "%s", "/tmp/ide_git_runner_test.XXXXXX");
+    snprintf(out_root, root_cap, "%s", "" IDE_TEST_TMPDIR "/ide_git_runner_test.XXXXXX");
     if (!mkdtemp(out_root)) {
         return false;
     }

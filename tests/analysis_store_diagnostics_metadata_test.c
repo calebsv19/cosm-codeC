@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -9,7 +10,7 @@
 
 static void assert_metadata_diag(const Diagnostic* d) {
     assert(d);
-    assert(strcmp(d->filePath, "/tmp/analysis_store_diagnostics_metadata/src/units.c") == 0);
+    assert(strcmp(d->filePath, "" IDE_TEST_TMPDIR "/analysis_store_diagnostics_metadata/src/units.c") == 0);
     assert(d->line == 7);
     assert(d->column == 3);
     assert(d->length == 5);
@@ -39,8 +40,8 @@ static void seed_metadata_diag(const char* file_path) {
 }
 
 int main(void) {
-    const char* workspace_root = "/tmp/analysis_store_diagnostics_metadata";
-    const char* file_path = "/tmp/analysis_store_diagnostics_metadata/src/units.c";
+    const char* workspace_root = "" IDE_TEST_TMPDIR "/analysis_store_diagnostics_metadata";
+    const char* file_path = "" IDE_TEST_TMPDIR "/analysis_store_diagnostics_metadata/src/units.c";
 
     mkdir(workspace_root, 0755);
 

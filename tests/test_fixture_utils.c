@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "test_fixture_utils.h"
 
 #include <stdio.h>
@@ -6,7 +7,7 @@
 
 int ide_test_fixture_root(char* out, size_t out_cap, const char* name) {
     if (!out || out_cap == 0 || !name || !name[0]) return 0;
-    int written = snprintf(out, out_cap, "/tmp/%s_%ld", name, (long)getpid());
+    int written = snprintf(out, out_cap, "" IDE_TEST_TMPDIR "/%s_%ld", name, (long)getpid());
     return written > 0 && (size_t)written < out_cap;
 }
 

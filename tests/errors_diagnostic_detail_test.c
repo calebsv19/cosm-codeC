@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Analysis/analysis_units_store.h"
 #include "core/Diagnostics/diagnostic_context.h"
 #include "core/Diagnostics/diagnostic_explanations.h"
@@ -24,17 +25,17 @@ static const char* k_context_json =
     "{"
     "\"diagnostics\":["
     "{"
-    "\"file\":\"/tmp/errors_diagnostic_detail/units.c\","
+    "\"file\":\"" IDE_TEST_TMPDIR "/errors_diagnostic_detail/units.c\","
     "\"line\":8,\"column\":7,\"length\":6,"
     "\"code_id\":4103,\"code_name\":\"extension.units.assign_dim_mismatch\","
     "\"message\":\"assignment dimension mismatch\","
     "\"include_stack\":["
-    "{\"file\":\"/tmp/errors_diagnostic_detail/units.c\","
+    "{\"file\":\"" IDE_TEST_TMPDIR "/errors_diagnostic_detail/units.c\","
     "\"line\":2,\"column\":1,\"origin\":\"#include \\\"units.h\\\"\",\"resolved\":true}"
     "],"
     "\"macro_trace\":["
     "{\"macro\":\"ASSIGN\",\"role\":\"call_site\","
-    "\"file\":\"/tmp/errors_diagnostic_detail/units.c\",\"line\":8,\"column\":7}"
+    "\"file\":\"" IDE_TEST_TMPDIR "/errors_diagnostic_detail/units.c\",\"line\":8,\"column\":7}"
     "],"
     "\"details\":{"
     "\"context\":\"assignment\","
@@ -82,10 +83,10 @@ int main(void) {
     units[0].unit_symbol = "ft";
     units[0].unit_family = "length";
     units[0].unit_resolved = true;
-    analysis_units_store_upsert("/tmp/errors_diagnostic_detail/units.c", units, 1, true);
+    analysis_units_store_upsert("" IDE_TEST_TMPDIR "/errors_diagnostic_detail/units.c", units, 1, true);
 
     Diagnostic diag = {
-        .filePath = "/tmp/errors_diagnostic_detail/units.c",
+        .filePath = "" IDE_TEST_TMPDIR "/errors_diagnostic_detail/units.c",
         .line = 8,
         .column = 7,
         .length = 6,

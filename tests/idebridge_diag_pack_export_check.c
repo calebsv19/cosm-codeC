@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,7 +31,7 @@ int main(void) {
         "}"
         "}";
 
-    char tmp_template[] = "/tmp/ide_diag_packXXXXXX";
+    char tmp_template[] = "" IDE_TEST_TMPDIR "/ide_diag_packXXXXXX";
     int fd = mkstemp(tmp_template);
     if (fd < 0) return fail("mkstemp failed");
     close(fd);

@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "app/GlobalInfo/workspace_context.h"
 
 #include <assert.h>
@@ -5,10 +6,10 @@
 #include <string.h>
 
 DirEntry* projectRoot = NULL;
-char projectPath[1024] = "/tmp/workspace_context/project";
-char projectRootPath[1024] = "/tmp/workspace_context/ide";
+char projectPath[1024] = "" IDE_TEST_TMPDIR "/workspace_context/project";
+char projectRootPath[1024] = "" IDE_TEST_TMPDIR "/workspace_context/ide";
 
-static char g_workspace_path[1024] = "/tmp/workspace_context/project";
+static char g_workspace_path[1024] = "" IDE_TEST_TMPDIR "/workspace_context/project";
 static WorkspaceBuildConfig g_build_config;
 
 const char* getWorkspacePath(void) {
@@ -34,13 +35,13 @@ int main(void) {
     assert(context.has_workspace_path);
     assert(context.has_build_args);
     assert(ide_workspace_context_path_in_project(&context,
-                                                 "/tmp/workspace_context/project/src/main.c"));
+                                                 "" IDE_TEST_TMPDIR "/workspace_context/project/src/main.c"));
     assert(ide_workspace_context_path_in_project(&context,
-                                                 "/tmp/workspace_context/project"));
+                                                 "" IDE_TEST_TMPDIR "/workspace_context/project"));
     assert(!ide_workspace_context_path_in_project(&context,
-                                                  "/tmp/workspace_context/projectile/main.c"));
+                                                  "" IDE_TEST_TMPDIR "/workspace_context/projectile/main.c"));
     assert(!ide_workspace_context_path_in_project(&context,
-                                                  "/tmp/workspace_context/other/main.c"));
+                                                  "" IDE_TEST_TMPDIR "/workspace_context/other/main.c"));
 
     g_build_config.build_args[0] = '\0';
     ide_workspace_context_capture(&context);

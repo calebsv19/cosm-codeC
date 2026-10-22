@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/BuildSystem/build_diagnostics.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 #ifdef NDEBUG
@@ -13,7 +14,7 @@ static double now(void) { struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);re
 static size_t count(void) { size_t n=0;build_diagnostics_get(&n);return n; }
 static void settle(void) { for(int i=0;i<200;++i) {build_diagnostics_poll();diagnostics_poll();usleep(1000);} }
 int main(void) {
-    char root[]="/tmp/ide-diagnostic-cache-XXXXXX";assert(mkdtemp(root));
+    char root[]="" IDE_TEST_TMPDIR "/ide-diagnostic-cache-XXXXXX";assert(mkdtemp(root));
     char dir[256],path[256];snprintf(dir,sizeof(dir),"%s/ide_files",root);assert(!mkdir(dir,0700));
     snprintf(path,sizeof(path),"%s/build_output.json",dir);
     build_diagnostics_feed_chunk("fixture.c:3:2: warning: retained\n",34);assert(count()==1);

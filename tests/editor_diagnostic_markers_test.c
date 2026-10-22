@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "ide/Panes/Editor/Render/editor_diagnostic_markers.h"
 
 #include "core/Diagnostics/diagnostics_engine.h"
@@ -39,8 +40,8 @@ void vk_renderer_fill_rect(VkRenderer* renderer, const SDL_Rect* rect) {
 }
 
 int main(void) {
-    const char* file_path = "/tmp/editor_diagnostic_markers/src/a.c";
-    const char* other_path = "/tmp/editor_diagnostic_markers/src/b.c";
+    const char* file_path = "" IDE_TEST_TMPDIR "/editor_diagnostic_markers/src/a.c";
+    const char* other_path = "" IDE_TEST_TMPDIR "/editor_diagnostic_markers/src/b.c";
 
     initDiagnosticsEngine();
     addDiagnosticWithDetails(file_path,

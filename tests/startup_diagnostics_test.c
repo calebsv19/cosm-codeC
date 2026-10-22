@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "app/GlobalInfo/startup_diagnostics.h"
 
 #include <assert.h>
@@ -10,33 +11,33 @@ static void test_snapshot_records_startup_boundaries(void) {
 
     ide_startup_diagnostics_reset();
     ide_startup_diagnostics_record_runtime_paths(true,
-                                                 "/tmp/codework",
+                                                 "" IDE_TEST_TMPDIR "/codework",
                                                  "env",
-                                                 "/tmp/codework/ide/build/bin");
-    ide_startup_diagnostics_record_workspace_selection("/tmp/missing",
+                                                 "" IDE_TEST_TMPDIR "/codework/ide/build/bin");
+    ide_startup_diagnostics_record_workspace_selection("" IDE_TEST_TMPDIR "/missing",
                                                        false,
-                                                       "/tmp/codework",
+                                                       "" IDE_TEST_TMPDIR "/codework",
                                                        true,
-                                                       "/tmp/codework",
+                                                       "" IDE_TEST_TMPDIR "/codework",
                                                        true,
                                                        true);
     ide_startup_diagnostics_record_ipc_start(true,
                                              true,
                                              "listening",
-                                             "/tmp/caleb_ide.sock",
+                                             "" IDE_TEST_TMPDIR "/caleb_ide.sock",
                                              "session-123");
 
     assert(ide_startup_diagnostics_snapshot(&snapshot));
     assert(snapshot.runtime_paths_recorded);
     assert(snapshot.runtime_paths_ok);
-    assert(strcmp(snapshot.runtime_resource_root, "/tmp/codework") == 0);
+    assert(strcmp(snapshot.runtime_resource_root, "" IDE_TEST_TMPDIR "/codework") == 0);
     assert(strcmp(snapshot.runtime_resource_source, "env") == 0);
     assert(snapshot.workspace_recorded);
     assert(!snapshot.workspace_requested_valid);
     assert(snapshot.workspace_default_valid);
     assert(snapshot.workspace_used_fallback);
     assert(snapshot.workspace_available);
-    assert(strcmp(snapshot.workspace_selected_path, "/tmp/codework") == 0);
+    assert(strcmp(snapshot.workspace_selected_path, "" IDE_TEST_TMPDIR "/codework") == 0);
     assert(snapshot.ipc_recorded);
     assert(snapshot.ipc_attempted);
     assert(snapshot.ipc_running);
@@ -50,14 +51,14 @@ static void test_summary_is_bounded_and_omits_auth_token(void) {
 
     ide_startup_diagnostics_reset();
     ide_startup_diagnostics_record_runtime_paths(true,
-                                                 "/tmp/root",
+                                                 "" IDE_TEST_TMPDIR "/root",
                                                  "cwd_scan",
-                                                 "/tmp/root/bin");
-    ide_startup_diagnostics_record_workspace_selection("/tmp/root",
+                                                 "" IDE_TEST_TMPDIR "/root/bin");
+    ide_startup_diagnostics_record_workspace_selection("" IDE_TEST_TMPDIR "/root",
                                                        true,
-                                                       "/tmp/default",
+                                                       "" IDE_TEST_TMPDIR "/default",
                                                        true,
-                                                       "/tmp/root",
+                                                       "" IDE_TEST_TMPDIR "/root",
                                                        false,
                                                        true);
     ide_startup_diagnostics_record_ipc_start(true,
@@ -79,7 +80,7 @@ static void test_summary_is_bounded_and_omits_auth_token(void) {
 
 static void test_reset_clears_snapshot(void) {
     IdeStartupDiagnosticsSnapshot snapshot;
-    ide_startup_diagnostics_record_runtime_paths(true, "/tmp/root", "env", "/tmp/bin");
+    ide_startup_diagnostics_record_runtime_paths(true, "" IDE_TEST_TMPDIR "/root", "env", "" IDE_TEST_TMPDIR "/bin");
     ide_startup_diagnostics_reset();
     assert(ide_startup_diagnostics_snapshot(&snapshot));
     assert(!snapshot.runtime_paths_recorded);

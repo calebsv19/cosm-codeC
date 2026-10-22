@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Ipc/ide_ipc_document.h"
 #include "core/Ipc/ide_ipc_edit_apply.h"
 #include "core/Analysis/analysis_scheduler.h"
@@ -24,7 +25,7 @@ bool ide_ipc_compute_file_hash_hex(const char* path,char* out,size_t cap) {
  bool ok=!ferror(f);fclose(f);snprintf(out,cap,"%016llx",hash);return ok;
 }
 int main(void) {
- snprintf(root,sizeof(root),"/private/tmp/ide-document-ui-XXXXXX");assert(mkdtemp(root));
+ snprintf(root,sizeof(root),"" IDE_TEST_TMPDIR "/ide-document-ui-XXXXXX");assert(mkdtemp(root));
  char path[1100];snprintf(path,sizeof(path),"%s/lesson.c",root);
  FILE* f=fopen(path,"w");assert(f);fputs("old\n",f);fclose(f);
  char* line="new\n";EditorBuffer buffer={.lines=&line,.lineCount=1};

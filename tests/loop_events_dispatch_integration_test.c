@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -79,8 +80,8 @@ static void test_event_queue_to_invalidation_dispatch(void) {
         .all_pane_count = 3
     };
 
-    assert(loop_events_emit_symbol_tree_updated("/tmp/project", 1u, 11u));
-    assert(loop_events_emit_diagnostics_updated("/tmp/project", 2u, 22u));
+    assert(loop_events_emit_symbol_tree_updated("" IDE_TEST_TMPDIR "/project", 1u, 11u));
+    assert(loop_events_emit_diagnostics_updated("" IDE_TEST_TMPDIR "/project", 2u, 22u));
 
     size_t drained = loop_events_drain_bounded(64u, dispatch_visitor, &targets);
     assert(drained == 2u);
@@ -116,7 +117,7 @@ static void test_event_queue_to_invalidation_dispatch(void) {
     reset_pane_dirty(&control);
     reset_pane_dirty(&tool);
     reset_frame_state();
-    assert(loop_events_emit_analysis_status_updated("/tmp/project", 3u, 33u));
+    assert(loop_events_emit_analysis_status_updated("" IDE_TEST_TMPDIR "/project", 3u, 33u));
     drained = loop_events_drain_bounded(64u, dispatch_visitor, &targets);
     assert(drained == 1u);
     assert(!editor.dirty);

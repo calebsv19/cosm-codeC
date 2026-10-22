@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -32,12 +33,12 @@ static void test_document_emitters(void) {
 static void test_analysis_emitters(void) {
     loop_events_init();
 
-    assert(loop_events_emit_symbol_tree_updated("/tmp/project", 77u, 1234u));
-    assert(loop_events_emit_diagnostics_updated("/tmp/project", 78u, 5678u));
-    assert(loop_events_emit_analysis_progress_updated("/tmp/project", 79u, 901u));
-    assert(loop_events_emit_analysis_status_updated("/tmp/project", 80u, 902u));
-    assert(loop_events_emit_library_index_updated("/tmp/project", 81u, 903u));
-    assert(loop_events_emit_analysis_run_finished("/tmp/project", 82u, 904u));
+    assert(loop_events_emit_symbol_tree_updated("" IDE_TEST_TMPDIR "/project", 77u, 1234u));
+    assert(loop_events_emit_diagnostics_updated("" IDE_TEST_TMPDIR "/project", 78u, 5678u));
+    assert(loop_events_emit_analysis_progress_updated("" IDE_TEST_TMPDIR "/project", 79u, 901u));
+    assert(loop_events_emit_analysis_status_updated("" IDE_TEST_TMPDIR "/project", 80u, 902u));
+    assert(loop_events_emit_library_index_updated("" IDE_TEST_TMPDIR "/project", 81u, 903u));
+    assert(loop_events_emit_analysis_run_finished("" IDE_TEST_TMPDIR "/project", 82u, 904u));
 
     IDEEvent ev;
     memset(&ev, 0, sizeof(ev));
@@ -45,14 +46,14 @@ static void test_analysis_emitters(void) {
     assert(loop_events_pop(&ev));
     assert(ev.type == IDE_EVENT_SYMBOL_TREE_UPDATED);
     assert(ev.sequence == 1u);
-    assert(strcmp(ev.payload.analysis.project_root, "/tmp/project") == 0);
+    assert(strcmp(ev.payload.analysis.project_root, "" IDE_TEST_TMPDIR "/project") == 0);
     assert(ev.payload.analysis.analysis_run_id == 77u);
     assert(ev.payload.analysis.data_stamp == 1234u);
 
     assert(loop_events_pop(&ev));
     assert(ev.type == IDE_EVENT_DIAGNOSTICS_UPDATED);
     assert(ev.sequence == 2u);
-    assert(strcmp(ev.payload.analysis.project_root, "/tmp/project") == 0);
+    assert(strcmp(ev.payload.analysis.project_root, "" IDE_TEST_TMPDIR "/project") == 0);
     assert(ev.payload.analysis.analysis_run_id == 78u);
     assert(ev.payload.analysis.data_stamp == 5678u);
 

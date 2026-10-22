@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Analysis/analysis_provenance_store.h"
 
 #include "test_fixture_utils.h"
@@ -59,32 +60,32 @@ int main(void) {
     uint64_t effective = contract.capabilities;
 
     analysis_provenance_store_clear();
-    analysis_provenance_store_upsert("/tmp/provenance/current.c", source, strlen(source),
+    analysis_provenance_store_upsert("" IDE_TEST_TMPDIR "/provenance/current.c", source, strlen(source),
                                      &contract, effective, false, NULL);
 
     FisicsAnalysisContract stale = contract;
     stale.source_hash++;
-    analysis_provenance_store_upsert("/tmp/provenance/stale.c", source, strlen(source),
+    analysis_provenance_store_upsert("" IDE_TEST_TMPDIR "/provenance/stale.c", source, strlen(source),
                                      &stale, effective, false, NULL);
 
     FisicsAnalysisContract partial = contract;
     partial.partial = true;
-    analysis_provenance_store_upsert("/tmp/provenance/partial.c", source, strlen(source),
+    analysis_provenance_store_upsert("" IDE_TEST_TMPDIR "/provenance/partial.c", source, strlen(source),
                                      &partial, effective, false, NULL);
 
-    analysis_provenance_store_upsert("/tmp/provenance/degraded.c", source, strlen(source),
+    analysis_provenance_store_upsert("" IDE_TEST_TMPDIR "/provenance/degraded.c", source, strlen(source),
                                      &contract, 0, true, "unsupported contract major 2");
 
     FisicsAnalysisContract fatal = contract;
     fatal.fatal = true;
-    analysis_provenance_store_upsert("/tmp/provenance/fatal.c", source, strlen(source),
+    analysis_provenance_store_upsert("" IDE_TEST_TMPDIR "/provenance/fatal.c", source, strlen(source),
                                      &fatal, effective, false, NULL);
 
-    expect_state("/tmp/provenance/current.c", ANALYSIS_AUTHORITY_CURRENT);
-    expect_state("/tmp/provenance/stale.c", ANALYSIS_AUTHORITY_STALE);
-    expect_state("/tmp/provenance/partial.c", ANALYSIS_AUTHORITY_PARTIAL);
-    expect_state("/tmp/provenance/degraded.c", ANALYSIS_AUTHORITY_DEGRADED);
-    expect_state("/tmp/provenance/fatal.c", ANALYSIS_AUTHORITY_FATAL);
+    expect_state("" IDE_TEST_TMPDIR "/provenance/current.c", ANALYSIS_AUTHORITY_CURRENT);
+    expect_state("" IDE_TEST_TMPDIR "/provenance/stale.c", ANALYSIS_AUTHORITY_STALE);
+    expect_state("" IDE_TEST_TMPDIR "/provenance/partial.c", ANALYSIS_AUTHORITY_PARTIAL);
+    expect_state("" IDE_TEST_TMPDIR "/provenance/degraded.c", ANALYSIS_AUTHORITY_DEGRADED);
+    expect_state("" IDE_TEST_TMPDIR "/provenance/fatal.c", ANALYSIS_AUTHORITY_FATAL);
 
     AnalysisProvenanceSummary summary = {0};
     analysis_provenance_store_summary(&summary);
@@ -97,14 +98,14 @@ int main(void) {
     check(summary.worst_state == ANALYSIS_AUTHORITY_FATAL, "expected fatal worst state");
 
     AnalysisProvenanceRecord before = {0};
-    check(analysis_provenance_store_copy_for_file("/tmp/provenance/current.c", &before),
+    check(analysis_provenance_store_copy_for_file("" IDE_TEST_TMPDIR "/provenance/current.c", &before),
           "missing current record before save");
     analysis_provenance_store_save(workspace);
     analysis_provenance_store_clear();
     analysis_provenance_store_load(workspace);
 
     AnalysisProvenanceRecord cached = {0};
-    check(analysis_provenance_store_copy_for_file("/tmp/provenance/current.c", &cached),
+    check(analysis_provenance_store_copy_for_file("" IDE_TEST_TMPDIR "/provenance/current.c", &cached),
           "missing cached current record");
     check(cached.loaded_from_cache, "loaded record must be identified as cached");
     check(!cached.source_match, "cached record must await source verification");
@@ -113,16 +114,16 @@ int main(void) {
                  "cached result awaiting source verification") == 0,
           "cached stale reason mismatch");
 
-    analysis_provenance_store_upsert("/tmp/provenance/current.c", source, strlen(source),
+    analysis_provenance_store_upsert("" IDE_TEST_TMPDIR "/provenance/current.c", source, strlen(source),
                                      &contract, effective, false, NULL);
     AnalysisProvenanceRecord refreshed = {0};
-    check(analysis_provenance_store_copy_for_file("/tmp/provenance/current.c", &refreshed),
+    check(analysis_provenance_store_copy_for_file("" IDE_TEST_TMPDIR "/provenance/current.c", &refreshed),
           "missing refreshed record");
     check(refreshed.state == ANALYSIS_AUTHORITY_CURRENT, "refreshed record must be current");
     check(refreshed.generation > before.generation, "generation must advance after reload refresh");
 
-    analysis_provenance_store_remove("/tmp/provenance/current.c");
-    check(!analysis_provenance_store_copy_for_file("/tmp/provenance/current.c", &refreshed),
+    analysis_provenance_store_remove("" IDE_TEST_TMPDIR "/provenance/current.c");
+    check(!analysis_provenance_store_copy_for_file("" IDE_TEST_TMPDIR "/provenance/current.c", &refreshed),
           "removed record remained visible");
     analysis_provenance_store_clear();
 

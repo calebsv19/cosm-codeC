@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Ipc/ide_ipc_server.h"
 #include "core/Analysis/analysis_build_graph_store.h"
 #include "core/Analysis/analysis_memory_report_store.h"
@@ -86,7 +87,7 @@ static int write_file(const char* path, const char* body) {
 }
 
 int main(void) {
-    const char* workspace = "/tmp/idebridge_phase3_workspace";
+    const char* workspace = "" IDE_TEST_TMPDIR "/idebridge_phase3_workspace";
     mkdir(workspace, 0755);
 
     char src_dir[1024];
@@ -113,15 +114,15 @@ int main(void) {
         "{"
         "\"schema\":\"fisiCs.build_graph\","
         "\"version\":0,"
-        "\"project_root\":\"/tmp/idebridge_phase3_workspace\","
+        "\"project_root\":\"" IDE_TEST_TMPDIR "/idebridge_phase3_workspace\","
         "\"mode\":\"dry_run\","
         "\"partial\":false,"
         "\"fatal\":false,"
         "\"diagnostic_summary\":{\"available\":false,\"total\":0,\"errors\":0,\"warnings\":0,\"notes\":0,\"partial\":false,\"fatal\":false},"
         "\"translation_units\":[{"
         "\"id\":\"tu0\","
-        "\"source\":\"/tmp/idebridge_phase3_workspace/src/a.c\","
-        "\"object\":\"/tmp/idebridge_phase3_workspace/build/a.o\","
+        "\"source\":\"" IDE_TEST_TMPDIR "/idebridge_phase3_workspace/src/a.c\","
+        "\"object\":\"" IDE_TEST_TMPDIR "/idebridge_phase3_workspace/build/a.o\","
         "\"status\":\"ok\","
         "\"diagnostic_summary\":{\"available\":false,\"total\":0,\"errors\":0,\"warnings\":0,\"notes\":0,\"partial\":false,\"fatal\":false}"
         "}],"
@@ -130,8 +131,8 @@ int main(void) {
         "\"kind\":\"compile\","
         "\"status\":\"planned\","
         "\"will_execute\":false,"
-        "\"source\":\"/tmp/idebridge_phase3_workspace/src/a.c\","
-        "\"object\":\"/tmp/idebridge_phase3_workspace/build/a.o\","
+        "\"source\":\"" IDE_TEST_TMPDIR "/idebridge_phase3_workspace/src/a.c\","
+        "\"object\":\"" IDE_TEST_TMPDIR "/idebridge_phase3_workspace/build/a.o\","
         "\"diagnostic_summary\":{\"available\":false,\"total\":0,\"errors\":0,\"warnings\":0,\"notes\":0,\"partial\":false,\"fatal\":false}"
         "}]}"
         "}";

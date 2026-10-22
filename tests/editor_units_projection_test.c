@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "ide/Panes/Editor/editor_projection.h"
 
 #include "core/Analysis/analysis_symbols_store.h"
@@ -48,7 +49,7 @@ void editor_projection_free(SearchProjection* projection) {
 }
 
 int main(void) {
-    const char* filePath = "/tmp/editor_units_projection/src/physics.c";
+    const char* filePath = "" IDE_TEST_TMPDIR "/editor_units_projection/src/physics.c";
     analysis_symbols_store_clear();
     analysis_units_store_clear();
 

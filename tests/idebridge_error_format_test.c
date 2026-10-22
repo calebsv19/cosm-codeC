@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <stdio.h>
 #include <string.h>
 #include <json-c/json.h>
@@ -29,17 +30,17 @@ static int assert_file_contains(const char* path, const char* expected) {
 }
 
 int main(void) {
-    const char* path = "/tmp/idebridge_error_format_test.txt";
+    const char* path = "" IDE_TEST_TMPDIR "/idebridge_error_format_test.txt";
     FILE* f = fopen(path, "wb");
     if (!f) return fail("failed to open formatter output");
     idebridge_print_cli_error(f,
                               "response",
                               "invalid_json",
                               "Invalid \"response\"\nfrom IDE",
-                              "/tmp/socket");
+                              "" IDE_TEST_TMPDIR "/socket");
     fclose(f);
     if (assert_file_contains(path,
-                             "idebridge: stage=response code=invalid_json message=\"Invalid \\\"response\\\"\\nfrom IDE\" detail=\"/tmp/socket\"\n") != 0) {
+                             "idebridge: stage=response code=invalid_json message=\"Invalid \\\"response\\\"\\nfrom IDE\" detail=\"" IDE_TEST_TMPDIR "/socket\"\n") != 0) {
         return 1;
     }
 

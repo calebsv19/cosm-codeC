@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -99,8 +100,8 @@ static void seed_store_single_diag(const char* file_path, const char* message) {
 }
 
 static void test_diagnostics_apply_dispatch_and_invalidation(void) {
-    const char* project_root = "/tmp/diagnostics_pipeline_integration";
-    const char* file_path = "/tmp/diagnostics_pipeline_integration/src/a.c";
+    const char* project_root = "" IDE_TEST_TMPDIR "/diagnostics_pipeline_integration";
+    const char* file_path = "" IDE_TEST_TMPDIR "/diagnostics_pipeline_integration/src/a.c";
 
     completed_results_queue_reset();
     analysis_store_clear();
@@ -160,8 +161,8 @@ static void test_diagnostics_apply_dispatch_and_invalidation(void) {
 }
 
 static void test_stale_diagnostics_result_is_dropped(void) {
-    const char* project_root = "/tmp/diagnostics_pipeline_integration";
-    const char* file_path = "/tmp/diagnostics_pipeline_integration/src/a.c";
+    const char* project_root = "" IDE_TEST_TMPDIR "/diagnostics_pipeline_integration";
+    const char* file_path = "" IDE_TEST_TMPDIR "/diagnostics_pipeline_integration/src/a.c";
 
     completed_results_queue_reset();
     analysis_store_clear();
@@ -198,8 +199,8 @@ static void test_stale_diagnostics_result_is_dropped(void) {
 }
 
 static void test_live_document_revision_mismatch_is_dropped(void) {
-    const char* project_root = "/tmp/diagnostics_pipeline_integration";
-    const char* file_path = "/tmp/diagnostics_pipeline_integration/src/live.c";
+    const char* project_root = "" IDE_TEST_TMPDIR "/diagnostics_pipeline_integration";
+    const char* file_path = "" IDE_TEST_TMPDIR "/diagnostics_pipeline_integration/src/live.c";
 
     completed_results_queue_reset();
     analysis_store_clear();

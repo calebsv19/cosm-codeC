@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #define _DARWIN_C_SOURCE
 #define _XOPEN_SOURCE 700
 #include "app/GlobalInfo/project.h"
@@ -22,7 +23,7 @@ static DirEntry *child(DirEntry *root, const char *name) {
 }
 
 int main(void) {
-    char path[] = "/tmp/ide-project-scan-XXXXXX";
+    char path[] = "" IDE_TEST_TMPDIR "/ide-project-scan-XXXXXX";
     assert(mkdtemp(path));
     char source[1024], file[1024], build[1024], generated[1024], loop[1024], linked[1024];
     snprintf(source, sizeof(source), "%s/src", path);

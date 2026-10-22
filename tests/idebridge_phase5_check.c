@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Ipc/ide_ipc_server.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 
@@ -35,15 +36,15 @@ int main(void) {
         fprintf(stderr, "IDE_BRIDGE_TEST_BIN must name the built bridge\n");
         return 1;
     }
-    const char* xdg_root = "/tmp/idebridge_phase5_xdg_cache";
-    const char* workspace = "/tmp/idebridge_phase5_workspace";
+    const char* xdg_root = "" IDE_TEST_TMPDIR "/idebridge_phase5_xdg_cache";
+    const char* workspace = "" IDE_TEST_TMPDIR "/idebridge_phase5_workspace";
     mkdir(xdg_root, 0755);
     mkdir(workspace, 0755);
     setenv("XDG_CACHE_HOME", xdg_root, 1);
 
     clearDiagnostics();
-    addDiagnostic("/tmp/idebridge_phase5_workspace/src/main.c", 12, 4, "example warning", DIAG_SEVERITY_WARNING);
-    addDiagnostic("/tmp/idebridge_phase5_workspace/src/main.c", 18, 2, "example error", DIAG_SEVERITY_ERROR);
+    addDiagnostic("" IDE_TEST_TMPDIR "/idebridge_phase5_workspace/src/main.c", 12, 4, "example warning", DIAG_SEVERITY_WARNING);
+    addDiagnostic("" IDE_TEST_TMPDIR "/idebridge_phase5_workspace/src/main.c", 18, 2, "example error", DIAG_SEVERITY_ERROR);
 
     if (!ide_ipc_start(workspace)) {
         fprintf(stderr, "failed to start IPC\n");
@@ -57,39 +58,39 @@ int main(void) {
         return 1;
     }
 
-    if (strstr(socket_path, "/tmp/idebridge_phase5_xdg_cache/caleb_ide/sock/") == NULL) {
+    if (strstr(socket_path, "" IDE_TEST_TMPDIR "/idebridge_phase5_xdg_cache/caleb_ide/sock/") == NULL) {
         fprintf(stderr, "socket path does not use XDG cache root: %s\n", socket_path);
         ide_ipc_stop();
         return 1;
     }
 
     char cmd[4096];
-    snprintf(cmd, sizeof(cmd), "'%s' ping --json --socket '%s' >/tmp/idebridge_phase5_ping.json 2>/tmp/idebridge_phase5_ping.err", bridge_bin, socket_path);
+    snprintf(cmd, sizeof(cmd), "'%s' ping --json --socket '%s' >" IDE_TEST_TMPDIR "/idebridge_phase5_ping.json 2>" IDE_TEST_TMPDIR "/idebridge_phase5_ping.err", bridge_bin, socket_path);
     if (run_cmd_expect(cmd, 0) != 0) {
         fprintf(stderr, "ping with --socket failed\n");
         ide_ipc_stop();
         return 1;
     }
-    if (parse_json_file("/tmp/idebridge_phase5_ping.json") != 0) {
+    if (parse_json_file("" IDE_TEST_TMPDIR "/idebridge_phase5_ping.json") != 0) {
         fprintf(stderr, "invalid ping json output\n");
         ide_ipc_stop();
         return 1;
     }
 
-    snprintf(cmd, sizeof(cmd), "'%s' ping --json --socket '/tmp/idebridge_missing.sock' >/tmp/idebridge_phase5_bad.json 2>/tmp/idebridge_phase5_bad.err", bridge_bin);
+    snprintf(cmd, sizeof(cmd), "'%s' ping --json --socket '" IDE_TEST_TMPDIR "/idebridge_missing.sock' >" IDE_TEST_TMPDIR "/idebridge_phase5_bad.json 2>" IDE_TEST_TMPDIR "/idebridge_phase5_bad.err", bridge_bin);
     if (run_cmd_expect(cmd, 3) != 0) {
         fprintf(stderr, "invalid socket did not return connect exit code\n");
         ide_ipc_stop();
         return 1;
     }
 
-    snprintf(cmd, sizeof(cmd), "'%s' diag --json --socket '%s' --spill_file /tmp/idebridge_phase5_spill.json >/tmp/idebridge_phase5_diag.json 2>/tmp/idebridge_phase5_diag.err", bridge_bin, socket_path);
+    snprintf(cmd, sizeof(cmd), "'%s' diag --json --socket '%s' --spill_file " IDE_TEST_TMPDIR "/idebridge_phase5_spill.json >" IDE_TEST_TMPDIR "/idebridge_phase5_diag.json 2>" IDE_TEST_TMPDIR "/idebridge_phase5_diag.err", bridge_bin, socket_path);
     if (run_cmd_expect(cmd, 0) != 0) {
         fprintf(stderr, "diag with spill file failed\n");
         ide_ipc_stop();
         return 1;
     }
-    if (parse_json_file("/tmp/idebridge_phase5_spill.json") != 0) {
+    if (parse_json_file("" IDE_TEST_TMPDIR "/idebridge_phase5_spill.json") != 0) {
         fprintf(stderr, "invalid spill json\n");
         ide_ipc_stop();
         return 1;

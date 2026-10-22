@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Analysis/analysis_memory_report_store.h"
 
 #include <stdio.h>
@@ -65,10 +66,10 @@ int main(void) {
         "}";
 
     analysis_memory_report_store_clear();
-    check(!analysis_memory_report_store_load_json_text("/tmp/not_memory.json", wrong_profile), "reject wrong profile");
+    check(!analysis_memory_report_store_load_json_text("" IDE_TEST_TMPDIR "/not_memory.json", wrong_profile), "reject wrong profile");
     check(analysis_memory_report_store_snapshot_count() == 0, "wrong profile not stored");
 
-    check(analysis_memory_report_store_load_json_text("/tmp/memory_report.json", report), "load report");
+    check(analysis_memory_report_store_load_json_text("" IDE_TEST_TMPDIR "/memory_report.json", report), "load report");
     check(analysis_memory_report_store_snapshot_count() == 1, "report count");
     const AnalysisMemoryReportSnapshot* snap = analysis_memory_report_store_snapshot_at(0);
     check(snap && strcmp(snap->profile, "memory_check_report_v1") == 0, "profile");
@@ -83,7 +84,7 @@ int main(void) {
     check(snap && strcmp(snap->leaks[0].file, "memory_check_json_report.c") == 0, "leak file");
     check(snap && snap->leaks[0].line == 7, "leak line");
 
-    check(analysis_memory_report_store_load_json_text("/tmp/memory_report.json", clean_report), "replace report");
+    check(analysis_memory_report_store_load_json_text("" IDE_TEST_TMPDIR "/memory_report.json", clean_report), "replace report");
     check(analysis_memory_report_store_snapshot_count() == 1, "replace count");
     snap = analysis_memory_report_store_snapshot_at(0);
     check(snap && strcmp(snap->trigger, "atexit") == 0, "replacement trigger");

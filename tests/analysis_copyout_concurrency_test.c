@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -13,7 +14,7 @@ static void* token_writer(void* unused) {
     for (int i = 0; i < 2000; ++i) {
         FisicsTokenSpan span = {.line = i + 1, .column = 2, .length = 3,
                                 .kind = FISICS_TOK_IDENTIFIER};
-        analysis_token_store_upsert("/tmp/s2/concurrent.c", &span, 1);
+        analysis_token_store_upsert("" IDE_TEST_TMPDIR "/s2/concurrent.c", &span, 1);
     }
     return NULL;
 }
@@ -28,7 +29,7 @@ int main(void) {
     contract.source_length = strlen(source);
     contract.source_hash = 0x8f0fb8bad1ee7883ULL;
     contract.capabilities = FISICS_CONTRACT_CAP_DIAGNOSTICS;
-    analysis_provenance_store_upsert("/tmp/s2/stable.c", source, strlen(source),
+    analysis_provenance_store_upsert("" IDE_TEST_TMPDIR "/s2/stable.c", source, strlen(source),
                                      &contract, contract.capabilities, false, NULL);
 
     AnalysisProvenanceRecord* snapshot = NULL;
@@ -42,7 +43,7 @@ int main(void) {
         return 1;
     }
     analysis_provenance_store_clear();
-    if (strcmp(snapshot[0].file_path, "/tmp/s2/stable.c") != 0 ||
+    if (strcmp(snapshot[0].file_path, "" IDE_TEST_TMPDIR "/s2/stable.c") != 0 ||
         summary.total_count != 1) {
         fprintf(stderr, "FAIL: provenance snapshot changed after store clear\n");
         failures++;

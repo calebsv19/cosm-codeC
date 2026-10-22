@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Ipc/ide_ipc_server.h"
 #include "core/Diagnostics/diagnostic_context.h"
 #include "core/Diagnostics/diagnostics_engine.h"
@@ -174,7 +175,7 @@ int main(void) {
     analysis_token_store_clear();
     analysis_units_store_clear();
 
-    addDiagnosticWithDetails("/tmp/proj/src/a.c",
+    addDiagnosticWithDetails("" IDE_TEST_TMPDIR "/proj/src/a.c",
                              12,
                              4,
                              6,
@@ -188,7 +189,7 @@ int main(void) {
     const char* context_json =
         "{"
         "\"diagnostics\":[{"
-        "\"file\":\"/tmp/proj/src/a.c\","
+        "\"file\":\"" IDE_TEST_TMPDIR "/proj/src/a.c\","
         "\"line\":12,"
         "\"column\":4,"
         "\"length\":6,"
@@ -208,9 +209,9 @@ int main(void) {
         fprintf(stderr, "failed to load diagnostic context fixture\n");
         return 1;
     }
-    addDiagnostic("/tmp/proj/src/a.c", 19, 2, "null dereference", DIAG_SEVERITY_ERROR);
+    addDiagnostic("" IDE_TEST_TMPDIR "/proj/src/a.c", 19, 2, "null dereference", DIAG_SEVERITY_ERROR);
     FisicsDiagnostic analysis_diags[2] = {0};
-    analysis_diags[0].file_path = "/tmp/proj/src/a.c";
+    analysis_diags[0].file_path = "" IDE_TEST_TMPDIR "/proj/src/a.c";
     analysis_diags[0].line = 12;
     analysis_diags[0].column = 4;
     analysis_diags[0].length = 6;
@@ -220,7 +221,7 @@ int main(void) {
     analysis_diags[0].category_id = FISICS_DIAG_CATEGORY_EXTENSION;
     analysis_diags[0].code_id = FISICS_DIAG_CODE_EXTENSION_UNITS_ASSIGN_DIM_MISMATCH;
     analysis_diags[0].message = "assignment dimension mismatch";
-    analysis_diags[1].file_path = "/tmp/proj/src/a.c";
+    analysis_diags[1].file_path = "" IDE_TEST_TMPDIR "/proj/src/a.c";
     analysis_diags[1].line = 19;
     analysis_diags[1].column = 2;
     analysis_diags[1].length = 1;
@@ -228,15 +229,15 @@ int main(void) {
     analysis_diags[1].severity_id = FISICS_DIAG_SEVERITY_ERROR;
     analysis_diags[1].message = "null dereference";
     analysis_store_clear();
-    analysis_store_upsert("/tmp/proj/src/a.c", analysis_diags, 2u);
+    analysis_store_upsert("" IDE_TEST_TMPDIR "/proj/src/a.c", analysis_diags, 2u);
 
-    const char* build_chunk = "/tmp/proj/src/b.c:3:1: warning: build warn\n/tmp/proj/src/b.c:4:2: error: build err\n";
+    const char* build_chunk = "" IDE_TEST_TMPDIR "/proj/src/b.c:3:1: warning: build warn\n" IDE_TEST_TMPDIR "/proj/src/b.c:4:2: error: build err\n";
     build_diagnostics_feed_chunk(build_chunk, strlen(build_chunk));
 
     FisicsSymbol syms[2];
     memset(syms, 0, sizeof(syms));
     syms[0].name = "foo";
-    syms[0].file_path = "/tmp/proj/src/a.c";
+    syms[0].file_path = "" IDE_TEST_TMPDIR "/proj/src/a.c";
     syms[0].start_line = 10;
     syms[0].start_col = 1;
     syms[0].end_line = 20;
@@ -246,7 +247,7 @@ int main(void) {
     syms[0].stable_id = 0x1111111111111111ULL;
 
     syms[1].name = "field_a";
-    syms[1].file_path = "/tmp/proj/src/a.c";
+    syms[1].file_path = "" IDE_TEST_TMPDIR "/proj/src/a.c";
     syms[1].start_line = 6;
     syms[1].start_col = 3;
     syms[1].end_line = 6;
@@ -256,7 +257,7 @@ int main(void) {
     syms[1].parent_kind = FISICS_SYMBOL_STRUCT;
     syms[1].stable_id = 0x2222222222222222ULL;
 
-    analysis_symbols_store_upsert("/tmp/proj/src/a.c", syms, 2);
+    analysis_symbols_store_upsert("" IDE_TEST_TMPDIR "/proj/src/a.c", syms, 2);
     FisicsUnitsAttachment units[1];
     memset(units, 0, sizeof(units));
     units[0].symbol_stable_id = syms[0].stable_id;
@@ -270,7 +271,7 @@ int main(void) {
     units[0].unit_symbol = "ft/s";
     units[0].unit_family = "velocity";
     units[0].unit_resolved = true;
-    analysis_units_store_upsert("/tmp/proj/src/a.c", units, 1, true);
+    analysis_units_store_upsert("" IDE_TEST_TMPDIR "/proj/src/a.c", units, 1, true);
 
     FisicsTokenSpan toks[2];
     memset(toks, 0, sizeof(toks));
@@ -282,9 +283,9 @@ int main(void) {
     toks[1].column = 5;
     toks[1].length = 3;
     toks[1].kind = FISICS_TOK_KEYWORD;
-    analysis_token_store_upsert("/tmp/proj/src/a.c", toks, 2);
+    analysis_token_store_upsert("" IDE_TEST_TMPDIR "/proj/src/a.c", toks, 2);
 
-    if (!ide_ipc_start("/tmp/proj")) {
+    if (!ide_ipc_start("" IDE_TEST_TMPDIR "/proj")) {
         fprintf(stderr, "failed to start IPC server\n");
         return 1;
     }

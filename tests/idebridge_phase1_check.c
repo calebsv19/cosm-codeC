@@ -1,3 +1,4 @@
+#include "test_tmp_root.h"
 #include "core/Ipc/ide_ipc_server.h"
 
 #include <errno.h>
@@ -133,7 +134,7 @@ int main(void) {
         fprintf(stderr, "IDE_BRIDGE_TEST_BIN must name the built bridge\n");
         return 1;
     }
-    if (!ide_ipc_start("/tmp/idebridge_phase1_project")) {
+    if (!ide_ipc_start("" IDE_TEST_TMPDIR "/idebridge_phase1_project")) {
         fprintf(stderr, "failed to start IPC server\n");
         return 1;
     }
@@ -167,7 +168,7 @@ int main(void) {
     }
 
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "MYIDE_SOCKET='%s' '%s' ping >/tmp/idebridge_ping_human.txt 2>/tmp/idebridge_ping_human.err", socket_path, bridge_bin);
+    snprintf(cmd, sizeof(cmd), "MYIDE_SOCKET='%s' '%s' ping >" IDE_TEST_TMPDIR "/idebridge_ping_human.txt 2>" IDE_TEST_TMPDIR "/idebridge_ping_human.err", socket_path, bridge_bin);
     int human_rc = system(cmd);
     if (human_rc == -1 || !WIFEXITED(human_rc) || WEXITSTATUS(human_rc) != 0) {
         fprintf(stderr, "idebridge human ping failed\n");
@@ -175,7 +176,7 @@ int main(void) {
         return 1;
     }
 
-    snprintf(cmd, sizeof(cmd), "MYIDE_SOCKET='%s' '%s' ping --json >/tmp/idebridge_ping_json.txt 2>/tmp/idebridge_ping_json.err", socket_path, bridge_bin);
+    snprintf(cmd, sizeof(cmd), "MYIDE_SOCKET='%s' '%s' ping --json >" IDE_TEST_TMPDIR "/idebridge_ping_json.txt 2>" IDE_TEST_TMPDIR "/idebridge_ping_json.err", socket_path, bridge_bin);
     int json_rc = system(cmd);
     if (json_rc == -1 || !WIFEXITED(json_rc) || WEXITSTATUS(json_rc) != 0) {
         fprintf(stderr, "idebridge json ping failed\n");
@@ -183,7 +184,7 @@ int main(void) {
         return 1;
     }
 
-    FILE* json_file = fopen("/tmp/idebridge_ping_json.txt", "rb");
+    FILE* json_file = fopen("" IDE_TEST_TMPDIR "/idebridge_ping_json.txt", "rb");
     if (!json_file) {
         fprintf(stderr, "failed to open idebridge json output\n");
         ide_ipc_stop();
