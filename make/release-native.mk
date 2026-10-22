@@ -1,5 +1,5 @@
 # Native authentication is phased by the Registry owner. No cleanup or publish.
-RELEASE_APP_ZIP = $(RELEASE_ROOT)/codeC-$(VERSION)-macOS-arm64-stable.zip
+RELEASE_APP_ZIP = $(RELEASE_ROOT)/codeC-$(RELEASE_VERSION)-macOS-arm64-stable.zip
 .PHONY: release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact
 release-build: preparation-auth-inputs
 	@python3 tools/packaging/prepare_release_root.py --output "$(RELEASE_ROOT)"
