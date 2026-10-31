@@ -82,6 +82,7 @@ package-desktop-smoke: package-desktop
 	@test -x $(PACKAGE_MACOS_DIR)/ide-bin || (echo "Missing ide-bin"; exit 1)
 	@test -x $(PACKAGE_MACOS_DIR)/idebridge || (echo "Missing idebridge"; exit 1)
 	@test -x $(PACKAGE_MACOS_DIR)/fisics || (echo "Missing bundled fisiCs compiler"; exit 1)
+	@test "$$($(PACKAGE_MACOS_DIR)/fisics --version)" = "fisiCs $(FISICS_RELEASE_VERSION)" || (echo "Bundled compiler version differs from accepted compiler input"; exit 1)
 	@test -f $(PACKAGE_CONTENTS_DIR)/Info.plist || (echo "Missing Info.plist"; exit 1)
 	@test -f $(PACKAGE_FRAMEWORKS_DIR)/libvulkan.1.dylib || (echo "Missing bundled libvulkan"; exit 1)
 	@test -f $(PACKAGE_FRAMEWORKS_DIR)/libMoltenVK.dylib || (echo "Missing bundled libMoltenVK"; exit 1)

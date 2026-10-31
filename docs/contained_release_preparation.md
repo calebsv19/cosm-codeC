@@ -34,3 +34,5 @@ the frozen input manifest's file modes when staging a fresh Git checkout, then
 run the existing byte/mode/extra-input and Git identity checks. Active sibling
 fisiCs development is never substituted for this input. Explicit FISICS_DIR
 overrides retain all existing verification. Build outputs stay task-owned.
+
+Compiler sub-builds explicitly receive RELEASE_VERSION from the accepted compiler VERSION file. The IDE release version must never relabel the bundled compiler or frontend. A real recursive-Make fixture links both owners under conflicting parent release versions and verifies both retain the compiler identity.
