@@ -24,3 +24,13 @@ owner. It does not grant credentials or publication authority. Interruption and
 completed-result reuse belong to that owner; do not run a second upload after an
 uncertain or Accepted submission. Unsigned packages are ad-hoc local inputs, not
 Developer ID authenticated releases. Neither route replaces an installed app.
+
+
+The default compiler input is the reusable accepted checkout at
+`<CodeWork>/release_dependencies/ide_fisics/<make/fisics-source-pin.txt>`.
+It is a source fixture, not disposable build output. The release producer binds
+only its Makefile, VERSION, src, include, third_party and make paths. Restore
+the frozen input manifest's file modes when staging a fresh Git checkout, then
+run the existing byte/mode/extra-input and Git identity checks. Active sibling
+fisiCs development is never substituted for this input. Explicit FISICS_DIR
+overrides retain all existing verification. Build outputs stay task-owned.

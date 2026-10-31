@@ -39,7 +39,9 @@ endif
 ABS_VK_SHADER_ROOT := $(abspath $(VK_RENDERER_DIR))
 
 # Fisics frontend (compiler) integration
-FISICS_DIR := $(CODEWORK_ROOT)/fisiCs
+# A reusable accepted source input, distinct from active compiler development.
+FISICS_PINNED_SOURCE := $(CODEWORK_ROOT)/release_dependencies/ide_fisics/$(strip $(shell cat make/fisics-source-pin.txt))
+FISICS_DIR := $(FISICS_PINNED_SOURCE)
 FISICS_INC := $(FISICS_DIR)/src
 FISICS_LEXER_INC := $(FISICS_DIR)/src/Lexer
 FISICS_LIB_UNSANITIZED_SRC := $(FISICS_DIR)/libfisics_frontend_unsanitized.a
