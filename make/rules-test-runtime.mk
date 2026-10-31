@@ -292,3 +292,26 @@ test-ide-diagnostics-cache:
 	@mkdir -p $(TEST_BUILD_DIR)
 	$(CC) $(CFLAGS) tests/ide_build_diagnostics_cache_test.c src/core/BuildSystem/build_diagnostics.c src/core/Diagnostics/diagnostics_engine.c $(LIB_DIRS) -ljson-c -lpthread -o $(TEST_BUILD_DIR)/ide_build_diagnostics_cache_test
 	$(TEST_BUILD_DIR)/ide_build_diagnostics_cache_test
+
+.PHONY: test-render-font-lifecycle
+test-render-font-lifecycle:
+	@mkdir -p $(TEST_BUILD_DIR)
+	@$(CC) -std=c99 -Wall -Wextra $(INC_DIRS) \
+		tests/render_font_lifecycle_test.c src/engine/Render/render_font.c \
+		src/app/GlobalInfo/font_settings_runtime.c \
+		src/app/GlobalInfo/workspace_authoring_session_adapter.c \
+		src/app/GlobalInfo/workspace_authoring_projection.c src/ide/Panes/IconBar/icon_bar.c \
+		$(CORE_WORKSPACE_AUTHORING_SESSION_DIR)/src/core_workspace_authoring_session.c \
+		src/engine/Render/render_text_helpers.c src/ide/UI/shared_theme_font_adapter.c \
+		$(KIT_RENDER_DIR)/src/kit_render_native_font.c \
+		$(CORE_THEME_DIR)/src/core_theme.c $(CORE_FONT_DIR)/src/core_font.c \
+		$(CORE_BASE_DIR)/src/core_base.c -o $(TEST_BUILD_DIR)/render_font_lifecycle_test \
+		$(LIB_DIRS) -lSDL2 -lSDL2_ttf $(VULKAN_LIBS)
+	@$(TEST_BUILD_DIR)/render_font_lifecycle_test
+
+# Builds only: native execution requires an explicitly isolated GUI proof route.
+.PHONY: build-render-text-pixel-test
+build-render-text-pixel-test: all
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -c tests/render_text_pixel_test.c -o $(TEST_BUILD_DIR)/render_text_pixel_test.o
+	$(HOST_CC) $(ARCH_FLAGS) -o $(TEST_BUILD_DIR)/render_text_pixel_test $(TEST_BUILD_DIR)/render_text_pixel_test.o $(filter-out $(APP_OBJ_DIR)/app/main.o,$(APP_OBJ_FILES)) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(IDE_SHARED_LIBS) $(LDFLAGS)

@@ -1,4 +1,5 @@
 #include "input_keyboard.h"
+#include "app/GlobalInfo/font_settings_runtime.h"
 #include "ide/UI/panel_field_focus.h"
 #include "ide/Panes/ToolPanels/Errors/tool_errors.h"
 #include "core/InputManager/UserInput/rename_flow.h"
@@ -57,26 +58,6 @@ static bool global_shortcut_text_capture_active(void) {
     return false;
 }
 
-static void apply_font_zoom_runtime_change(void) {
-    char zoom_step_buf[16];
-    int zoom_step = ide_shared_font_zoom_step();
-
-    snprintf(zoom_step_buf, sizeof(zoom_step_buf), "%d", zoom_step);
-    setenv("IDE_FONT_ZOOM_STEP", zoom_step_buf, 1);
-    saveFontZoomStepPreference(zoom_step);
-
-    render_text_cache_shutdown();
-    if (!initFontSystem()) {
-        return;
-    }
-
-    terminal_notify_font_metrics_changed();
-    requestFullRedraw(RENDER_INVALIDATION_LAYOUT |
-                      RENDER_INVALIDATION_RESIZE |
-                      RENDER_INVALIDATION_CONTENT |
-                      RENDER_INVALIDATION_BACKGROUND);
-}
-
 void handleKeyboardInput(SDL_Event* event,
                          UIPane** panes, int* paneCount, bool* running) {
     if (!event || event->type != SDL_KEYDOWN) return;
@@ -98,23 +79,17 @@ void handleKeyboardInput(SDL_Event* event,
     }
 
     if (ctrl_or_cmd && !global_shortcut_text_capture_active()) {
-        bool zoom_handled = false;
-        bool zoom_changed = false;
-        if (key == SDLK_EQUALS || key == SDLK_PLUS || key == SDLK_KP_PLUS) {
-            zoom_handled = true;
-            zoom_changed = ide_shared_font_step_by(1);
-        } else if (key == SDLK_MINUS || key == SDLK_KP_MINUS) {
-            zoom_handled = true;
-            zoom_changed = ide_shared_font_step_by(-1);
-        } else if (key == SDLK_0 || key == SDLK_KP_0) {
-            zoom_handled = true;
-            zoom_changed = ide_shared_font_reset_zoom_step();
-        }
-
+        bool zoom_handled = true;
+        int step = ide_shared_font_zoom_step();
+        char preset[64];
+        if (key == SDLK_EQUALS || key == SDLK_PLUS || key == SDLK_KP_PLUS) ++step;
+        else if (key == SDLK_MINUS || key == SDLK_KP_MINUS) --step;
+        else if (key == SDLK_0 || key == SDLK_KP_0) step = 0;
+        else zoom_handled = false;
         if (zoom_handled) {
-            if (zoom_changed) {
-                apply_font_zoom_runtime_change();
-            }
+            if (ide_shared_font_current_preset(preset, sizeof(preset)) &&
+                !ide_font_settings_apply(preset, step, true))
+                fprintf(stderr, "Text size change failed; previous fonts and setting retained.\n");
             return;
         }
     }

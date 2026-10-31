@@ -1,4 +1,5 @@
 #include "engine/Render/render_font.h"
+#include "engine/Render/render_text_helpers.h"
 #include "app/GlobalInfo/runtime_paths.h"
 #include "ide/UI/shared_theme_font_adapter.h"
 #include <SDL2/SDL_ttf.h>
@@ -9,15 +10,50 @@
 #include <string.h>
 
 
-static TTF_Font* globalFont = NULL;
-static TTF_Font* terminalFont = NULL;
-static TTF_Font* uiTierFonts[CORE_FONT_TEXT_SIZE_COUNT] = {0};
-static int uiTierPoints[CORE_FONT_TEXT_SIZE_COUNT] = {0};
-static char uiTierPaths[CORE_FONT_TEXT_SIZE_COUNT][PATH_MAX];
-static char globalFontPath[PATH_MAX];
-static int globalFontPoint = 0;
-static char terminalFontPath[PATH_MAX];
-static int terminalFontPoint = 0;
+typedef struct {
+    TTF_Font* globalFont;
+    TTF_Font* terminalFont;
+    TTF_Font* uiTierFonts[CORE_FONT_TEXT_SIZE_COUNT];
+    int uiTierPoints[CORE_FONT_TEXT_SIZE_COUNT];
+    char uiTierPaths[CORE_FONT_TEXT_SIZE_COUNT][PATH_MAX];
+    char globalFontPath[PATH_MAX];
+    int globalFontPoint;
+    char terminalFontPath[PATH_MAX];
+    int terminalFontPoint;
+} FontSet;
+
+static uint64_t g_font_revision;
+uint64_t getFontSystemRevision(void) { return g_font_revision; }
+
+static FontSet g_fonts;
+static FontSet g_preview_baseline;
+static bool g_preview_active;
+
+static bool font_set_contains(const FontSet* set, TTF_Font* font) {
+    if (!set || !font) return false;
+    if (set->globalFont == font || set->terminalFont == font) return true;
+    for (int i = 0; i < CORE_FONT_TEXT_SIZE_COUNT; ++i)
+        if (set->uiTierFonts[i] == font) return true;
+    return false;
+}
+
+static void close_unpinned_font(TTF_Font* font) {
+    if (font && !(g_preview_active && font_set_contains(&g_preview_baseline, font)))
+        TTF_CloseFont(font);
+}
+
+/* A preview pins entry handles until Apply or Cancel, including partial aliases. */
+static void close_font_set_except(FontSet* set, const FontSet* keep) {
+    if (!font_set_contains(keep, set->terminalFont)) close_unpinned_font(set->terminalFont);
+    for (int i = 0; i < CORE_FONT_TEXT_SIZE_COUNT; ++i) {
+        if (set->uiTierFonts[i] == set->globalFont) set->globalFont = NULL;
+        if (!font_set_contains(keep, set->uiTierFonts[i])) close_unpinned_font(set->uiTierFonts[i]);
+    }
+    if (!font_set_contains(keep, set->globalFont)) close_unpinned_font(set->globalFont);
+    memset(set, 0, sizeof(*set));
+}
+
+static void close_font_set(FontSet* set) { close_font_set_except(set, NULL); }
 
 enum {
     FONT_SOURCE_CAPACITY = CORE_FONT_TEXT_SIZE_COUNT + 8,
@@ -41,6 +77,7 @@ static FontSourceEntry g_font_sources[FONT_SOURCE_CAPACITY];
 static FontRasterCacheEntry g_raster_cache[FONT_RASTER_CACHE_CAPACITY];
 
 static void clear_font_sources(void) {
+    ++g_font_revision;
     memset(g_font_sources, 0, sizeof(g_font_sources));
 }
 
@@ -96,15 +133,15 @@ static const FontSourceEntry* find_font_source(TTF_Font* font) {
 static void rebuild_font_sources(void) {
     clear_font_sources();
     for (int i = 0; i < CORE_FONT_TEXT_SIZE_COUNT; ++i) {
-        if (uiTierFonts[i] && uiTierPaths[i][0] && uiTierPoints[i] > 0) {
-            register_font_source(uiTierFonts[i], uiTierPaths[i], uiTierPoints[i], 1);
+        if (g_fonts.uiTierFonts[i] && g_fonts.uiTierPaths[i][0] && g_fonts.uiTierPoints[i] > 0) {
+            register_font_source(g_fonts.uiTierFonts[i], g_fonts.uiTierPaths[i], g_fonts.uiTierPoints[i], 1);
         }
     }
-    if (globalFont && globalFontPath[0] && globalFontPoint > 0) {
-        register_font_source(globalFont, globalFontPath, globalFontPoint, 1);
+    if (g_fonts.globalFont && g_fonts.globalFontPath[0] && g_fonts.globalFontPoint > 0) {
+        register_font_source(g_fonts.globalFont, g_fonts.globalFontPath, g_fonts.globalFontPoint, 1);
     }
-    if (terminalFont && terminalFontPath[0] && terminalFontPoint > 0) {
-        register_font_source(terminalFont, terminalFontPath, terminalFontPoint, 0);
+    if (g_fonts.terminalFont && g_fonts.terminalFontPath[0] && g_fonts.terminalFontPoint > 0) {
+        register_font_source(g_fonts.terminalFont, g_fonts.terminalFontPath, g_fonts.terminalFontPoint, 0);
     }
 }
 
@@ -125,15 +162,15 @@ static TTF_Font* open_font_runtime_aware(const char* candidate, int point_size, 
 static void closeUiTierFonts(void) {
     clear_raster_font_cache();
     for (int i = 0; i < CORE_FONT_TEXT_SIZE_COUNT; ++i) {
-        if (uiTierFonts[i]) {
-            if (uiTierFonts[i] == globalFont) {
-                globalFont = NULL;
+        if (g_fonts.uiTierFonts[i]) {
+            if (g_fonts.uiTierFonts[i] == g_fonts.globalFont) {
+                g_fonts.globalFont = NULL;
             }
-            TTF_CloseFont(uiTierFonts[i]);
-            uiTierFonts[i] = NULL;
+            close_unpinned_font(g_fonts.uiTierFonts[i]);
+            g_fonts.uiTierFonts[i] = NULL;
         }
-        uiTierPoints[i] = 0;
-        uiTierPaths[i][0] = '\0';
+        g_fonts.uiTierPoints[i] = 0;
+        g_fonts.uiTierPaths[i][0] = '\0';
     }
 }
 
@@ -159,32 +196,32 @@ static bool loadSharedUiTierFonts(void) {
         }
 
         configure_font(f, 1);
-        uiTierFonts[i] = f;
-        uiTierPoints[i] = point;
-        strncpy(uiTierPaths[i], path, sizeof(uiTierPaths[i]) - 1);
-        uiTierPaths[i][sizeof(uiTierPaths[i]) - 1] = '\0';
+        g_fonts.uiTierFonts[i] = f;
+        g_fonts.uiTierPoints[i] = point;
+        strncpy(g_fonts.uiTierPaths[i], path, sizeof(g_fonts.uiTierPaths[i]) - 1);
+        g_fonts.uiTierPaths[i][sizeof(g_fonts.uiTierPaths[i]) - 1] = '\0';
     }
 
-    globalFont = uiTierFonts[CORE_FONT_TEXT_SIZE_BASIC];
-    if (globalFont) {
-        strncpy(globalFontPath, uiTierPaths[CORE_FONT_TEXT_SIZE_BASIC], sizeof(globalFontPath) - 1);
-        globalFontPath[sizeof(globalFontPath) - 1] = '\0';
-        globalFontPoint = uiTierPoints[CORE_FONT_TEXT_SIZE_BASIC];
+    g_fonts.globalFont = g_fonts.uiTierFonts[CORE_FONT_TEXT_SIZE_BASIC];
+    if (g_fonts.globalFont) {
+        strncpy(g_fonts.globalFontPath, g_fonts.uiTierPaths[CORE_FONT_TEXT_SIZE_BASIC], sizeof(g_fonts.globalFontPath) - 1);
+        g_fonts.globalFontPath[sizeof(g_fonts.globalFontPath) - 1] = '\0';
+        g_fonts.globalFontPoint = g_fonts.uiTierPoints[CORE_FONT_TEXT_SIZE_BASIC];
     } else {
-        globalFontPath[0] = '\0';
-        globalFontPoint = 0;
+        g_fonts.globalFontPath[0] = '\0';
+        g_fonts.globalFontPoint = 0;
     }
-    return globalFont != NULL;
+    return g_fonts.globalFont != NULL;
 }
 
 static void loadTerminalMonospaceFont(void) {
     clear_raster_font_cache();
-    if (terminalFont) {
-        TTF_CloseFont(terminalFont);
-        terminalFont = NULL;
+    if (g_fonts.terminalFont) {
+        close_unpinned_font(g_fonts.terminalFont);
+        g_fonts.terminalFont = NULL;
     }
-    terminalFontPath[0] = '\0';
-    terminalFontPoint = 0;
+    g_fonts.terminalFontPath[0] = '\0';
+    g_fonts.terminalFontPoint = 0;
 
     const char* candidates[] = {
         "include/fonts/JetBrainsMono/JetBrainsMono-Regular.ttf",
@@ -201,10 +238,10 @@ static void loadTerminalMonospaceFont(void) {
         TTF_Font* f = open_font_runtime_aware(candidates[i], terminalSize, loaded_path, sizeof(loaded_path));
         if (f) {
             configure_font(f, 0);
-            terminalFont = f;
-            strncpy(terminalFontPath, loaded_path, sizeof(terminalFontPath) - 1);
-            terminalFontPath[sizeof(terminalFontPath) - 1] = '\0';
-            terminalFontPoint = terminalSize;
+            g_fonts.terminalFont = f;
+            strncpy(g_fonts.terminalFontPath, loaded_path, sizeof(g_fonts.terminalFontPath) - 1);
+            g_fonts.terminalFontPath[sizeof(g_fonts.terminalFontPath) - 1] = '\0';
+            g_fonts.terminalFontPoint = terminalSize;
             printf("Loaded terminal font: %s\n", loaded_path);
             return;
         }
@@ -232,10 +269,10 @@ static bool loadSharedTerminalFont(void) {
         return false;
     }
     configure_font(f, 0);
-    terminalFont = f;
-    strncpy(terminalFontPath, path, sizeof(terminalFontPath) - 1);
-    terminalFontPath[sizeof(terminalFontPath) - 1] = '\0';
-    terminalFontPoint = point;
+    g_fonts.terminalFont = f;
+    strncpy(g_fonts.terminalFontPath, path, sizeof(g_fonts.terminalFontPath) - 1);
+    g_fonts.terminalFontPath[sizeof(g_fonts.terminalFontPath) - 1] = '\0';
+    g_fonts.terminalFontPoint = point;
     return true;
 }
 
@@ -245,23 +282,23 @@ bool initFontSystem() {
         return false;
     }
 
+    /* Stage new handles while the current set remains alive. Failed reloads
+       restore it; allocator pointer reuse cannot alias old handles during load. */
+    FontSet previous = g_fonts;
+    memset(&g_fonts, 0, sizeof(g_fonts));
     clear_raster_font_cache();
     clear_font_sources();
-    closeUiTierFonts();
-    if (!loadSharedUiTierFonts()) {
-        if (!loadFontByID(FONT_MONTSERRAT_MEDIUM)) {
-            return false;
-        }
+    if (!loadSharedUiTierFonts() &&
+        (previous.globalFont || !loadFontByID(FONT_MONTSERRAT_MEDIUM))) {
+        close_font_set(&g_fonts);
+        g_fonts = previous;
+        rebuild_font_sources();
+        return false;
     }
-
-    if (terminalFont) {
-        TTF_CloseFont(terminalFont);
-        terminalFont = NULL;
-    }
-    if (!loadSharedTerminalFont()) {
-        loadTerminalMonospaceFont();
-    }
+    if (!loadSharedTerminalFont()) loadTerminalMonospaceFont();
+    close_font_set(&previous);
     rebuild_font_sources();
+    render_text_measurement_cache_reset();
     return true;
 }
 
@@ -269,47 +306,63 @@ bool reloadFontSystem() {
     return initFontSystem();
 }
 
+bool beginFontPreview(void) {
+    if (g_preview_active || !g_fonts.globalFont) return false;
+    g_preview_baseline = g_fonts;
+    g_preview_active = true;
+    return true;
+}
+
+void acceptFontPreview(void) {
+    if (!g_preview_active) return;
+    g_preview_active = false;
+    close_font_set_except(&g_preview_baseline, &g_fonts);
+}
+
+bool cancelFontPreview(void) {
+    if (!g_preview_active) return false;
+    clear_raster_font_cache();
+    close_font_set(&g_fonts);
+    g_fonts = g_preview_baseline;
+    memset(&g_preview_baseline, 0, sizeof(g_preview_baseline));
+    g_preview_active = false;
+    rebuild_font_sources();
+    render_text_measurement_cache_reset();
+    return true;
+}
+
 void shutdownFontSystem() {
     clear_raster_font_cache();
     clear_font_sources();
-    if (terminalFont) {
-        TTF_CloseFont(terminalFont);
-        terminalFont = NULL;
-    }
-    terminalFontPath[0] = '\0';
-    terminalFontPoint = 0;
-    closeUiTierFonts();
-    if (globalFont) {
-        TTF_CloseFont(globalFont);
-        globalFont = NULL;
-    }
-    globalFontPath[0] = '\0';
-    globalFontPoint = 0;
+    close_font_set(&g_fonts);
+    g_preview_active = false;
+    close_font_set(&g_preview_baseline);
+    render_text_measurement_cache_reset();
     if (TTF_WasInit()) {
         TTF_Quit();
     }
 }
 
 TTF_Font* getActiveFont() {
-    return globalFont;
+    return g_fonts.globalFont;
 }
 
 TTF_Font* getTerminalFont() {
-    return terminalFont ? terminalFont : globalFont;
+    return g_fonts.terminalFont ? g_fonts.terminalFont : g_fonts.globalFont;
 }
 
 TTF_Font* getUIFontByTier(CoreFontTextSizeTier tier) {
     if ((int)tier < 0 || tier >= CORE_FONT_TEXT_SIZE_COUNT) {
-        return globalFont;
+        return g_fonts.globalFont;
     }
-    return uiTierFonts[tier] ? uiTierFonts[tier] : globalFont;
+    return g_fonts.uiTierFonts[tier] ? g_fonts.uiTierFonts[tier] : g_fonts.globalFont;
 }
 
 int getUIFontPointSizeByTier(CoreFontTextSizeTier tier) {
     if ((int)tier < 0 || tier >= CORE_FONT_TEXT_SIZE_COUNT) {
         return 0;
     }
-    return uiTierPoints[tier];
+    return g_fonts.uiTierPoints[tier];
 }
 
 TTF_Font* getRasterizedFontForScale(TTF_Font* base_font, float scale, float* out_raster_scale) {
@@ -418,25 +471,27 @@ bool loadFontByID(FontID id) {
             return false;
     }
 
+    char loaded_path[PATH_MAX];
+    TTF_Font* replacement = open_font_runtime_aware(fontPath, fontSize, loaded_path, sizeof(loaded_path));
+    if (!replacement) {
+        fprintf(stderr, "Failed to load font: %s\n", TTF_GetError());
+        return false;
+    }
+    configure_font(replacement, 1);
     clear_raster_font_cache();
-    if (globalFont) {
-        TTF_CloseFont(globalFont);
-    }
-
-    {
-        char loaded_path[PATH_MAX];
-        globalFont = open_font_runtime_aware(fontPath, fontSize, loaded_path, sizeof(loaded_path));
-        if (!globalFont) {
-            fprintf(stderr, "Failed to load font: %s\n", TTF_GetError());
-            return false;
+    for (int i = 0; i < CORE_FONT_TEXT_SIZE_COUNT; ++i) {
+        if (g_fonts.globalFont && g_fonts.uiTierFonts[i] == g_fonts.globalFont) {
+            g_fonts.uiTierFonts[i] = replacement;
+            g_fonts.uiTierPoints[i] = fontSize;
+            snprintf(g_fonts.uiTierPaths[i], sizeof(g_fonts.uiTierPaths[i]), "%s", loaded_path);
         }
-        configure_font(globalFont, 1);
-        strncpy(globalFontPath, loaded_path, sizeof(globalFontPath) - 1);
-        globalFontPath[sizeof(globalFontPath) - 1] = '\0';
-        globalFontPoint = fontSize;
-        rebuild_font_sources();
-        printf("Loaded font: %s\n", loaded_path);
     }
+    if (g_fonts.globalFont) close_unpinned_font(g_fonts.globalFont);
+    g_fonts.globalFont = replacement;
+    snprintf(g_fonts.globalFontPath, sizeof(g_fonts.globalFontPath), "%s", loaded_path);
+    g_fonts.globalFontPoint = fontSize;
+    rebuild_font_sources();
+    render_text_measurement_cache_reset();
     return true;
 }
 

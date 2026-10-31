@@ -4,6 +4,7 @@
 #include "core_font.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <SDL2/SDL_ttf.h>
 
 // Font selection enum
@@ -24,6 +25,13 @@ bool initFontSystem();
 bool reloadFontSystem();
 void shutdownFontSystem();
 bool loadFontByID(FontID id);
+
+// Authoring pins the entry handles; Cancel requires no asset I/O.
+bool beginFontPreview(void);
+void acceptFontPreview(void);
+bool cancelFontPreview(void);
+
+uint64_t getFontSystemRevision(void);
 
 // Font accessor
 TTF_Font* getActiveFont();

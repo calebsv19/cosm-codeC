@@ -17,3 +17,10 @@ mutate shared state without having to know who owns the memory.
 
 Together these modules act as the boundary between process-level wiring in
 `app/` and the reusable systems in `core/` and `ide/`.
+
+`font_settings_runtime.h/c` composes the existing font adapter/loader and
+preference sink: failed loads roll back logical settings without saving;
+accepted runtime size changes save after loading. Workspace authoring pins its
+entry font handles, previews without saving, restores them without file I/O on
+Cancel and releases the pin after Apply. Font/theme policy remains shared;
+this module owns only the codeC runtime transaction.

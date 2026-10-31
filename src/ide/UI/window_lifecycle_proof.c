@@ -1,3 +1,4 @@
+#include "ide/UI/font_settings_proof.h"
 #include "ide/Panes/ControlPanel/control_panel.h"
 #include "ide/Panes/ToolPanels/Git/tool_git.h"
 #include "ide/Panes/ToolPanels/tool_panel_adapter.h"
@@ -13,6 +14,7 @@
 #include "ide/Panes/IconBar/input_icon_bar.h"
 #include "ide/Panes/IconBar/command_icon_bar.h"
 #include <stdlib.h>
+#include <string.h>
 #include "ide/Panes/Editor/editor_header_controls.h"
 #include "ide/Panes/Editor/Input/input_editor.h"
 static KitUiWindowProbe probe;
@@ -80,6 +82,14 @@ void ide_window_proof_tick(bool* running) {
         probe.status = -1;
         *running = false;
         return;
+    }
+    static bool font_proof_done;
+    const char* font_proof = getenv("CODEWORK_IDE_FONT_SETTINGS_PROOF");
+    if (font_proof && !font_proof_done) {
+        bool reopen = strcmp(font_proof, "reopen") == 0;
+        font_proof_done = true;
+        if (!ide_font_settings_proof_run(reopen)) { probe.status=-1; *running=false; return; }
+        if (reopen) { probe.status=1; *running=false; return; }
     }
     const char* panels = getenv("CODEWORK_IDE_UI_PROOF_PANELS");
     static int previous_phase = -1;

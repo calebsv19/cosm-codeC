@@ -1,4 +1,5 @@
 #include "app/GlobalInfo/workspace_authoring_host.h"
+#include "app/GlobalInfo/font_settings_runtime.h"
 #include "app/GlobalInfo/workspace_authoring_presentation_ui.h"
 #include "app/GlobalInfo/workspace_authoring_profile_path.h"
 #include "app/GlobalInfo/workspace_authoring_session_adapter.h"
@@ -15,9 +16,6 @@
 #include "ide/UI/shared_theme_font_adapter.h"
 
 static void authoring_refresh_after_font_theme_change(uint32_t reason_bits) {
-    render_text_cache_shutdown();
-    (void)reloadFontSystem();
-    terminal_notify_font_metrics_changed();
     ide_refresh_live_theme();
     requestFullRedraw(reason_bits);
 }
@@ -215,6 +213,10 @@ static bool authoring_apply_font_theme_action(IDEWorkspaceAuthoringHost *host,
     const char *preset_name;
     char status[160];
     bool changed = false;
+    bool font_action = false;
+    int requested_zoom = ide_shared_font_zoom_step();
+    char requested_preset[64];
+    if (!ide_shared_font_current_preset(requested_preset, sizeof(requested_preset))) return false;
 
     if (!host || !host->active ||
         button_id == KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_NONE ||
@@ -225,23 +227,24 @@ static bool authoring_apply_font_theme_action(IDEWorkspaceAuthoringHost *host,
     action = kit_workspace_authoring_ui_font_theme_action_for_button(button_id);
     switch (action.type) {
         case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_TEXT_SIZE_DEC:
-            changed = ide_shared_font_step_by(-1);
-            snprintf(status, sizeof(status), "Text size step: %d.", ide_shared_font_zoom_step());
+            font_action = true; --requested_zoom;
+            snprintf(status, sizeof(status), "Text size step: %d.", requested_zoom);
             authoring_set_status(host, status);
             break;
         case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_TEXT_SIZE_INC:
-            changed = ide_shared_font_step_by(1);
-            snprintf(status, sizeof(status), "Text size step: %d.", ide_shared_font_zoom_step());
+            font_action = true; ++requested_zoom;
+            snprintf(status, sizeof(status), "Text size step: %d.", requested_zoom);
             authoring_set_status(host, status);
             break;
         case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_TEXT_SIZE_RESET:
-            changed = ide_shared_font_reset_zoom_step();
+            font_action = true; requested_zoom = 0;
             authoring_set_status(host, "Text size reset.");
             break;
         case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_SET_FONT_PRESET:
             preset_name = core_font_preset_name(action.font_preset_id);
-            if (preset_name && ide_shared_font_set_preset(preset_name)) {
-                changed = true;
+            if (preset_name) {
+                font_action = true;
+                snprintf(requested_preset, sizeof(requested_preset), "%s", preset_name);
                 snprintf(status, sizeof(status), "Font preset: %s.", preset_name);
                 authoring_set_status(host, status);
             }
@@ -264,6 +267,17 @@ static bool authoring_apply_font_theme_action(IDEWorkspaceAuthoringHost *host,
             return false;
     }
 
+    if (font_action) {
+        if (!ide_font_settings_apply(requested_preset, requested_zoom, false)) {
+            authoring_set_status(host, "Font change failed; previous font and size retained.");
+            requestFullRedraw(RENDER_INVALIDATION_OVERLAY);
+            return true;
+        }
+        changed = true;
+        snprintf(status, sizeof(status), "Font: %s; text size step: %d.",
+                 requested_preset, ide_shared_font_zoom_step());
+        authoring_set_status(host, status);
+    }
     host->font_theme_action_count += 1u;
     if (changed) {
         authoring_refresh_after_font_theme_change(RENDER_INVALIDATION_THEME |

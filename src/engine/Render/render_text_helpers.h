@@ -5,6 +5,9 @@
 #include <SDL2/SDL_ttf.h>
 #include <stddef.h>
 
+// Call when font handles/metrics change.
+void render_text_measurement_cache_reset(void);
+
 // Public helpers
 int getTextWidth(const char* text);
 int getTextWidthN(const char* text, int n);

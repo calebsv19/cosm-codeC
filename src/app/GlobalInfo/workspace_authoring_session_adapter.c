@@ -1,4 +1,5 @@
 #include "app/GlobalInfo/workspace_authoring_session_adapter.h"
+#include "app/GlobalInfo/font_settings_runtime.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -24,7 +25,6 @@ static void adapter_set_status(IDEWorkspaceAuthoringHost *host, const char *stat
 
 static void adapter_refresh_after_font_theme_change(uint32_t reason_bits) {
     render_text_cache_shutdown();
-    (void)reloadFontSystem();
     terminal_notify_font_metrics_changed();
     ide_refresh_live_theme();
     requestFullRedraw(reason_bits);
@@ -39,6 +39,7 @@ static CoreWorkspaceAuthoringSessionHookResult adapter_begin_authoring(void *con
                                                     getActiveIcon())) {
         return CORE_WORKSPACE_AUTHORING_SESSION_HOOK_FAILED;
     }
+    if (!beginFontPreview()) return CORE_WORKSPACE_AUTHORING_SESSION_HOOK_REJECTED;
     host->draft_presentation = host->baseline_presentation;
     host->presentation_draft_ready = 1u;
 
@@ -70,9 +71,6 @@ static CoreWorkspaceAuthoringSessionHookResult adapter_validate_draft(void *cont
 static CoreWorkspaceAuthoringSessionHookResult adapter_apply_draft(void *context) {
     IDEWorkspaceAuthoringHost *host = context;
     char theme_preset[64] = {0};
-    char font_preset[64] = {0};
-    char zoom_step_buf[16];
-    int zoom_step;
 
     if (!host || !host->active) return CORE_WORKSPACE_AUTHORING_SESSION_HOOK_FAILED;
     if (!ide_workspace_authoring_projection_apply(&host->draft_presentation, getUIState())) {
@@ -82,16 +80,11 @@ static CoreWorkspaceAuthoringSessionHookResult adapter_apply_draft(void *context
                                                 host->draft_presentation.control_panel_visible,
                                                 host->draft_presentation.terminal_visible,
                                                 host->draft_presentation.active_tool);
-    zoom_step = ide_shared_font_zoom_step();
     if (ide_shared_theme_current_preset(theme_preset, sizeof(theme_preset))) {
         saveThemePresetPreference(theme_preset);
     }
-    if (ide_shared_font_current_preset(font_preset, sizeof(font_preset))) {
-        saveFontPresetPreference(font_preset);
-    }
-    saveFontZoomStepPreference(zoom_step);
-    snprintf(zoom_step_buf, sizeof(zoom_step_buf), "%d", zoom_step);
-    setenv("IDE_FONT_ZOOM_STEP", zoom_step_buf, 1);
+    ide_font_settings_persist_current();
+    acceptFontPreview();
     host->apply_count += 1u;
     host->last_event_accepted = 1u;
     adapter_set_status(host, "Authoring applied.");
@@ -105,6 +98,8 @@ static CoreWorkspaceAuthoringSessionHookResult adapter_cancel_draft(void *contex
         !ide_workspace_authoring_projection_apply(&host->baseline_presentation, getUIState())) {
         return CORE_WORKSPACE_AUTHORING_SESSION_HOOK_FAILED;
     }
+    render_text_cache_shutdown();
+    if (!cancelFontPreview()) return CORE_WORKSPACE_AUTHORING_SESSION_HOOK_FAILED;
     if (host->baseline_theme_preset[0]) {
         (void)ide_shared_theme_set_preset(host->baseline_theme_preset);
     }

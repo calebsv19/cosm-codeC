@@ -302,3 +302,64 @@ regression. Window interruption clears panel pointer drafts and rename preedit
 while retaining committed rename text. The synchronous diagnostics report API
 remains available to headless callers; startup uses background byte reads and
 UI-thread parsing. Analysis updates invalidate pending cached reports.
+
+
+## Font resource safety refinement, 2026-10-31
+
+The existing presets, font assets, shared authoring and size shortcuts are
+retained. Reload now stages font handles before releasing the current set and
+restores it if replacement fails. Legacy selection updates the aliased UI tier;
+full-buffer clamp fingerprints and font-commit invalidation prevent stale cutoff
+measurements. Real-font rollback/ownership/suffix-edit/preset/zoom checks pass,
+including ASan/UBSan and raster scales1/1.25/1.5/2. Fresh contained compile,
+field/rename and stable/headless gates pass. Native lifecycle captures at actual1x
+and2x pass with zero Vulkan validation warnings/errors.
+
+This is Main Edit source/runtime proof, separate from canonical adoption,
+installed-app refresh and public release. Remaining focused boundaries include
+integer-logical destination resampling, raster-cache eviction stress, settings
+failure/persistence transactions, native Apply/Cancel/relaunch/shortcut replay,
+fractional drawable/display transitions and full native IME acceptance.
+
+
+### Settings acceptance successor, 2026-10-31
+
+The prior settings-failure/persistence boundary is now source-qualified. Existing
+authoring font/size buttons and size shortcuts use one app-local transaction:
+failed loads restore preset/zoom and skip saves. Authoring pins its entry handles;
+Cancel restores those exact handles without font-file I/O, and Apply saves the
+accepted state and releases the pin. Theme-only changes avoid font reloads.
+Real-font and ASan/UBSan tests, fresh contained compile, field/rename/stable/smoke
+gates pass. Actual1x/2x native production dispatch proves preview-no-save,
+Escape rollback, field shortcut ownership, Enter Apply and a separate-process
+saved-state reopen; lifecycle validation reports zero warnings/errors.
+
+Pixel-exact drawable text, fractional display/transitions and comprehensive IME
+remain open. Native proof uses synthetic SDL events in disposable workspaces;
+physical input delivery and preference-file I/O failure reporting remain separate.
+Canonical, installed apps and release remain unchanged.
+
+
+### Native pixel fidelity successor, 2026-10-31
+
+The active codeC text path now preserves native raster dimensions and snaps
+origins through the existing Vulkan float-quad API. Parent/explicit scissor
+intersection avoids clipped-source resampling. Stable base-font/revision/density
+texture keys survive raster-cache eviction and font reloads. Long clipped labels
+have the same transient/native-fallback path. Measured widths/prefixes use the
+selected raster font; integer caret/hit geometry retains its existing granularity.
+Fonts, presets, hinting, kerning and size shortcuts are preserved.
+
+Fresh compile, lifecycle/settings/field/rename/stable/headless gates pass. Native
+CPU/GPU oracle compares51,324,000 full-frame pixels across actual1x/2x hosts and
+1/1.25/1.5/2 drawable ratios, with RGB tolerance1, CJK/color emoji, cache replay/
+eviction/reload, nested clips, long labels and caret/hit checks. Targeted ASan/
+UBSan instrumentation passes the same corpus. Actual app settings/shortcuts/
+Apply/Cancel/reopen and eight-stage lifecycle pass both scales with zero Vulkan
+warnings/errors. Use scoped absolute validation manifests for capture; a global
+Homebrew DYLD library override interferes with macOS emoji image decoding.
+
+This closes the prior pixel-placement/cache source slice. Installed delivery,
+physical input/display transitions, comprehensive IME/grapheme/bidi, nonuniform
+command transforms and Linux/Windows qualification remain separate. Canonical,
+installed apps and releases are unchanged.
