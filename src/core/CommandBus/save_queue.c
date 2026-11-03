@@ -1,4 +1,5 @@
 #include "save_queue.h"
+#include "save_publication.h"
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "ide/Panes/Editor/editor_view.h"
 #include "core/Analysis/analysis_scheduler.h"
@@ -12,6 +13,15 @@
 #include <string.h>
 #include <SDL2/SDL.h>
 
+typedef struct SaveQueueItem {
+    char* filePath;
+    char* contents;
+    size_t length;
+    OpenFile* owner; /* Drained before the last editor reference is released. */
+    uint64_t revision;
+    struct SaveQueueItem* next;
+} SaveQueueItem;
+
 static SaveQueueItem* head = NULL;
 static SaveQueueItem* tail = NULL;
 
@@ -21,70 +31,55 @@ void initSaveQueue() {
 }
 
 void shutdownSaveQueue() {
-    // Free all remaining items
-    while (head) {
-        SaveQueueItem* next = head->next;
-        free(head->filePath);
-        free(head->contents);
-        free(head);
-        head = next;
-    }
-    tail = NULL;
+    while (head) tickSaveQueue();
 }
 
-void addSaveToQueue(const char* filePath, const char* contents, size_t length) {
-    SaveQueueItem* item = malloc(sizeof(SaveQueueItem));
-    item->filePath = strdup(filePath);
-    item->contents = malloc(length);
-    memcpy(item->contents, contents, length);
+static bool enqueueSnapshot(const char* path, char* contents, size_t length, OpenFile* owner) {
+    SaveQueueItem* item = calloc(1, sizeof(*item));
+    if (!item || !(item->filePath = strdup(path))) {
+        free(item);
+        free(contents);
+        return false;
+    }
+    item->contents = contents;
     item->length = length;
-    item->next = NULL;
-
-    if (!tail) {
-        head = tail = item;
-    } else {
-        tail->next = item;
-        tail = item;
-    }
-
-    printf("[SaveQueue] Queued save for: %s (%zu bytes)\n", filePath, length);
+    item->owner = owner;
+    item->revision = owner ? owner->documentRevision : 0;
+    if (tail) tail->next = item;
+    else head = item;
+    tail = item;
+    return true;
 }
 
-void queueSaveFromOpenFile(OpenFile* file) {
-    if (!file || !file->filePath || !file->buffer) {
-        printf("[SaveQueue] Invalid file passed to save\n");
-        return;
-    }
+void addSaveToQueue(const char* path, const char* contents, size_t length) {
+    if (!path || !contents) return;
+    char* copy = malloc(length ? length : 1);
+    if (copy) memcpy(copy, contents, length);
+    if (!copy || !enqueueSnapshot(path, copy, length, NULL))
+        fprintf(stderr, "[SaveQueue] Could not queue %s\n", path);
+}
 
+bool queueSaveFromOpenFile(OpenFile* file) {
+    if (!file || !file->filePath || !file->buffer) return false;
     size_t length = 0;
     char* snapshot = getBufferSnapshot(file->buffer, &length);
-    
-    if (!snapshot) {
-        printf("[SaveQueue] Failed snapshot for: %s\n", file->filePath);
-        return;
-    }
-
-    addSaveToQueue(file->filePath, snapshot, length);
-    free(snapshot);
-
-    file->isModified = false;
-    file->showSavedTag = true;
-    file->savedTagTimestamp = SDL_GetTicks();
+    file->showSavedTag = false;
+    file->saveFailed = !snapshot || !enqueueSnapshot(file->filePath, snapshot, length, file);
+    if (file->saveFailed) file->isModified = true;
+    return !file->saveFailed;
 }
-
-
 
 void tickSaveQueue() {
     if (!head) return;
-
     SaveQueueItem* item = head;
-
-    FILE* f = fopen(item->filePath, "w");
-    if (f) {
-        fwrite(item->contents, 1, item->length, f);
-        fclose(f);
-        printf("[SaveQueue] Saved: %s\n", item->filePath);
-
+    OpenFile* file = item->owner;
+    if (publishEditorSnapshot(item->filePath, item->contents, item->length)) {
+        if (file && !strcmp(item->filePath, file->filePath) && item->revision == file->documentRevision) {
+            file->saveFailed = false;
+            file->isModified = false;
+            file->showSavedTag = true;
+            file->savedTagTimestamp = SDL_GetTicks();
+        }
         // Queue async analysis refresh; do not block the main thread on save.
         analysis_status_set(ANALYSIS_STATUS_STALE_LOADING);
         loop_events_emit_analysis_status_updated(projectPath, 0u, SDL_GetTicks64());
@@ -95,7 +90,12 @@ void tickSaveQueue() {
         // save-driven analysis churn does not force tree/UI resets.
         pollGitStatusWatcher();
     } else {
-        printf("[SaveQueue] FAILED to save: %s\n", item->filePath);
+        if (file) {
+            file->saveFailed = true;
+            file->isModified = true;
+            file->showSavedTag = false;
+        }
+        fprintf(stderr, "[SaveQueue] FAILED to save: %s\n", item->filePath);
     }
 
     head = item->next;
@@ -108,4 +108,17 @@ void tickSaveQueue() {
 
 bool isSaveQueueBusy() {
     return head != NULL;
+}
+
+bool finishPendingFileSaves(OpenFile* file) {
+    /* Preserve FIFO order across duplicate paths before a file can be freed. */
+    SaveQueueItem* last = NULL;
+    for (SaveQueueItem* item = head; item; item = item->next)
+        if (item->owner == file) last = item;
+    if (last) {
+        while (head != last) tickSaveQueue();
+        tickSaveQueue();
+        if (file->isModified) return false;
+    }
+    return !file->saveFailed;
 }

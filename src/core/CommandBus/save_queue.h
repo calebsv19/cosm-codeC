@@ -9,13 +9,6 @@
 
 
 
-typedef struct SaveQueueItem {
-    char* filePath;
-    char* contents;
-    size_t length;
-    struct SaveQueueItem* next;
-} SaveQueueItem;
-
 void initSaveQueue();
 void shutdownSaveQueue();
 void tickSaveQueue();  // call this once per frame or main loop tick
@@ -24,8 +17,9 @@ void tickSaveQueue();  // call this once per frame or main loop tick
 
 // Public entry point
 void addSaveToQueue(const char* filePath, const char* contents, size_t length);
-void queueSaveFromOpenFile(OpenFile* file);
+bool queueSaveFromOpenFile(OpenFile* file);
 
+bool finishPendingFileSaves(OpenFile* file);
 bool isSaveQueueBusy(); // optional helper
 
 #endif

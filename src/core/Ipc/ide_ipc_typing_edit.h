@@ -3,6 +3,9 @@
 
 #include "core/Ipc/ide_ipc_typing.h"
 
+struct OpenFile;
+void ide_ipc_typing_file_closed(struct OpenFile* file);
+
 IdeIpcTypingStepResult ide_ipc_typing_edit_step(
     const IdeIpcTypingRequest* request,
     bool begin,

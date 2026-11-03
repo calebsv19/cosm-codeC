@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "buffer_safety.h"
 #include <stdlib.h>
@@ -6,18 +7,22 @@
 
 
 char* getBufferSnapshot(EditorBuffer* buffer, size_t* outLength) {
+    if (!outLength) return NULL;
+    *outLength = 0;
     if (!buffer || buffer->lineCount == 0) {
-        *outLength = 0;
         return strdup("");
     }
 
     // Total length = sum of all line lengths + 1 '\n' per line
     size_t totalLength = 0;
     for (int i = 0; i < buffer->lineCount; i++) {
-        totalLength += strlen(buffer->lines[i]) + 1; // +1 for newline
+        size_t len = strlen(buffer->lines[i]);
+        if (len >= SIZE_MAX - totalLength - 1) return NULL;
+        totalLength += len + 1;
     }
 
     char* snapshot = malloc(totalLength + 1); // +1 for final '\0'
+    if (!snapshot) return NULL;
     char* cursor = snapshot;
 
     for (int i = 0; i < buffer->lineCount; i++) {

@@ -130,7 +130,7 @@ void renderMenuBarStandard(UIPane* pane, SDL_Renderer* renderer, struct IDECoreS
                 .x = tagX,
                 .y = y,
                 .maxWidth = getRightMenuButtonRect(pane, 0).x - tagX - 8,
-                .text = "[modified]",
+                .text = file->saveFailed ? "[save failed - retry Save]" : "[modified]",
                 .flags = TEXT_SELECTION_FLAG_SELECTABLE,
             };
             if (modifiedOpts.maxWidth > 0) drawSelectableText(&modifiedOpts);
@@ -197,7 +197,7 @@ void renderMenuBarCenteredFile(UIPane* pane, SDL_Renderer* renderer, struct IDEC
                 .x = tagX,
                 .y = y,
                 .maxWidth = getRightMenuButtonRect(pane, 0).x - tagX - 8,
-                .text = "[modified]",
+                .text = file->saveFailed ? "[save failed - retry Save]" : "[modified]",
                 .flags = TEXT_SELECTION_FLAG_SELECTABLE,
             };
             if (modifiedOpts.maxWidth > 0) drawSelectableText(&modifiedOpts);

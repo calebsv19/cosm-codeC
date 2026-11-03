@@ -1,3 +1,5 @@
+#include "core/CommandBus/save_queue.h"
+#include "core/Ipc/ide_ipc_typing_edit.h"
 #include "editor_header_controls.h"
 
 #include <assert.h>
@@ -222,6 +224,8 @@ static void editor_release_open_file(OpenFile* file) {
         if (file->refCount > 0) return;
     }
 
+    finishPendingFileSaves(file);
+    ide_ipc_typing_file_closed(file);
     unwatchFile(file);
     clearUndoHistory(file);
     free(file->undoStack);
@@ -614,6 +618,7 @@ void closeTab(EditorView* view, int index) {
     ide_editor_headers_forget_view(view);
     OpenFile* file = view->openFiles[index];
     if (file) {
+        if (file->refCount <= 1 && !finishPendingFileSaves(file)) return;
         editor_release_open_file(file);
     }
 

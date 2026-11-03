@@ -12,6 +12,7 @@ const char* getFileName(const char* path) {
 
 void markFileAsModified(OpenFile* file) {
     if (!file) return;
+    file->showSavedTag = false;
     file->isModified = true;
     file->bufferVersion++;
     file->documentRevision++;
@@ -40,6 +41,7 @@ void reloadOpenFileFromDisk(OpenFile* file) {
     loop_events_emit_document_revision_changed(file->filePath, file->documentRevision);
     editor_invalidate_file_projection(file);
 
+    file->saveFailed = false;
     file->isModified = false;
     file->showSavedTag = false;
 

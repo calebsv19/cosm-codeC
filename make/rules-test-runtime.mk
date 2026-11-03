@@ -221,7 +221,7 @@ test-editor-session-control-panel:
 	@echo "Editor session Control panel test passed."
 
 .PHONY: test-ipc-document-control
-test-ipc-document-control:
+test-ipc-document-control: test-editor-save-queue
 	@mkdir -p $(TEST_BUILD_DIR)
 	$(CC) $(CFLAGS) tests/ide_ipc_document_test.c src/core/Ipc/ide_ipc_document.c -o $(TEST_BUILD_DIR)/ide_ipc_document_test $(LIB_DIRS) -ljson-c -lpthread
 	$(TEST_BUILD_DIR)/ide_ipc_document_test
@@ -315,3 +315,18 @@ build-render-text-pixel-test: all
 	@mkdir -p $(TEST_BUILD_DIR)
 	$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -c tests/render_text_pixel_test.c -o $(TEST_BUILD_DIR)/render_text_pixel_test.o
 	$(HOST_CC) $(ARCH_FLAGS) -o $(TEST_BUILD_DIR)/render_text_pixel_test $(TEST_BUILD_DIR)/render_text_pixel_test.o $(filter-out $(APP_OBJ_DIR)/app/main.o,$(APP_OBJ_FILES)) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(IDE_SHARED_LIBS) $(LDFLAGS)
+
+.PHONY: test-editor-save-queue
+test-editor-save-queue:
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(CC) $(CFLAGS) -Dwrite=save_test_write -Dclose=save_test_close -c src/core/CommandBus/save_publication.c -o $(TEST_BUILD_DIR)/test_save_publication.o
+	$(CC) $(CFLAGS) -Dcalloc=save_test_calloc -c src/core/CommandBus/save_queue.c -o $(TEST_BUILD_DIR)/test_save_queue.o
+	$(CC) $(CFLAGS) tests/editor_save_queue_test.c $(TEST_BUILD_DIR)/test_save_queue.o src/ide/Panes/Editor/editor_buffer.c src/ide/Panes/Editor/buffer_safety.c $(TEST_BUILD_DIR)/test_save_publication.o -o $(TEST_BUILD_DIR)/editor_save_queue_test $(LIB_DIRS) -lSDL2
+	$(TEST_BUILD_DIR)/editor_save_queue_test
+
+.PHONY: test-editor-save-reopen
+test-stable: test-editor-save-reopen
+test-editor-save-reopen: all
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -o $(TEST_BUILD_DIR)/editor_save_reopen_test tests/editor_save_reopen_test.c $(filter-out $(APP_OBJ_DIR)/app/main.o,$(APP_OBJ_FILES)) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(IDE_SHARED_LIBS) $(LDFLAGS)
+	$(TEST_BUILD_DIR)/editor_save_reopen_test

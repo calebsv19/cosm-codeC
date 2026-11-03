@@ -101,6 +101,7 @@ typedef struct OpenFile{
     EditorState state;
 
     bool isModified;
+    bool saveFailed;
     bool showSavedTag;
     Uint32 savedTagTimestamp;
 

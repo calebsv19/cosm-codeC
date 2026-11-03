@@ -676,7 +676,7 @@ bool ide_ipc_apply_unified_diff(const char* project_root,
                       "Editor buffer cannot represent patch bytes exactly");
             return false;
         }
-        queueSaveFromOpenFile(file);
+        bool queued = queueSaveFromOpenFile(file);
 
         json_object_array_add(touched, json_object_new_string(fp->new_path));
         int guard = 0;
@@ -686,7 +686,7 @@ bool ide_ipc_apply_unified_diff(const char* project_root,
         }
         size_t saved_len = 0;
         char* saved_text = read_text_file(abs_path, &saved_len);
-        bool saved = !isSaveQueueBusy() && saved_text &&
+        bool saved = queued && !file->isModified && !file->saveFailed && !isSaveQueueBusy() && saved_text &&
                      saved_len == queued_len &&
                      memcmp(saved_text, queued_text, saved_len) == 0;
         free(saved_text);

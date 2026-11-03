@@ -39,6 +39,13 @@ typedef struct {
 
 static TypingUiState g_typing_ui;
 
+void ide_ipc_typing_file_closed(OpenFile* file) {
+    if (g_typing_ui.file == file) {
+        g_typing_ui.file = NULL;
+        g_typing_ui.phase = TYPING_UI_IDLE;
+    }
+}
+
 static void set_error(char* out, size_t cap, const char* message) {
     if (out && cap) snprintf(out, cap, "%s", message ? message : "Visible typing failed");
 }
@@ -235,8 +242,8 @@ static IdeIpcTypingStepResult finish_typing(const IdeIpcTypingRequest* request,
     if (isSaveQueueBusy()) return IDE_IPC_TYPING_STEP_CONTINUE;
     size_t saved_length = 0;
     char* saved = read_file(g_typing_ui.absolute_path, &saved_length);
-    if (!saved || !fnv_matches((const unsigned char*)saved, saved_length,
-                               request->expected_after_fnv64)) {
+    if (g_typing_ui.file->saveFailed || g_typing_ui.file->isModified || !saved ||
+        !fnv_matches((const unsigned char*)saved, saved_length, request->expected_after_fnv64)) {
         free(saved);
         set_error(error_out, error_out_cap,
                   "Visible typing is partial or save readback does not match the expected result");
@@ -329,7 +336,11 @@ IdeIpcTypingStepResult ide_ipc_typing_edit_step(
         return IDE_IPC_TYPING_STEP_FAILED;
     }
     free(final_snapshot);
-    queueSaveFromOpenFile(file);
+    if (!queueSaveFromOpenFile(file)) {
+        g_typing_ui.phase = TYPING_UI_IDLE;
+        set_error(error_out, error_out_cap, "Could not queue save; retry Save in editor");
+        return IDE_IPC_TYPING_STEP_FAILED;
+    }
     g_typing_ui.phase = TYPING_UI_SAVING;
     return IDE_IPC_TYPING_STEP_CONTINUE;
 }
