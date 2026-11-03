@@ -12,6 +12,7 @@ int main(void) {
     char path[] = IDE_TEST_TMPDIR "/editor-reopen-XXXXXX";
     int fd = mkstemp(path);
     assert(fd >= 0 && write(fd, "old\n", 4) == 4 && !close(fd));
+    initCoreState();
     OpenFile* tabs[2] = {0};
     EditorView view = {.type=VIEW_LEAF, .fileCapacity=2, .openFiles=tabs};
     getCoreState()->persistentEditorView = &view;
@@ -38,6 +39,7 @@ int main(void) {
     assert(!file->isModified && !file->showSavedTag);
     closeTab(&view, 0);
     assert(!unlink(path));
+    shutdownCoreState();
     puts("Native command, refused last-tab close, retry, close and fresh tab readback passed.");
     return 0;
 }
