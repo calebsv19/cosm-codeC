@@ -94,6 +94,7 @@ typedef struct {
 } SearchProjection;
 
 typedef struct OpenFile{
+    uint64_t commandTargetId;
     int refCount;
     char* filePath;
 
@@ -110,6 +111,7 @@ typedef struct OpenFile{
 
     uint64_t bufferVersion;
     uint64_t documentRevision;
+    uint64_t contentRevision, savedContentRevision;
     EditorRenderSource renderSource;
     SearchProjection projection;
 } OpenFile;
@@ -133,6 +135,7 @@ typedef struct {
 
 
 typedef struct EditorView {
+    uint64_t commandTargetId;
     EditorViewType type;
     struct UIPane* parentPane;
 

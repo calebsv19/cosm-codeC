@@ -13,7 +13,7 @@ static InputCommand last_command;
 IDECoreState* getCoreState(void){return &core;}
 uint64_t ide_ipc_workspace_generation(void){return generation;}
 bool isRenaming(void){return renaming;}
-void enqueueCommand(InputCommandMetadata metadata){++commands;last_command=metadata.cmd;free(metadata.payload);}
+bool enqueueCommand(InputCommandMetadata metadata){++commands;last_command=metadata.cmd;free(metadata.payload);return true;}
 void setActiveEditorView(EditorView* view){core.activeEditorView=view;}
 EditorView* findLeafUnderCursor(EditorView* root,int x,int y){
  if(!root)return NULL;

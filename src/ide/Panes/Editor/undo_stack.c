@@ -19,6 +19,7 @@
 typedef struct {
     char* snapshot;
     size_t length;
+    uint64_t contentRevision;
     int cursorRow;
     int cursorCol;
 } UndoEntry;
@@ -30,13 +31,6 @@ typedef struct {
     int undoTop;
     int redoTop;
 
-    // === Live edit session ===
-    bool pendingTextEdit;
-    int pendingStartRow;
-    int pendingStartCol;
-    char* typedWord;
-    size_t typedWordLen;
-    size_t typedWordCap;
 } UndoStack;
 
 
@@ -81,217 +75,75 @@ static UndoStack* getOrCreateUndoStack(OpenFile* file) {
 }
 
 
-void pushUndoState(OpenFile* file){
-    if (!file || !file->buffer) return;
+static bool captureEntry(OpenFile* file, UndoEntry* entry) {
+    entry->snapshot = getBufferSnapshot(file->buffer, &entry->length);
+    entry->contentRevision = file->contentRevision;
+    entry->cursorRow = file->state.cursorRow;
+    entry->cursorCol = file->state.cursorCol;
+    return entry->snapshot != NULL;
+}
 
+bool pushUndoState(OpenFile* file) {
+    if (!file || !file->buffer) return false;
     UndoStack* stack = getOrCreateUndoStack(file);
-    if (!stack) return;
-
-    if (stack->undoTop >= MAX_UNDO_ENTRIES) {
-        // Drop oldest
+    UndoEntry entry;
+    if (!stack || !captureEntry(file, &entry)) return false;
+    if (stack->undoTop == MAX_UNDO_ENTRIES) {
         free(stack->undo[0].snapshot);
-        memmove(&stack->undo[0], &stack->undo[1], sizeof(UndoEntry) * (MAX_UNDO_ENTRIES - 1));
-        stack->undoTop = MAX_UNDO_ENTRIES - 1;
+        memmove(stack->undo, stack->undo + 1, (--stack->undoTop) * sizeof(entry));
     }
-
-    size_t len = 0;
-    char* snapshot = getBufferSnapshot(file->buffer, &len);
-    if (!snapshot || len == 0) return;
-
-    stack->undo[stack->undoTop].snapshot = snapshot;
-    stack->undo[stack->undoTop].length = len;
-    stack->undo[stack->undoTop].cursorRow = file->state.cursorRow;
-    stack->undo[stack->undoTop].cursorCol = file->state.cursorCol;
-    stack->undoTop++;
-
-    // Clear redo stack on new action
-    for (int i = 0; i < stack->redoTop; i++) {
-        free(stack->redo[i].snapshot);
-    }
-    stack->redoTop = 0;
-}
-
-
-bool performUndo(OpenFile* file) {
-    if (!file || !file->buffer) return false;
-    UndoStack* stack = getOrCreateUndoStack(file);
-    if (stack->undoTop == 0) return false;
-
-    // Move current state to redo stack
-    size_t len = 0;
-    char* snapshot = getBufferSnapshot(file->buffer, &len);
-    if (snapshot && len > 0 && stack->redoTop < MAX_UNDO_ENTRIES) {
-        stack->redo[stack->redoTop].snapshot = snapshot;
-        stack->redo[stack->redoTop].length = len;
-        stack->redo[stack->redoTop].cursorRow = file->state.cursorRow;
-        stack->redo[stack->redoTop].cursorCol = file->state.cursorCol;
-        stack->redoTop++;
-    }
-
-    // Pop from undo
-    stack->undoTop--;
-    UndoEntry* entry = &stack->undo[stack->undoTop];
-
-    IDECoreState* core = getCoreState();
-    EditorView* activeEditorView = core->activeEditorView;
-
-    loadSnapshotIntoBuffer(file->buffer, entry->snapshot, entry->length);
-    if (activeEditorView && activeEditorView->activeTab >= 0 &&
-       	 	activeEditorView->openFiles[activeEditorView->activeTab] == file) {
-     
-        editorBuffer = file->buffer;
-    }
-
-
-
-    file->state.cursorRow = entry->cursorRow;
-    file->state.cursorCol = entry->cursorCol;
-
-    file->state.selecting = false;
-
-    stack->pendingTextEdit = false;
-    free(stack->typedWord);
-    stack->typedWord = NULL;
-    stack->typedWordLen = 0;
-    stack->typedWordCap = 0;
-
-    markFileAsModified(file);
-
+    stack->undo[stack->undoTop++] = entry;
+    while (stack->redoTop) free(stack->redo[--stack->redoTop].snapshot);
+    file->pendingTextEdit = false;
     return true;
 }
 
-
-bool performRedo(OpenFile* file) {
-    if (!file || !file->buffer) return false;
-    UndoStack* stack = getOrCreateUndoStack(file);
-    if (stack->redoTop == 0) return false;
-
-    // Move current state to undo stack
-    size_t len = 0;
-    char* snapshot = getBufferSnapshot(file->buffer, &len);
-    if (snapshot && len > 0 && stack->undoTop < MAX_UNDO_ENTRIES) {
-        stack->undo[stack->undoTop].snapshot = snapshot;
-        stack->undo[stack->undoTop].length = len;
-        stack->undo[stack->undoTop].cursorRow = file->state.cursorRow;
-        stack->undo[stack->undoTop].cursorCol = file->state.cursorCol;
-        stack->undoTop++;
+static bool stepHistory(OpenFile* file, bool redo) {
+    if (!file || !file->buffer || !file->undoStack) return false;
+    UndoStack* stack = file->undoStack;
+    if (!undo_stack_is_valid(stack)) return false;
+    int* from = redo ? &stack->redoTop : &stack->undoTop;
+    int* to = redo ? &stack->undoTop : &stack->redoTop;
+    if (!*from || *to == MAX_UNDO_ENTRIES) return false;
+    UndoEntry* entry = &(redo ? stack->redo : stack->undo)[*from - 1];
+    UndoEntry current;
+    if (!captureEntry(file, &current)) return false;
+    /* Snapshot serialization appends a terminator for every row, including the last. */
+    size_t length = entry->length ? entry->length - 1 : 0;
+    if (!loadSnapshotIntoBuffer(file->buffer, entry->snapshot, length)) {
+        free(current.snapshot);
+        return false;
     }
-
-    // Pop from redo
-    stack->redoTop--;
-    UndoEntry* entry = &stack->redo[stack->redoTop];
-
-    IDECoreState* core = getCoreState();
-    EditorView* activeEditorView = core->activeEditorView;
-
-
-    loadSnapshotIntoBuffer(file->buffer, entry->snapshot, entry->length);
-    if (activeEditorView && activeEditorView->activeTab >= 0 &&
-                activeEditorView->openFiles[activeEditorView->activeTab] == file) {
-        
-        editorBuffer = file->buffer;
-    }
-    
+    (redo ? stack->undo : stack->redo)[(*to)++] = current;
+    --*from;
+    free(entry->snapshot);
     file->state.cursorRow = entry->cursorRow;
     file->state.cursorCol = entry->cursorCol;
-
     file->state.selecting = false;
-
-    stack->pendingTextEdit = false;
-    free(stack->typedWord);
-    stack->typedWord = NULL;
-    stack->typedWordLen = 0;
-    stack->typedWordCap = 0;
-
+    file->pendingTextEdit = false;
     markFileAsModified(file);
-
+    file->contentRevision = entry->contentRevision;
+    file->isModified = file->saveFailed || file->contentRevision != file->savedContentRevision;
     return true;
 }
 
+bool performUndo(OpenFile* file) { return stepHistory(file, false); }
+bool performRedo(OpenFile* file) { return stepHistory(file, true); }
 
 void clearUndoHistory(OpenFile* file) {
-    if (!file) return;
-    UndoStack* stack = getOrCreateUndoStack(file);
-    if (!stack) return;
-
-    for (int i = 0; i < stack->undoTop; i++) {
-        free(stack->undo[i].snapshot);
-    }
-    for (int i = 0; i < stack->redoTop; i++) {
-        free(stack->redo[i].snapshot);
-    }
-
-    stack->undoTop = 0;
-    stack->redoTop = 0;
+    UndoStack* stack = file ? file->undoStack : NULL;
+    if (!undo_stack_is_valid(stack)) return;
+    while (stack->undoTop) free(stack->undo[--stack->undoTop].snapshot);
+    while (stack->redoTop) free(stack->redo[--stack->redoTop].snapshot);
+    file->pendingTextEdit = false;
 }
 
-
-
-
-
-
-
-// 		STACK ACCESS
-// 	==============================
-// 		ACTIVE EDITS
-
-
-
-
-
-
-void beginWordEdit(OpenFile* file, int row, int col) {
-    if (!file) return;
-
-    UndoStack* stack = getOrCreateUndoStack(file);
-    if (!stack || stack->pendingTextEdit) return;
-
-    stack->pendingTextEdit = true;
-    stack->pendingStartRow = row;
-    stack->pendingStartCol = col;
-
-    stack->typedWordLen = 0;
-    stack->typedWordCap = 32;
-
-    stack->typedWord = malloc(stack->typedWordCap);
-    if (stack->typedWord) {
-        stack->typedWord[0] = '\0';  // ensure valid string
-    }
+bool beginWordEdit(OpenFile* file) {
+    if (!file || (!file->pendingTextEdit && !pushUndoState(file))) return false;
+    file->pendingTextEdit = true;
+    return true;
 }
-
-
-void appendCharToWord(OpenFile* file, char ch) {
-    if (!file) return;
-    UndoStack* stack = getOrCreateUndoStack(file);
-    if (!stack || !stack->pendingTextEdit) return;
-
-    if (stack->typedWordLen + 1 >= stack->typedWordCap) {
-        stack->typedWordCap *= 2;
-        stack->typedWord = realloc(stack->typedWord, stack->typedWordCap);
-    }
-
-    stack->typedWord[stack->typedWordLen++] = ch;
-    stack->typedWord[stack->typedWordLen] = '\0';
-}
-
 
 void commitWordEdit(OpenFile* file) {
-    if (!file) return;
-    UndoStack* stack = getOrCreateUndoStack(file);
-    if (!stack) return;
-    if (!stack->pendingTextEdit) return;
-
-    // Only push if something was typed
-    if (stack->typedWordLen > 0) {
-        pushUndoState(file);
-        printf("[UNDO] Committed word: \"%s\"\n", stack->typedWord);
-    }
-
-    stack->pendingTextEdit = false;
-
-    free(stack->typedWord);
-    stack->typedWord = NULL;
-    stack->typedWordLen = 0;
-    stack->typedWordCap = 0;
+    if (file) file->pendingTextEdit = false;
 }
- 

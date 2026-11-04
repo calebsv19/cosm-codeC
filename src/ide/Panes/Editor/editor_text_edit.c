@@ -23,13 +23,10 @@ static bool ensure_line_capacity(EditorBuffer* buffer, int additional_lines) {
 }
 
 void handleCommandInsertNewline(OpenFile* file, EditorBuffer* buffer, EditorState* state) {
-    commitWordEdit(file);
-    pushUndoState(file);
     handleReturnKey(buffer, state);  // keep this as your newline logic
 }   
         
 void handleCommandDeleteCharacter(OpenFile* file, EditorBuffer* buffer, EditorState* state) {
-    pushUndoState(file);
     handleBackspaceKey(buffer, state);  // keep your backspace handler here
 
     enforceNonEmptyBuffer(buffer);
@@ -39,7 +36,7 @@ void handleCommandDeleteForward(OpenFile* file, EditorBuffer* buffer, EditorStat
     if (!file || !buffer || !state) return;
 
     if (state->selecting) {
-        pushUndoState(file);
+        if (!pushUndoState(file)) return;
         removeSelectedText(buffer, state);
         markFileAsModified(file);
         enforceNonEmptyBuffer(buffer);
@@ -55,7 +52,7 @@ void handleCommandDeleteForward(OpenFile* file, EditorBuffer* buffer, EditorStat
     int len = strlen(line);
 
     if (col < len) {
-        pushUndoState(file);
+        if (!pushUndoState(file)) return;
         memmove(line + col, line + col + 1, (size_t)(len - col));
         markFileAsModified(file);
         enforceNonEmptyBuffer(buffer);
@@ -72,7 +69,7 @@ void handleCommandDeleteForward(OpenFile* file, EditorBuffer* buffer, EditorStat
         strcpy(merged, line);
         strcat(merged, nextLine);
 
-        pushUndoState(file);
+        if (!pushUndoState(file)) { free(merged); return; }
         free(buffer->lines[row]);
         free(buffer->lines[row + 1]);
         buffer->lines[row] = merged;
@@ -112,6 +109,7 @@ void handleCommandInsertCharacter(OpenFile* file, EditorBuffer* buffer,
     newLine[col] = ch;
     memcpy(newLine + col + 1, oldLine + col, (size_t)(oldLen - col) + 1u);
     
+    if (!beginWordEdit(file)) { free(newLine); return; }
     free(buffer->lines[row]);  
     buffer->lines[row] = newLine;
             
@@ -119,12 +117,7 @@ void handleCommandInsertCharacter(OpenFile* file, EditorBuffer* buffer,
         
     markFileAsModified(file);
         
-    if (ch == ' ') {
-        commitWordEdit(file); 
-    } else {
-        beginWordEdit(file, state->cursorRow, state->cursorCol);
-        appendCharToWord(file, ch);
-    }
+    if (ch == ' ') commitWordEdit(file);
 }
 
 
@@ -181,7 +174,7 @@ void handleBackspaceKey(EditorBuffer* buffer, EditorState* state) {
 
     // ✅ If a selection exists, delete the full region instead of just one char
     if (state->selecting) {
-        pushUndoState(file);
+        if (!pushUndoState(file)) return;
         removeSelectedText(buffer, state);
         markFileAsModified(file);
         return;
@@ -196,6 +189,7 @@ void handleBackspaceKey(EditorBuffer* buffer, EditorState* state) {
 
     if (col > 0) {
         int len = strlen(line);
+        if (!pushUndoState(file)) return;
         for (int i = col - 1; i < len; i++) {
             line[i] = line[i + 1];
         }
@@ -214,6 +208,7 @@ void handleBackspaceKey(EditorBuffer* buffer, EditorState* state) {
         strcpy(merged, prevLine);
         strcat(merged, line);
 
+        if (!pushUndoState(file)) { free(merged); return; }
         free(buffer->lines[prevRow]);
         free(buffer->lines[row]);
         buffer->lines[prevRow] = merged;
@@ -268,7 +263,7 @@ void handleReturnKey(EditorBuffer* buffer, EditorState* state) {
     }
      
     OpenFile* file = view->openFiles[view->activeTab];
-    if (!ensure_line_capacity(buffer, 1)) {
+    if (!ensure_line_capacity(buffer, 1) || !pushUndoState(file)) {
         free(before);
         free(after);
         return;

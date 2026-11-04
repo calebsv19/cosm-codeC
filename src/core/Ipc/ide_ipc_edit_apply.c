@@ -648,13 +648,24 @@ bool ide_ipc_apply_unified_diff(const char* project_root,
         }
 
         before_revision = file->documentRevision;
-        pushUndoState(file);
         size_t new_len = strlen(new_text);
         // The editor snapshot writes one newline per buffer row. A patch's
         // trailing newline is represented by the last row, not an extra row.
         size_t buffer_len = new_len > 0 && new_text[new_len - 1] == '\n' ?
                             new_len - 1 : new_len;
-        loadSnapshotIntoBuffer(file->buffer, new_text, buffer_len);
+        EditorBuffer replacement = {0};
+        if (!loadSnapshotIntoBuffer(&replacement, new_text, buffer_len) || !pushUndoState(file)) {
+            for (int i = 0; i < replacement.lineCount; i++) free(replacement.lines[i]);
+            free(replacement.lines);
+            free(new_text);
+            free_patch(&patch);
+            json_object_put(touched);
+            set_error(error_out, error_out_cap, "Could not reserve the edited buffer and history");
+            return false;
+        }
+        for (int i = 0; i < file->buffer->lineCount; i++) free(file->buffer->lines[i]);
+        free(file->buffer->lines);
+        *file->buffer = replacement;
         markFileAsModified(file);
         size_t queued_len = 0;
         char* queued_text = getBufferSnapshot(file->buffer, &queued_len);

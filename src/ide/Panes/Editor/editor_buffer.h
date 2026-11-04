@@ -2,6 +2,7 @@
 #define EDITOR_BUFFER_H
 
 #include <stddef.h>
+#include <stdbool.h>
 
 typedef struct {
     char** lines;       // array of lines
@@ -16,7 +17,7 @@ typedef struct {
 // Snapshot utility for saving
 char* getBufferSnapshot(EditorBuffer* buffer, size_t* outLength);
 
-void loadSnapshotIntoBuffer(EditorBuffer* buffer, const char* data, size_t length);
+bool loadSnapshotIntoBuffer(EditorBuffer* buffer, const char* data, size_t length);
 
 EditorBuffer* loadEditorBuffer(const char* filePath);
     

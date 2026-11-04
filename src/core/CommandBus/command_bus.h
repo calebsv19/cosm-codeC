@@ -27,7 +27,8 @@ InputCommand getLastCommandIssued();
 // ====================================
 // 	Command Queue Interface
 // ====================================
-void enqueueCommand(InputCommandMetadata meta);
+/* Takes ownership of typed editor payloads on every outcome. */
+bool enqueueCommand(InputCommandMetadata meta);
 void enqueueCommandSimple(InputCommand cmd); // Optional helper
 
 // ====================================

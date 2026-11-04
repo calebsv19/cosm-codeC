@@ -18,7 +18,7 @@ typedef struct SaveQueueItem {
     char* contents;
     size_t length;
     OpenFile* owner; /* Drained before the last editor reference is released. */
-    uint64_t revision;
+    uint64_t revision, contentRevision;
     struct SaveQueueItem* next;
 } SaveQueueItem;
 
@@ -45,6 +45,7 @@ static bool enqueueSnapshot(const char* path, char* contents, size_t length, Ope
     item->length = length;
     item->owner = owner;
     item->revision = owner ? owner->documentRevision : 0;
+    item->contentRevision = owner ? owner->contentRevision : 0;
     if (tail) tail->next = item;
     else head = item;
     tail = item;
@@ -66,6 +67,7 @@ bool queueSaveFromOpenFile(OpenFile* file) {
     file->showSavedTag = false;
     file->saveFailed = !snapshot || !enqueueSnapshot(file->filePath, snapshot, length, file);
     if (file->saveFailed) file->isModified = true;
+    if (!file->saveFailed) file->pendingTextEdit = false;
     return !file->saveFailed;
 }
 
@@ -74,6 +76,7 @@ void tickSaveQueue() {
     SaveQueueItem* item = head;
     OpenFile* file = item->owner;
     if (publishEditorSnapshot(item->filePath, item->contents, item->length)) {
+        if (file && !strcmp(item->filePath, file->filePath)) file->savedContentRevision = item->contentRevision;
         if (file && !strcmp(item->filePath, file->filePath) && item->revision == file->documentRevision) {
             file->saveFailed = false;
             file->isModified = false;

@@ -81,7 +81,7 @@ bool ide_ipc_document_from_ui(json_object* args,json_object** result,char* error
             !ide_ipc_compute_file_hash_hex(absolute,latest,sizeof(latest)) || strcmp(latest,expected_disk))) ok=false;
         if (ok && rename(temporary,absolute)) ok=false;
         if (!ok) { unlink(temporary); free(text); snprintf(error,cap,"document_save_failed_buffer_preserved"); return false; }
-        file->saveFailed=false; file->isModified=false; file->showSavedTag=true; file->savedTagTimestamp=SDL_GetTicks();
+        file->pendingTextEdit=false; file->savedContentRevision=file->contentRevision; file->saveFailed=false; file->isModified=false; file->showSavedTag=true; file->savedTagTimestamp=SDL_GetTicks();
         analysis_scheduler_request_file(absolute,ANALYSIS_REASON_EDITOR_SAVE,false);
         snprintf(disk_hash,sizeof(disk_hash),"%s",buffer_hash);
     }

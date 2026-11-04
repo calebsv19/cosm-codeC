@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <limits.h>
 #include "ide/Panes/Editor/editor_buffer.h"
 #include "buffer_safety.h"
 #include <stdlib.h>
@@ -38,41 +39,36 @@ char* getBufferSnapshot(EditorBuffer* buffer, size_t* outLength) {
     return snapshot;
 }
 
-void loadSnapshotIntoBuffer(EditorBuffer* buffer, const char* data, size_t length) {
-    if (!buffer || !data || length == 0) {
-        enforceNonEmptyBuffer(buffer);  // still enforce in zero-data case
-        return;
-    }
-
-    // Free old lines
-    for (int i = 0; i < buffer->lineCount; i++) {
-        free(buffer->lines[i]);
-    }
-    free(buffer->lines);
-
-    // Count lines first
-    int lineCount = 1;
+bool loadSnapshotIntoBuffer(EditorBuffer* buffer, const char* data, size_t length) {
+    if (!buffer || !data) return false;
+    int count = 1;
     for (size_t i = 0; i < length; i++) {
-        if (data[i] == '\n') lineCount++;
-    }
-
-    buffer->lines = malloc(sizeof(char*) * lineCount);
-    buffer->capacity = lineCount;
-    buffer->lineCount = 0;
-
-    const char* lineStart = data;
-    for (size_t i = 0; i <= length; i++) {
-        if (i == length || data[i] == '\n') {
-            size_t lineLen = &data[i] - lineStart;
-            char* line = malloc(lineLen + 1);
-            memcpy(line, lineStart, lineLen);
-            line[lineLen] = '\0';
-            buffer->lines[buffer->lineCount++] = line;
-            lineStart = &data[i + 1];
+        if (data[i] == '\n') {
+            if (count == INT_MAX) return false;
+            count++;
         }
     }
-
-    enforceNonEmptyBuffer(buffer);
+    char** lines = calloc((size_t)count, sizeof(*lines));
+    if (!lines) return false;
+    size_t start = 0;
+    int row = 0;
+    for (size_t end = 0; end <= length; end++) {
+        if (end < length && data[end] != '\n') continue;
+        lines[row] = malloc(end - start + 1);
+        if (!lines[row]) {
+            while (row) free(lines[--row]);
+            free(lines);
+            return false;
+        }
+        memcpy(lines[row], data + start, end - start);
+        lines[row++][end - start] = 0;
+        start = end + 1;
+    }
+    for (int i = 0; i < buffer->lineCount; i++) free(buffer->lines[i]);
+    free(buffer->lines);
+    buffer->lines = lines;
+    buffer->capacity = buffer->lineCount = count;
+    return true;
 }
 
 EditorBuffer* loadEditorBuffer(const char* filePath) {

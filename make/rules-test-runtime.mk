@@ -330,3 +330,12 @@ test-editor-save-reopen: all
 	@mkdir -p $(TEST_BUILD_DIR)
 	$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -o $(TEST_BUILD_DIR)/editor_save_reopen_test tests/editor_save_reopen_test.c $(filter-out $(APP_OBJ_DIR)/app/main.o,$(APP_OBJ_FILES)) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(IDE_SHARED_LIBS) $(LDFLAGS)
 	$(TEST_BUILD_DIR)/editor_save_reopen_test
+
+.PHONY: test-editor-command-queue
+test-ipc-document-control: test-editor-command-queue
+test-editor-command-queue: all
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -Dcalloc=queue_test_calloc -Dfree=queue_test_free -c src/core/CommandBus/command_bus.c -o $(TEST_BUILD_DIR)/fault_command_bus.o
+	$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -Dcalloc=rows_test_calloc -c src/ide/Panes/Editor/editor_buffer.c -o $(TEST_BUILD_DIR)/fault_editor_buffer.o
+	$(HOST_CC) $(CFLAGS) $(ARCH_FLAGS) -o $(TEST_BUILD_DIR)/editor_command_queue_test tests/editor_command_queue_test.c $(TEST_BUILD_DIR)/fault_command_bus.o $(TEST_BUILD_DIR)/fault_editor_buffer.o $(filter-out $(APP_OBJ_DIR)/app/main.o $(APP_OBJ_DIR)/core/CommandBus/command_bus.o $(APP_OBJ_DIR)/ide/Panes/Editor/editor_buffer.o,$(APP_OBJ_FILES)) $(TIMER_HUD_OBJS) $(TIMER_HUD_EXTERNAL_OBJS) $(IDE_SHARED_LIBS) $(LDFLAGS)
+	$(TEST_BUILD_DIR)/editor_command_queue_test

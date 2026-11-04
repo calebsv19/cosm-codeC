@@ -1,3 +1,4 @@
+#include "core/CommandBus/command_bus.h"
 #include "core/Ipc/ide_ipc_document.h"
 #include "build_config.h"
 #include "system_control.h"
@@ -624,6 +625,7 @@ void shutdownSystem(UIPane** panes, int paneCount) {
 
     ide_ipc_stop();
 
+    shutdownCommandBus();
     terminal_shutdown_shell();
 
     // === Destroy UI panes ===

@@ -18,6 +18,9 @@
 
 typedef struct CommandQueueItem {
     InputCommandMetadata meta;
+    bool editorTarget;
+    uint64_t viewId;
+    uint64_t fileId;
     struct CommandQueueItem* next;
 } CommandQueueItem;
 
@@ -26,6 +29,34 @@ static CommandQueueItem* commandTail = NULL;
 
 
 
+
+/* Leaf and file IDs identify lifetimes, so ordinary consecutive edits stay valid. */
+static uint64_t lastTargetId;
+
+static bool bindId(uint64_t* id) {
+    if (*id) return true;
+    if (lastTargetId == UINT64_MAX) return false;
+    *id = ++lastTargetId;
+    return true;
+}
+
+static EditorView* commandView(UIPane* pane) {
+    EditorView* view = getCoreState()->activeEditorView;
+    return view ? view : (pane->role == PANE_ROLE_EDITOR ? pane->editorView : NULL);
+}
+
+static bool editorTargetMatches(const CommandQueueItem* item) {
+    EditorView* view = commandView(item->meta.targetPane);
+    if (view ? (!item->viewId || view->commandTargetId != item->viewId) : item->viewId != 0) return false;
+    if (item->meta.cmd == COMMAND_SWITCH_TAB) return true;
+    OpenFile* file = getActiveOpenFile(view);
+    return file ? item->fileId && file->commandTargetId == item->fileId : item->fileId == 0;
+}
+
+static void discardPayload(InputCommandMetadata meta) {
+    if (meta.cmd == COMMAND_EDITOR_KEYDOWN || meta.cmd == COMMAND_EDITOR_TEXT_INPUT)
+        free(meta.payload);
+}
 
 // State Tracking
 
@@ -46,6 +77,7 @@ void shutdownCommandBus() {
 
     while (commandHead) {
         CommandQueueItem* next = commandHead->next;
+        discardPayload(commandHead->meta);
         free(commandHead);
         commandHead = next;
     }
@@ -64,7 +96,13 @@ void tickCommandBus() {
     if (!commandHead) commandTail = NULL;
 
     lastCommand = item->meta.cmd;
-    dispatchInputCommandWithMetadata(item->meta);
+    if (item->meta.targetPane->role != item->meta.originRole ||
+        (item->editorTarget && !editorTargetMatches(item))) {
+        fprintf(stderr, "[CommandBus] Target changed; discarded %s\n", getCommandName(item->meta.cmd));
+        discardPayload(item->meta);
+    } else {
+        dispatchInputCommandWithMetadata(item->meta);
+    }
     free(item);
 }
 
@@ -89,8 +127,27 @@ void enqueueSave(struct OpenFile* file) {
 
 // Command Queue Interface
 
-void enqueueCommand(InputCommandMetadata meta) {
-    CommandQueueItem* item = malloc(sizeof(CommandQueueItem));
+bool enqueueCommand(InputCommandMetadata meta) {
+    if (!meta.targetPane) meta.targetPane = getCoreState()->focusedPane;
+    CommandQueueItem* item = meta.targetPane ? calloc(1, sizeof(*item)) : NULL;
+    if (!item) {
+        fprintf(stderr, "[CommandBus] Could not queue %s\n", getCommandName(meta.cmd));
+        discardPayload(meta);
+        return false;
+    }
+    meta.originRole = meta.targetPane->role;
+    item->editorTarget = meta.originRole == PANE_ROLE_EDITOR || meta.cmd == COMMAND_SAVE_FILE;
+    if (item->editorTarget) {
+        EditorView* view = commandView(meta.targetPane);
+        OpenFile* file = getActiveOpenFile(view);
+        if ((view && !bindId(&view->commandTargetId)) || (file && !bindId(&file->commandTargetId))) {
+            discardPayload(meta);
+            free(item);
+            return false;
+        }
+        item->viewId = view ? view->commandTargetId : 0;
+        item->fileId = file ? file->commandTargetId : 0;
+    }
     item->meta = meta;
     item->next = NULL;
 
@@ -103,6 +160,7 @@ void enqueueCommand(InputCommandMetadata meta) {
 
     printf("[CommandBus] Queued command: %s (role=%d)\n",
            getCommandName(meta.cmd), meta.originRole);
+    return true;
 }
 
 // Convenience helper if only cmd is known
@@ -135,12 +193,14 @@ void dispatchInputCommandWithMetadata(InputCommandMetadata meta) {
     if (!target || !target->handleCommand) {
         printf("[CommandBus] No focused pane to dispatch command: %s\n",
                getCommandName(meta.cmd));
+        discardPayload(meta);
         return;
     }
 
     if (!commandIsValidForRole(meta.cmd, target->role)) {
         printf("[CommandBus] Rejected: Command %s invalid for role %d\n",
                getCommandName(meta.cmd), target->role);
+        discardPayload(meta);
         return;
     }
 

@@ -258,7 +258,7 @@ void layoutSplitChildren(EditorView* view) {
 
 
 EditorView* createSplitView(SplitOrientation splitType) {
-    EditorView* view = malloc(sizeof(EditorView));
+    EditorView* view = calloc(1, sizeof(*view));
     if (!view) return NULL;
 
     view->type = VIEW_SPLIT;
@@ -444,7 +444,7 @@ SplitTarget findSplittableLeafWithParent(EditorView* view, EditorView* parent, b
 EditorView* cloneLeafView(EditorView* src, SplitOrientation parentSplit){
     if (!src || src->type != VIEW_LEAF) return NULL;
 
-    EditorView* view = malloc(sizeof(EditorView));
+    EditorView* view = calloc(1, sizeof(*view));
     if (!view) return NULL;
 
     view->type = VIEW_LEAF;
@@ -874,7 +874,7 @@ void bindEditorViewToEditorPane(EditorView* savedView, UIPane** panes, int paneC
 
 
 EditorView* createLeafView(void) {
-    EditorView* view = malloc(sizeof(EditorView));
+    EditorView* view = calloc(1, sizeof(*view));
     if (!view) return NULL;
 
     view->type = VIEW_LEAF;

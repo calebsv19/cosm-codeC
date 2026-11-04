@@ -9,7 +9,7 @@
 #include "ide/Panes/Editor/editor_view.h"
 
 // Called when a user types or deletes and a snapshot should be stored
-void pushUndoState(OpenFile* file);
+bool pushUndoState(OpenFile* file);
 
 // Undo the most recent edit operation
 bool performUndo(OpenFile* file);
@@ -21,8 +21,7 @@ bool performRedo(OpenFile* file);
 void clearUndoHistory(OpenFile* file);
 
 
-void beginWordEdit(OpenFile* file, int row, int col);
-void appendCharToWord(OpenFile* file, char ch);
+bool beginWordEdit(OpenFile* file);
 void commitWordEdit(OpenFile* file);
 
 

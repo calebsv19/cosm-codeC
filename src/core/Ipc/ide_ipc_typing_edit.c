@@ -218,7 +218,10 @@ static IdeIpcTypingStepResult begin_typing(const IdeIpcTypingRequest* request,
     state->selecting = end_offset > start_offset;
     g_typing_ui.before_revision = g_typing_ui.file->documentRevision;
     if (state->selecting) {
-        pushUndoState(g_typing_ui.file);
+        if (!pushUndoState(g_typing_ui.file)) {
+            set_error(error_out, error_out_cap, "Could not reserve typing history");
+            return IDE_IPC_TYPING_STEP_FAILED;
+        }
         if (!removeSelectedText(g_typing_ui.file->buffer, state)) {
             set_error(error_out, error_out_cap, "Failed to remove the checked typing range");
             return IDE_IPC_TYPING_STEP_FAILED;
