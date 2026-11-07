@@ -6,6 +6,10 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdatomic.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -252,77 +256,7 @@ static bool collect_fallback_sources_recursive(const char* dir, SourceFileList* 
     return ok;
 }
 
-static int run_exec_capture(const char* working_dir,
-                            char* const argv[],
-                            const char* profile,
-                            char* output,
-                            size_t output_cap,
-                            size_t* out_len) {
-    if (!working_dir || !*working_dir || !output || output_cap == 0) return -1;
-    if (out_len) *out_len = 0;
-    output[0] = '\0';
-    if (!argv || !argv[0] || !argv[0][0]) return -1;
-
-    int pipe_fd[2];
-    if (pipe(pipe_fd) != 0) {
-        return -1;
-    }
-
-    pid_t pid = fork();
-    if (pid < 0) {
-        close(pipe_fd[0]);
-        close(pipe_fd[1]);
-        return -1;
-    }
-
-    if (pid == 0) {
-        if (chdir(working_dir) != 0) _exit(127);
-        if (profile && *profile) {
-            setenv("PROFILE", profile, 1);
-        } else {
-            unsetenv("PROFILE");
-        }
-        if (dup2(pipe_fd[1], STDOUT_FILENO) < 0) _exit(127);
-        if (dup2(pipe_fd[1], STDERR_FILENO) < 0) _exit(127);
-        close(pipe_fd[0]);
-        close(pipe_fd[1]);
-
-        execvp(argv[0], argv);
-        _exit(127);
-    }
-
-    close(pipe_fd[1]);
-    FILE* pipe_stream = fdopen(pipe_fd[0], "r");
-    if (!pipe_stream) {
-        close(pipe_fd[0]);
-        (void)waitpid(pid, NULL, 0);
-        return -1;
-    }
-
-    size_t written = 0;
-    char line[512];
-    while (fgets(line, sizeof(line), pipe_stream)) {
-        size_t n = strlen(line);
-        if (written + n < output_cap - 1) {
-            memcpy(output + written, line, n);
-            written += n;
-            output[written] = '\0';
-        }
-        build_diagnostics_feed_chunk(line, n);
-    }
-    fclose(pipe_stream);
-    if (out_len) *out_len = written;
-
-    int status = 0;
-    while (waitpid(pid, &status, 0) < 0) {
-        if (errno == EINTR) continue;
-        return -1;
-    }
-    if (WIFEXITED(status)) {
-        return WEXITSTATUS(status);
-    }
-    return 1;
-}
+#include "ide_ipc_capture.inc"
 
 static int run_make_capture(const char* working_dir,
                             const char* profile,

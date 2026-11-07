@@ -22,11 +22,16 @@
 #include "core/LoopResults/completed_results_queue.h"
 #include "core/LoopKernel/mainthread_context.h"
 #include "core/LoopWake/mainthread_wake.h"
+#include "core/Ipc/ide_ipc_workspace.h"
 
 static SDL_Thread* g_thread = NULL;
+/* Handle/admission are main-owner state; only completion crosses threads. */
 static bool g_thread_running = false;
-static bool g_force_full_refresh = false;
+static bool g_accepting = true;
+static SDL_atomic_t g_worker_finished;
+static SDL_atomic_t g_force_full_refresh;
 static uint64_t g_analysis_run_id = 0;
+static uint64_t g_workspace_generation;
 static char g_last_error[256];
 static char g_project_root[1024];
 static char g_build_args[1024];
@@ -58,18 +63,31 @@ static void analysis_job_clear_live_request(void) {
 }
 
 bool analysis_job_system_init(void) {
+    g_accepting = true;
     return true;
 }
 
 void analysis_job_system_shutdown(void) {
-    // Analysis worker is detached; no shutdown join path.
+    g_accepting = false;
+    SDL_AtomicSet(&g_cancel_requested, 1);
+    if (g_thread) {
+        SDL_WaitThread(g_thread, NULL);
+        g_thread = NULL;
+    }
+    g_thread_running = false;
+    analysis_refresh_set_running(false);
+    analysis_job_clear_live_request();
 }
+
+static void analysis_attach_live_document_revision(CompletedResult* result);
 
 static void analysis_queue_finished_message(bool cancelled, bool had_error) {
     CompletedResult result;
     memset(&result, 0, sizeof(result));
+    result.workspace_generation = g_workspace_generation;
     result.subsystem = COMPLETED_SUBSYSTEM_ANALYSIS;
     result.kind = COMPLETED_RESULT_ANALYSIS_FINISHED;
+    analysis_attach_live_document_revision(&result);
     result.payload.analysis_finished.analysis_run_id = g_analysis_run_id;
     result.payload.analysis_finished.cancelled = cancelled;
     result.payload.analysis_finished.had_error = had_error;
@@ -97,6 +115,7 @@ static void analysis_attach_live_document_revision(CompletedResult* result) {
 static void analysis_queue_symbols_updated_message(uint64_t symbols_stamp) {
     CompletedResult result;
     memset(&result, 0, sizeof(result));
+    result.workspace_generation = g_workspace_generation;
     result.subsystem = COMPLETED_SUBSYSTEM_SYMBOLS;
     result.kind = COMPLETED_RESULT_SYMBOLS_UPDATED;
     result.payload.symbols_updated.analysis_run_id = g_analysis_run_id;
@@ -113,6 +132,7 @@ static void analysis_queue_symbols_updated_message(uint64_t symbols_stamp) {
 static void analysis_queue_diagnostics_updated_message(uint64_t diagnostics_stamp) {
     CompletedResult result;
     memset(&result, 0, sizeof(result));
+    result.workspace_generation = g_workspace_generation;
     result.subsystem = COMPLETED_SUBSYSTEM_DIAGNOSTICS;
     result.kind = COMPLETED_RESULT_DIAGNOSTICS_UPDATED;
     result.payload.diagnostics_updated.analysis_run_id = g_analysis_run_id;
@@ -134,6 +154,7 @@ void analysis_job_report_status_update(bool set_status,
                                        const char* last_error) {
     CompletedResult result;
     memset(&result, 0, sizeof(result));
+    result.workspace_generation = g_workspace_generation;
     result.subsystem = COMPLETED_SUBSYSTEM_ANALYSIS;
     result.kind = COMPLETED_RESULT_ANALYSIS_STATUS_UPDATE;
     result.payload.analysis_status_update.analysis_run_id = g_analysis_run_id;
@@ -174,6 +195,7 @@ void analysis_job_report_progress(int completed_files, int total_files) {
 
     CompletedResult result;
     memset(&result, 0, sizeof(result));
+    result.workspace_generation = g_workspace_generation;
     result.subsystem = COMPLETED_SUBSYSTEM_ANALYSIS;
     result.kind = COMPLETED_RESULT_ANALYSIS_PROGRESS;
     result.payload.analysis_progress.analysis_run_id = g_analysis_run_id;
@@ -481,12 +503,12 @@ static int analysis_thread_fn(void* data) {
                                           false,
                                           true,
                                           g_last_error);
-        analysis_refresh_set_running(false);
         SDL_AtomicSet(&g_slow_mode_active, 0);
-        analysis_job_clear_live_request();
         analysis_queue_finished_message(false, true);
+        analysis_job_clear_live_request();
         mainthread_wake_push();
         mainthread_context_pop_non_owner_scope();
+        SDL_AtomicSet(&g_worker_finished, 1);
         return -1;
     }
 
@@ -500,19 +522,16 @@ static int analysis_thread_fn(void* data) {
                                           false,
                                           true,
                                           NULL);
-        analysis_refresh_set_running(false);
-        g_thread_running = false;
-        g_thread = NULL;
         SDL_AtomicSet(&g_slow_mode_active, 0);
-        analysis_job_clear_live_request();
         analysis_queue_finished_message(true, false);
+        analysis_job_clear_live_request();
         mainthread_wake_push();
         mainthread_context_pop_non_owner_scope();
+        SDL_AtomicSet(&g_worker_finished, 1);
         return 0;
     }
 
-    bool force_full = g_force_full_refresh;
-    g_force_full_refresh = false;
+    bool force_full = SDL_AtomicSet(&g_force_full_refresh, 0) != 0;
 
     if (g_run_mode == ANALYSIS_JOB_RUN_LIVE_BUFFER) {
         analysis_scan_buffer_with_flags(g_project_root,
@@ -573,18 +592,16 @@ static int analysis_thread_fn(void* data) {
                                           NULL);
     }
     analysis_queue_finished_message(cancelled, false);
-    analysis_refresh_set_running(false);
-    g_thread_running = false;
-    g_thread = NULL;
     analysis_job_clear_live_request();
     SDL_AtomicSet(&g_slow_mode_active, 0);
     mainthread_wake_push();
     mainthread_context_pop_non_owner_scope();
+    SDL_AtomicSet(&g_worker_finished, 1);
     return 0;
 }
 
 void analysis_force_full_refresh_next_run(void) {
-    g_force_full_refresh = true;
+    SDL_AtomicSet(&g_force_full_refresh, 1);
 }
 
 void analysis_job_set_slow_mode_next_run(bool enabled) {
@@ -614,7 +631,9 @@ void start_async_workspace_analysis_with_file_hints(const char* project_root,
                                                     uint64_t run_id,
                                                     const char* const* file_hints,
                                                     size_t file_hint_count) {
-    if (g_thread_running) return; // already running
+    analysis_job_poll();
+    if (!g_accepting || g_thread_running ||
+        !completed_results_queue_analysis_available()) return; // already running
     if (!project_root || !*project_root) return;
     SDL_AtomicSet(&g_cancel_requested, 0);
     SDL_AtomicSet(&g_last_progress_completed, -1);
@@ -623,6 +642,7 @@ void start_async_workspace_analysis_with_file_hints(const char* project_root,
     g_run_mode = ANALYSIS_JOB_RUN_WORKSPACE;
     analysis_job_clear_live_request();
     g_analysis_run_id = run_id;
+    g_workspace_generation = ide_ipc_workspace_generation();
     snprintf(g_project_root, sizeof(g_project_root), "%s", project_root);
     g_project_root[sizeof(g_project_root) - 1] = '\0';
     if (build_args) {
@@ -647,6 +667,7 @@ void start_async_workspace_analysis_with_file_hints(const char* project_root,
 
     analysis_status_set(ANALYSIS_STATUS_REFRESHING);
     analysis_refresh_set_running(true);
+    SDL_AtomicSet(&g_worker_finished, 0);
     g_thread_running = true;
     // Semantic analysis can recurse deeply on large projects; use a larger stack.
     g_thread = SDL_CreateThreadWithStackSize(analysis_thread_fn,
@@ -661,7 +682,6 @@ void start_async_workspace_analysis_with_file_hints(const char* project_root,
                                           false,
                                           true,
                                           g_last_error);
-        analysis_refresh_set_running(false);
         analysis_job_report_status_update(true,
                                           ANALYSIS_STATUS_IDLE,
                                           false,
@@ -669,12 +689,10 @@ void start_async_workspace_analysis_with_file_hints(const char* project_root,
                                           false,
                                           NULL);
         g_thread_running = false;
+        analysis_queue_finished_message(false, true);
         mainthread_wake_push();
         return;
     }
-    SDL_DetachThread(g_thread);
-    // Thread pointer is no longer joinable; keep it null to allow re-entry when finished.
-    g_thread = NULL;
 }
 
 void start_async_live_buffer_analysis(const char* project_root,
@@ -684,7 +702,9 @@ void start_async_live_buffer_analysis(const char* project_root,
                                       const char* contents,
                                       size_t content_length,
                                       uint64_t document_revision) {
-    if (g_thread_running) return;
+    analysis_job_poll();
+    if (!g_accepting || g_thread_running ||
+        !completed_results_queue_analysis_available()) return;
     if (!project_root || !*project_root || !file_path || !*file_path || !contents) return;
     char* owned_contents = (char*)malloc(content_length + 1u);
     if (!owned_contents) return;
@@ -697,6 +717,7 @@ void start_async_live_buffer_analysis(const char* project_root,
     memset(g_last_error, 0, sizeof(g_last_error));
     g_run_mode = ANALYSIS_JOB_RUN_LIVE_BUFFER;
     g_analysis_run_id = run_id;
+    g_workspace_generation = ide_ipc_workspace_generation();
     snprintf(g_project_root, sizeof(g_project_root), "%s", project_root);
     g_project_root[sizeof(g_project_root) - 1] = '\0';
     if (build_args) {
@@ -715,6 +736,7 @@ void start_async_live_buffer_analysis(const char* project_root,
 
     analysis_status_set(ANALYSIS_STATUS_REFRESHING);
     analysis_refresh_set_running(true);
+    SDL_AtomicSet(&g_worker_finished, 0);
     g_thread_running = true;
     g_thread = SDL_CreateThreadWithStackSize(analysis_thread_fn,
                                              "analysis_live_buffer",
@@ -728,7 +750,6 @@ void start_async_live_buffer_analysis(const char* project_root,
                                           false,
                                           true,
                                           g_last_error);
-        analysis_refresh_set_running(false);
         analysis_job_report_status_update(true,
                                           ANALYSIS_STATUS_IDLE,
                                           false,
@@ -736,12 +757,11 @@ void start_async_live_buffer_analysis(const char* project_root,
                                           false,
                                           NULL);
         g_thread_running = false;
+        analysis_queue_finished_message(false, true);
         analysis_job_clear_live_request();
         mainthread_wake_push();
         return;
     }
-    SDL_DetachThread(g_thread);
-    g_thread = NULL;
 }
 
 bool analysis_job_is_running(void) {
@@ -754,5 +774,11 @@ const char* analysis_job_last_error(void) {
 
 // Polling helper; join thread when finished
 void analysis_job_poll(void) {
-    // No-op; thread is detached and signals completion via status flags.
+    if (g_thread && SDL_AtomicGet(&g_worker_finished)) {
+        SDL_WaitThread(g_thread, NULL);
+        g_thread = NULL;
+        g_thread_running = false;
+    }
+    if (!g_thread_running && !completed_results_queue_analysis_terminal_pending())
+        analysis_refresh_set_running(false);
 }

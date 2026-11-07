@@ -6,6 +6,13 @@
 
 #include "core/LoopEvents/event_queue.h"
 
+/* Main-owner revision clock survives close/reopen and slot reuse. */
+uint64_t editor_next_document_revision(uint64_t previous) {
+    static uint64_t clock;
+    if (clock < previous) clock = previous;
+    return ++clock;
+}
+
 const char* getFileName(const char* path) {
     const char* slash = strrchr(path, '/');
     return (slash) ? slash + 1 : path;
@@ -16,7 +23,8 @@ void markFileAsModified(OpenFile* file) {
     file->showSavedTag = false;
     file->isModified = true;
     file->bufferVersion++;
-    file->contentRevision = ++file->documentRevision;
+    file->documentRevision = editor_next_document_revision(file->documentRevision);
+    file->contentRevision = file->documentRevision;
     loop_events_emit_document_edited(file->filePath, file->documentRevision);
     editor_invalidate_file_projection(file);
     editor_edit_transaction_note_document_edit(file);
@@ -46,7 +54,7 @@ void reloadOpenFileFromDisk(OpenFile* file) {
     freeEditorBuffer(file->buffer);
     file->buffer = newBuffer;
     file->bufferVersion++;
-    ++file->documentRevision;
+    file->documentRevision = editor_next_document_revision(file->documentRevision);
     if (!same) file->contentRevision = file->documentRevision;
     loop_events_emit_document_revision_changed(file->filePath, file->documentRevision);
     editor_invalidate_file_projection(file);

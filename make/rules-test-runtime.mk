@@ -84,7 +84,7 @@ test-build-trust-notice:
 test-git-command-runner:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling Git command runner test..."
-	@$(CC) $(CFLAGS) tests/git_command_runner_test.c src/ide/Panes/ToolPanels/Git/git_command_runner.c -o $(TEST_BUILD_DIR)/git_command_runner_test $(LIB_DIRS) || (echo "Git command runner test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/git_command_runner_test.c src/ide/Panes/ToolPanels/Git/git_command_runner.c src/core/Process/owned_process.c -o $(TEST_BUILD_DIR)/git_command_runner_test $(LIB_DIRS) || (echo "Git command runner test compile failed."; exit 1)
 	@echo "Running Git command runner test..."
 	@$(TEST_BUILD_DIR)/git_command_runner_test || (echo "Git command runner test failed."; exit 1)
 	@echo "Git command runner test passed."

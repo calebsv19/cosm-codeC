@@ -12,10 +12,8 @@ typedef enum {
     GIT_COMMAND_STDERR_TO_NULL
 } GitCommandStderrMode;
 
-typedef struct {
-    FILE* stream;
-    pid_t pid;
-} GitCommandProcess;
+#include "core/Process/owned_process.h"
+typedef OwnedProcess GitCommandProcess;
 
 bool git_command_process_start(const char* workdir,
                                const char* const argv[],

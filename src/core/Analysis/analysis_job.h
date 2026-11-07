@@ -5,6 +5,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/* Lifecycle/start/poll APIs belong to the main owner. Shutdown closes admission,
+ * requests cooperative cancellation and joins before dependent resources die.
+ * It may wait for the current compiler/filesystem operation to return. */
 bool analysis_job_system_init(void);
 void analysis_job_system_shutdown(void);
 

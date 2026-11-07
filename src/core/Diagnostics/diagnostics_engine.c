@@ -24,6 +24,7 @@ static DiagnosticIoReport g_last_io_report;
  * on the UI thread. Slots remain bounded even if a filesystem open stalls. */
 typedef struct AnalysisCacheRead {
     bool busy, done;
+    pthread_t thread;
     uint64_t generation;
     struct timespec started;
     char path[4096];
@@ -33,6 +34,7 @@ typedef struct AnalysisCacheRead {
 static AnalysisCacheRead cache_reads[2];
 static pthread_mutex_t cache_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t cache_generation;
+static bool cache_accepting = true;
 
 
 static void diagnostics_io_report_init(DiagnosticIoReport* report,
@@ -195,6 +197,8 @@ static void free_diagnostic(Diagnostic* d) {
 }
 
 void initDiagnosticsEngine() {
+    diagnostics_cache_shutdown();
+    cache_accepting = true;
     clearDiagnostics();
     memset(&g_last_io_report, 0, sizeof(g_last_io_report));
 }
@@ -547,6 +551,10 @@ void diagnostics_poll(void) {
             pthread_mutex_unlock(&cache_lock);
             continue;
         }
+        pthread_t thread = request->thread;
+        pthread_mutex_unlock(&cache_lock);
+        pthread_join(thread, NULL);
+        pthread_mutex_lock(&cache_lock);
         char* bytes = request->bytes;
         bool current = request->generation == cache_generation &&
             (now.tv_sec - request->started.tv_sec +
@@ -566,7 +574,7 @@ void diagnostics_poll(void) {
 void diagnostics_load(const char* workspaceRoot) {
     clearDiagnostics();
     diagnostics_poll();
-    if (!workspaceRoot || !*workspaceRoot) return;
+    if (!workspaceRoot || !*workspaceRoot || !cache_accepting) return;
     pthread_mutex_lock(&cache_lock);
     for (size_t i = 0; i < 2; ++i) {
         AnalysisCacheRead* request = &cache_reads[i];
@@ -576,10 +584,8 @@ void diagnostics_load(const char* workspaceRoot) {
         clock_gettime(CLOCK_MONOTONIC, &request->started);
         snprintf(request->path, sizeof(request->path),
                  "%s/ide_files/analysis_diagnostics.json", workspaceRoot);
-        pthread_t reader;
-        if (pthread_create(&reader, NULL, diagnostics_read_cache, request) == 0)
-            pthread_detach(reader);
-        else memset(request, 0, sizeof(*request));
+        if (pthread_create(&request->thread, NULL, diagnostics_read_cache, request) != 0)
+            memset(request, 0, sizeof(*request));
         break;
     }
     pthread_mutex_unlock(&cache_lock);
@@ -588,4 +594,23 @@ void diagnostics_load(const char* workspaceRoot) {
 void diagnostics_last_io_report(DiagnosticIoReport* outReport) {
     if (!outReport) return;
     *outReport = g_last_io_report;
+}
+
+/* Main-owner lifecycle. Never join while holding the reader publication lock.
+ * Regular-file IO must return; cancellation cannot bound a stalled filesystem. */
+void diagnostics_cache_shutdown(void) {
+    cache_accepting = false;
+    ++cache_generation;
+    for (size_t i = 0; i < 2; ++i) {
+        pthread_mutex_lock(&cache_lock);
+        AnalysisCacheRead* request = &cache_reads[i];
+        bool busy = request->busy;
+        pthread_t thread = request->thread;
+        pthread_mutex_unlock(&cache_lock);
+        if (busy) pthread_join(thread, NULL);
+        pthread_mutex_lock(&cache_lock);
+        free(request->bytes);
+        memset(request, 0, sizeof(*request));
+        pthread_mutex_unlock(&cache_lock);
+    }
 }

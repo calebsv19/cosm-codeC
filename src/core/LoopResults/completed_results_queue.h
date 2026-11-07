@@ -62,6 +62,7 @@ typedef struct CompletedResult {
     CompletedResultSubsystem subsystem;
     CompletedResultKind kind;
     uint64_t seq;
+    uint64_t workspace_generation;
     bool has_document_revision;
     char document_path[1024];
     uint64_t document_revision;
@@ -92,6 +93,9 @@ void completed_results_queue_init(void);
 void completed_results_queue_shutdown(void);
 void completed_results_queue_reset(void);
 
+/* Push consumes owned payload even on refusal. Terminal has one reserved slot. */
+bool completed_results_queue_analysis_available(void);
+bool completed_results_queue_analysis_terminal_pending(void);
 bool completed_results_queue_push(const CompletedResult* result);
 bool completed_results_queue_pop(CompletedResultSubsystem subsystem, CompletedResult* out);
 bool completed_results_queue_pop_any(CompletedResult* out);

@@ -99,6 +99,7 @@ static int s_file_watcher_timer_id = -1;
 static int s_git_watcher_timer_id = -1;
 static int s_editor_cursor_blink_timer_id = -1;
 static uint64_t s_latest_applied_analysis_run_id = 0;
+static uint64_t s_latest_terminal_analysis_run_id = 0;
 static uint64_t s_analysis_progress_stamp = 0;
 static uint64_t s_analysis_status_stamp = 0;
 static bool s_event_budget_initialized = false;
@@ -189,6 +190,10 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
     (void)ctx;
     mainthread_context_assert_owner("event_loop.apply_completed_result");
 
+    if (result->workspace_generation && result->workspace_generation != ide_ipc_workspace_generation()) {
+        event_loop_diag_note_stale_drop_kind(result->kind);
+        return;
+    }
     uint64_t result_run_id = 0;
     if (result->kind == COMPLETED_RESULT_ANALYSIS_FINISHED) {
         result_run_id = result->payload.analysis_finished.analysis_run_id;
@@ -200,6 +205,11 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         result_run_id = result->payload.analysis_progress.analysis_run_id;
     } else if (result->kind == COMPLETED_RESULT_ANALYSIS_STATUS_UPDATE) {
         result_run_id = result->payload.analysis_status_update.analysis_run_id;
+    }
+    if (result->kind == COMPLETED_RESULT_ANALYSIS_FINISHED && result_run_id > 0 &&
+        result_run_id <= s_latest_terminal_analysis_run_id) {
+        event_loop_diag_note_stale_drop_kind(result->kind);
+        return;
     }
     if (result_run_id > 0 && result_run_id < s_latest_applied_analysis_run_id) {
         event_loop_diag_note_stale_drop_kind(result->kind);
@@ -260,6 +270,16 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         if (p->project_root[0] && strcmp(p->project_root, projectPath) != 0) {
             event_loop_diag_note_stale_drop_kind(result->kind);
             return;
+        }
+        if (result_run_id > s_latest_terminal_analysis_run_id)
+            s_latest_terminal_analysis_run_id = result_run_id;
+        /* Terminal is reliable even when intermediate status/projection hints
+         * were refused under completion pressure. */
+        analysis_status_set(p->cancelled || p->had_error ? ANALYSIS_STATUS_IDLE : ANALYSIS_STATUS_FRESH);
+        if (!p->cancelled && !p->had_error) {
+            analysis_status_set_has_cache(true);
+            analysis_store_flatten_to_engine();
+            editor_sync_active_file_projection_mode();
         }
         completed_results_queue_note_applied();
         if (loop_events_emit_library_index_updated(p->project_root,

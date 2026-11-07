@@ -1,3 +1,4 @@
+#include "core/Process/owned_process.h"
 #include "run_build.h"
 #include "core/BuildSystem/build_trust_notice.h"
 #include "ide/Panes/Terminal/terminal.h"
@@ -143,8 +144,8 @@ void runExecutableAndStreamOutput(const char* executablePath) {
         char command[1024];
         snprintf(command, sizeof(command), "cd \"%s\" && \"%s\" 2>&1", workingDir, executablePath);
 
-        FILE* pipe = popen(command, "r");
-        if (!pipe) {
+        OwnedProcess pipe = {0};
+        if (!owned_process_shell(command, &pipe)) {
             printToTerminal("[RunSystem] Failed to run executable.\n");
             return;
         }
@@ -152,11 +153,11 @@ void runExecutableAndStreamOutput(const char* executablePath) {
         printToTerminal("[RunSystem] Running executable...\n");
 
         char buffer[256];
-        while (fgets(buffer, sizeof(buffer), pipe)) {
+        while (owned_process_read_line(&pipe, buffer, sizeof(buffer))) {
             printToTerminal(buffer);
         }
 
-        int result = pclose(pipe);
+        int result = owned_process_close(&pipe);
         if (result == 0) {
             printToTerminal("[RunSystem] Executable finished successfully.\n");
         } else {
@@ -230,8 +231,8 @@ void runExecutableAndStreamOutput(const char* executablePath) {
         printToTerminal(trustNotice);
     }
 
-    FILE* pipe = popen(command, "r");
-    if (!pipe) {
+    OwnedProcess pipe = {0};
+    if (!owned_process_shell(command, &pipe)) {
         printToTerminal("[RunSystem] Failed to run custom command.\n");
         return;
     }
@@ -239,11 +240,11 @@ void runExecutableAndStreamOutput(const char* executablePath) {
     printToTerminal("[RunSystem] Running command...\n");
 
     char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe)) {
+    while (owned_process_read_line(&pipe, buffer, sizeof(buffer))) {
         printToTerminal(buffer);
     }
 
-    int result = pclose(pipe);
+    int result = owned_process_close(&pipe);
     if (result == 0) {
         printToTerminal("[RunSystem] Command finished successfully.\n");
     } else {

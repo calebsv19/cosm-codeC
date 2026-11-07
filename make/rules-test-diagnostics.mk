@@ -93,7 +93,7 @@ test-analysis-startup-audit:
 test-include-path-resolver-security:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling include path resolver security test..."
-	@$(CC) $(CFLAGS) tests/include_path_resolver_security_test.c src/core/Analysis/include_path_resolver.c $(ANALYSIS_ARTIFACT_IO_SRC) -o $(TEST_BUILD_DIR)/include_path_resolver_security_test $(LIB_DIRS) -ljson-c || (echo "include path resolver security test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/include_path_resolver_security_test.c src/core/Analysis/include_path_resolver.c src/core/Process/owned_process.c $(ANALYSIS_ARTIFACT_IO_SRC) -o $(TEST_BUILD_DIR)/include_path_resolver_security_test $(LIB_DIRS) -ljson-c || (echo "include path resolver security test compile failed."; exit 1)
 	@echo "Running include path resolver security test..."
 	@$(TEST_BUILD_DIR)/include_path_resolver_security_test || (echo "include path resolver security test failed."; exit 1)
 	@echo "Include path resolver security test passed."

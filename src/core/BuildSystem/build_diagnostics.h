@@ -25,4 +25,8 @@ void build_diagnostics_save(const char* workspaceRoot);
 void build_diagnostics_load(const char* workspaceRoot);
 void build_diagnostics_poll(void);
 
+/* Main-owner cache lifecycle; shutdown joins all admitted readers. */
+void build_diagnostics_cache_shutdown(void);
+void build_diagnostics_cache_init(void);
+
 #endif

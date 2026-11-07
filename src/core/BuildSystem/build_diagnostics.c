@@ -98,10 +98,11 @@ static void try_parse_line(const char* rawLine) {
 }
 
 /* Optional persisted diagnostics must never hold up the UI or IPC startup.
- * A bounded pair of detached readers owns only cache bytes, never app state.
+ * A bounded pair of joinable readers owns only cache bytes, never app state.
  * A clear/build/workspace change invalidates older results before publication. */
 typedef struct DiagnosticsCacheRead {
     bool busy, done;
+    pthread_t thread;
     uint64_t generation;
     struct timespec started;
     char path[PATH_MAX];
@@ -110,6 +111,7 @@ typedef struct DiagnosticsCacheRead {
 static DiagnosticsCacheRead cache_reads[2];
 static pthread_mutex_t cache_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t cache_generation;
+static bool cache_accepting = true;
 
 static void* read_diagnostics_cache(void* argument) {
     DiagnosticsCacheRead* request = argument;
@@ -252,6 +254,10 @@ void build_diagnostics_poll(void) {
         DiagnosticsCacheRead* request = &cache_reads[i];
         char* bytes = NULL;
         if (request->busy && request->done) {
+            pthread_t thread = request->thread;
+            pthread_mutex_unlock(&cache_lock);
+            pthread_join(thread, NULL);
+            pthread_mutex_lock(&cache_lock);
             double elapsed = (double)(now.tv_sec - request->started.tv_sec) +
                 (double)(now.tv_nsec - request->started.tv_nsec) / 1e9;
             if (request->generation == cache_generation && elapsed < 2.0)
@@ -267,7 +273,7 @@ void build_diagnostics_poll(void) {
 void build_diagnostics_load(const char* workspaceRoot) {
     build_diagnostics_clear();
     build_diagnostics_poll();
-    if (!workspaceRoot || !*workspaceRoot) return;
+    if (!workspaceRoot || !*workspaceRoot || !cache_accepting) return;
     pthread_mutex_lock(&cache_lock);
     for (size_t i = 0; i < 2; ++i) {
         DiagnosticsCacheRead* request = &cache_reads[i];
@@ -276,12 +282,34 @@ void build_diagnostics_load(const char* workspaceRoot) {
         clock_gettime(CLOCK_MONOTONIC, &request->started);
         int written = snprintf(request->path, sizeof(request->path),
             "%s/ide_files/build_output.json", workspaceRoot);
-        pthread_t thread;
         if (written < 0 || (size_t)written >= sizeof(request->path) ||
-            pthread_create(&thread, NULL, read_diagnostics_cache, request) != 0)
+            pthread_create(&request->thread, NULL, read_diagnostics_cache, request) != 0)
             *request = (DiagnosticsCacheRead){0};
-        else pthread_detach(thread);
         break; /* Saturation skips this optional cache rather than spawning more. */
     }
     pthread_mutex_unlock(&cache_lock);
+}
+
+/* Main-owner lifecycle. Never join while holding the reader publication lock.
+ * Regular-file IO must return; cancellation cannot bound a stalled filesystem. */
+void build_diagnostics_cache_shutdown(void) {
+    cache_accepting = false;
+    ++cache_generation;
+    for (size_t i = 0; i < 2; ++i) {
+        pthread_mutex_lock(&cache_lock);
+        DiagnosticsCacheRead* request = &cache_reads[i];
+        bool busy = request->busy;
+        pthread_t thread = request->thread;
+        pthread_mutex_unlock(&cache_lock);
+        if (busy) pthread_join(thread, NULL);
+        pthread_mutex_lock(&cache_lock);
+        free(request->bytes);
+        memset(request, 0, sizeof(*request));
+        pthread_mutex_unlock(&cache_lock);
+    }
+}
+
+void build_diagnostics_cache_init(void) {
+    build_diagnostics_cache_shutdown();
+    cache_accepting = true;
 }

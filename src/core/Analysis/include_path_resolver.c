@@ -1,3 +1,4 @@
+#include "core/Process/owned_process.h"
 #include "core/Analysis/include_path_resolver.h"
 
 #include <stdio.h>
@@ -67,59 +68,17 @@ static bool run_command_capture(const char* cwd,
     if (!argv || !argv[0] || !output || outputSize == 0) return false;
     output[0] = '\0';
 
-    int pipefd[2];
-    if (pipe(pipefd) != 0) return false;
-
-    pid_t pid = fork();
-    if (pid < 0) {
-        close(pipefd[0]);
-        close(pipefd[1]);
-        return false;
-    }
-
-    if (pid == 0) {
-        close(pipefd[0]);
-        if (cwd && *cwd) {
-            if (chdir(cwd) != 0) {
-                _exit(127);
-            }
-        }
-        if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
-            _exit(127);
-        }
-        int devnull = open("/dev/null", O_WRONLY);
-        if (devnull >= 0) {
-            dup2(devnull, STDERR_FILENO);
-            close(devnull);
-        }
-        close(pipefd[1]);
-        execvp(argv[0], argv);
-        _exit(127);
-    }
-
-    close(pipefd[1]);
-
+    OwnedProcess process;
+    if (!owned_process_start(cwd && *cwd ? cwd : ".", (const char* const*)argv, 2, &process)) return false;
     size_t used = 0;
-    while (used + 1 < outputSize) {
-        ssize_t n = read(pipefd[0], output + used, outputSize - used - 1);
-        if (n > 0) {
-            used += (size_t)n;
-            continue;
-        }
-        if (n == 0) break;
-        if (errno == EINTR) continue;
-        break;
+    char chunk[512];
+    while (owned_process_read_line(&process, chunk, sizeof(chunk))) {
+        size_t n = strlen(chunk);
+        if (n > outputSize - used - 1) n = outputSize - used - 1;
+        memcpy(output + used, chunk, n); used += n;
     }
     output[used] = '\0';
-    close(pipefd[0]);
-
-    int status = 0;
-    while (waitpid(pid, &status, 0) < 0) {
-        if (errno == EINTR) continue;
-        return false;
-    }
-
-    return used > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    return owned_process_close(&process) == 0 && used > 0;
 }
 
 static bool run_command_first_line(const char* cwd,

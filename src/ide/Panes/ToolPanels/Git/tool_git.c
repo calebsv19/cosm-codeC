@@ -442,7 +442,7 @@ static int git_panel_log_pump_stream(int maxLines) {
 
     int appended = 0;
     char line[GIT_LOG_LINE_MAX];
-    while (appended < maxLines && fgets(line, sizeof(line), gitLogProcess.stream)) {
+    while (appended < maxLines && owned_process_read_line(&gitLogProcess, line, sizeof(line))) {
         GitLogEntry parsed = {0};
         if (!git_panel_log_parse_line(line, &parsed)) {
             gitLogParseError = true;
@@ -459,7 +459,7 @@ static int git_panel_log_pump_stream(int maxLines) {
         appended++;
     }
 
-    if (feof(gitLogProcess.stream)) {
+    if (gitLogProcess.eof) {
         git_panel_log_close_stream();
     }
 
@@ -742,7 +742,7 @@ void refreshGitStatus() {
     }
 
     char line[512];
-    while (fgets(line, sizeof(line), process.stream) && gitFileCount < MAX_GIT_ENTRIES) {
+    while (owned_process_read_line(&process, line, sizeof(line)) && gitFileCount < MAX_GIT_ENTRIES) {
         if (strlen(line) < 4) continue;
 
         char statusCode[3];
@@ -815,7 +815,7 @@ void pollGitStatusWatcher(void) {
     uint64_t hash = 0;
     char buf[1024];
     bool sawAny = false;
-    while (fgets(buf, sizeof(buf), process.stream)) {
+    while (owned_process_read_line(&process, buf, sizeof(buf))) {
         char lineCopy[1024];
         snprintf(lineCopy, sizeof(lineCopy), "%s", buf);
         lineCopy[sizeof(lineCopy) - 1] = '\0';

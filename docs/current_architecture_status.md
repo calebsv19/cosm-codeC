@@ -112,3 +112,83 @@ the expected final line is `package-desktop-self-test passed.` Other
 packaging validation remains available through `package-desktop*`, and release
 validation through the notarized release target chain described in
 `current_truth.md`.
+
+## Analysis worker lifetime (L3)
+
+The main owner retains a joinable analysis thread for workspace and live-buffer
+runs. The worker publishes an atomic finished predicate only after its final
+cleanup, result notification and wake. Poll joins finished threads before reusing
+request storage. Shutdown closes admission, requests cooperative cancellation and
+joins before shutdown persistence, UI, wake and result-queue teardown. Repeated
+shutdown is harmless; explicit subsystem initialization enables a new lifetime.
+A thread-creation failure releases the owned live-buffer copy.
+
+Cancellation does not forcibly interrupt a compiler or filesystem call: shutdown
+waits for that operation to return to a cancellation checkpoint. This is not a
+hard real-time shutdown bound. The combined finite L3 review now covers build/Git/IPC ownership and native
+stale-owner/result acceptance; installation and release remain separate.
+
+`tests/test_analysis_shutdown.py` links the actual analysis owner with a blocked
+scan-entry fixture and contained app objects. It checks workspace/live-buffer join,
+closed admission, launch failure, completion polling and reinitialization. Its
+`--sanitize` flag instruments the analysis owner with ASan/UBSan; it does not imply
+that the reused compiler frontend is fully instrumented.
+
+## Completion pressure and cache-reader shutdown (L3)
+
+One allocation-free terminal slot is reserved for the single admitted analysis
+owner. Ordinary progress/projection hints retain their bounded queues and may be
+refused under pressure. Push consumes its owned payload on acceptance or refusal.
+Sequence assignment and publication are serialized. A finished worker is joined,
+but scheduler admission stays busy until its terminal result is consumed; queue
+initialization failure refuses analysis admission. Thread-creation failure emits
+an error terminal. The accepted success terminal refreshes the current projection
+and status even if ordinary hints were dropped. Existing stale-result guards apply.
+
+Analysis and build diagnostics-cache readers retain joinable pthread handles.
+Poll joins a completed reader before reclaiming its request. Shutdown closes
+admission and joins both bounded reader slots outside the publication mutex before
+releasing their buffers and dependent application resources. Reinitialization
+starts a new lifetime. A stalled filesystem read must return before join completes;
+this establishes quiescence, not a hard shutdown deadline.
+
+`tests/test_l3_results.py --output <fresh-directory>` exercises all three full
+queues, allocation refusal, held terminal ownership, and both real cache readers
+with controlled read/join barriers, normally and under ASan/UBSan.
+`tests/test_analysis_shutdown.py --terminal-pressure` verifies real-worker terminal
+accounting, successor refusal until consumption, and launch failure; its existing
+shutdown mode remains the retained worker-lifetime regression.
+
+## Subprocess and result acceptance lifetimes (L3)
+
+The terminal owns its direct child independently of PTY EOF. Shutdown kills its
+owned shell and observed foreground process group and waits for the direct child;
+interrupted waits retry. Terminal owner allocation precedes spawning. The Git argv
+runner retries interrupted waits and kills/reaps a child if stream admission fails.
+
+IPC admits at most sixteen joinable clients. Stop closes admission, interrupts
+blocked socket reads/writes, cancels an active build process group, wakes pending
+main-owner requests and joins clients before dependent application teardown.
+Completed clients are joined before slot reuse. Build requests hold the workspace
+transaction exclusively. The build capture loop distinguishes direct-child exit
+from output EOF, bounds each drain, and stops descendants retaining output pipes.
+Private `ide_ipc_clients.inc` and `ide_ipc_capture.inc` keep those lifetimes out of
+the already large server/router implementation.
+
+Document revisions use a main-owner monotonic clock across close/reopen and slot
+reuse. Analysis messages bind the captured workspace generation; live terminal
+messages also carry the captured document revision. The real event-loop acceptance
+path rejects changed/closed/reopened documents, old workspace generations,
+out-of-order runs and duplicate terminal delivery. Process-local identities are
+not durable job/retry receipts.
+
+The contained native first-frame proof exercises startup analysis and application
+shutdown. Native result application under full completion pressure and same-path/workspace
+lifetime replacement passed the actual frame loop and renderer. The remaining
+synchronous Git/build, build-flag and picker capture paths use `OwnedProcess`,
+which separates EOF from child exit, kills the owned process group after direct
+child exit, preserves its status and reaps the direct child. Early stream close
+cancels the owned group. Normal synchronous execution waits for its direct child;
+there is no universal hard runtime deadline or control of escaped daemon sessions.
+The combined finite L3 source review is complete. No installed-app or packaged
+release acceptance is implied.

@@ -5,6 +5,8 @@ helpers such as `idebridge`.
 
 | File | Responsibility |
 | --- | --- |
+| `ide_ipc_clients.inc` | Private bounded joinable client slots; socket interruption and shutdown joins. |
+| `ide_ipc_capture.inc` | Private cancellable build capture; independent child exit and pipe EOF. |
 | `ide_ipc_server.h/c` | Starts/stops the socket server, owns the session/auth token state, validates requests, and dispatches open/edit/build actions. |
 | `ide_ipc_edit_apply.h/c` | Applies unified diffs to workspace files and reports per-file results back to the caller. |
 | `ide_ipc_path_guard.h/c` | Resolves request paths into canonical workspace-confined paths and rejects traversal or absolute-path abuse. |

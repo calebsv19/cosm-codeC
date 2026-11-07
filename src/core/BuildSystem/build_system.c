@@ -1,3 +1,4 @@
+#include "core/Process/owned_process.h"
 #include "build_system.h"
 #include "ide/Panes/Terminal/terminal.h"
 #include "app/GlobalInfo/project.h"
@@ -238,7 +239,7 @@ void triggerBuild(void) {
     const char* outputDirForArtifacts = NULL;
 
     char commandForShell[1024] = {0};   // Command to feed into an interactive shell
-    char commandForPopen[2048] = {0};   // Command to execute via popen fallback
+    char commandForPopen[2048] = {0};   // Command to execute via owned synchronous fallback
     const char* commandSource = "default_compile_fallback";
 
     bool usePopenFallback = false;
@@ -371,9 +372,9 @@ void triggerBuild(void) {
         return;
     }
 
-    // Fallback: run synchronously with popen in the current terminal (also used for no-Makefile path).
-    FILE* pipe = popen(commandForPopen, "r");
-    if (!pipe) {
+    // Fallback: run synchronously with owned capture in the current terminal (also used for no-Makefile path).
+    OwnedProcess pipe = {0};
+    if (!owned_process_shell(commandForPopen, &pipe)) {
         const char* errorMsg = "[BuildSystem] Failed to open build pipe.\n";
         printToTerminal(errorMsg);
         strncat(buildLog, errorMsg, sizeof(buildLog) - strlen(buildLog) - 1);
@@ -385,13 +386,13 @@ void triggerBuild(void) {
     printToTerminal(startLine);
 
     char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe)) {
+    while (owned_process_read_line(&pipe, buffer, sizeof(buffer))) {
         printToTerminal(buffer);
         build_diagnostics_feed_chunk(buffer, strlen(buffer));
         strncat(buildLog, buffer, sizeof(buildLog) - strlen(buildLog) - 1);
     }
 
-    int result = pclose(pipe);
+    int result = owned_process_close(&pipe);
     if (result == 0) {
         printToTerminal("[BuildSystem] Build completed successfully.\n");
         const char* workspace = getWorkspacePath();

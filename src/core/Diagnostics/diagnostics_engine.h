@@ -112,4 +112,7 @@ bool diagnostics_load_report(const char* workspaceRoot, DiagnosticIoReport* outR
 void diagnostics_last_io_report(DiagnosticIoReport* outReport);
 const char* diagnostics_io_reason_string(DiagnosticIoReason reason);
 
+/* Main-owner cache lifecycle; shutdown joins all admitted readers. */
+void diagnostics_cache_shutdown(void);
+
 #endif

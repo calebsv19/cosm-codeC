@@ -983,7 +983,7 @@ OpenFile* openFileInView(EditorView* view, const char* filePath) {
     file->state.draggingReturnedToPane = true;
     file->isModified = false;
     file->bufferVersion = 1;
-    file->documentRevision = 1;
+    file->documentRevision = editor_next_document_revision(0);
     file->renderSource = EDITOR_RENDER_REAL;
     editor_projection_reset(&file->projection);
     

@@ -458,6 +458,7 @@ bool initializeSystem(const char* argv0) {
     initCoreState();
     initPopupSystem();
     initDiagnosticsEngine();
+    build_diagnostics_cache_init();
     initLanguageParser();
     initBuildSystem();
     initBuildOutputPanelState();
@@ -594,6 +595,11 @@ bool ide_save_editor_session_now(void) {
 }
 
 void shutdownSystem(UIPane** panes, int paneCount) {
+    // Stop analysis before persistence, UI, wake and result storage teardown.
+    ide_ipc_stop(); /* Quiesce external work before stores and UI teardown. */
+    analysis_job_system_shutdown();
+    diagnostics_cache_shutdown();
+    build_diagnostics_cache_shutdown();
     // Always persist lightweight UI/build diagnostics state.
     build_diagnostics_save(projectPath);
     diagnostics_save(projectPath);
@@ -623,7 +629,6 @@ void shutdownSystem(UIPane** panes, int paneCount) {
     }
     (void)ide_save_editor_session_now();
 
-    ide_ipc_stop();
 
     shutdownCommandBus();
     terminal_shutdown_shell();
@@ -672,7 +677,6 @@ void shutdownSystem(UIPane** panes, int paneCount) {
     if (ctx->window) SDL_DestroyWindow(ctx->window);
 
     mainthread_wake_shutdown();
-    analysis_job_system_shutdown();
     mainthread_kernel_shutdown();
     editor_edit_transaction_reset();
     mainthread_timer_scheduler_shutdown();

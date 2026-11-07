@@ -21,6 +21,9 @@ static void* g_diagnostics_backing[COMPLETED_RESULTS_QUEUE_CAPACITY];
 static bool g_initialized = false;
 static SDL_mutex* g_stats_mutex = NULL;
 
+/* One admitted analysis owner; terminal storage never allocates. */
+static CompletedResult g_terminal;
+static bool g_terminal_valid;
 static uint64_t g_next_seq = 1;
 static uint32_t g_high_watermark = 0;
 static uint64_t g_pushed = 0;
@@ -133,6 +136,7 @@ static bool refill_head_from_queue(CompletedResultSubsystem subsystem) {
 
 void completed_results_queue_init(void) {
     if (!g_stats_mutex) g_stats_mutex = SDL_CreateMutex();
+    if (!g_stats_mutex) return;
     if (!g_initialized) {
         bool ok_analysis = core_queue_mutex_init_ex(&g_analysis_queue,
                                                     g_analysis_backing,
@@ -193,6 +197,8 @@ void completed_results_queue_reset(void) {
     }
 
     stats_lock();
+    if (g_terminal_valid) completed_results_queue_release(&g_terminal);
+    g_terminal_valid = false;
     g_next_seq = 1;
     g_high_watermark = 0;
     g_pushed = 0;
@@ -202,31 +208,49 @@ void completed_results_queue_reset(void) {
     stats_unlock();
 }
 
+/* Push consumes owned_ptr on both acceptance and refusal. */
+static bool refuse_result(const CompletedResult* result) {
+    if (result) { CompletedResult copy = *result; completed_results_queue_release(&copy); }
+    return false;
+}
+bool completed_results_queue_analysis_available(void) {
+    stats_lock(); bool available = g_initialized && !g_terminal_valid; stats_unlock(); return available;
+}
+bool completed_results_queue_analysis_terminal_pending(void) {
+    stats_lock(); bool pending = g_terminal_valid; stats_unlock(); return pending;
+}
 bool completed_results_queue_push(const CompletedResult* result) {
-    if (!result || result->kind == COMPLETED_RESULT_NONE || !g_initialized) return false;
+    if (!result || result->kind == COMPLETED_RESULT_NONE || !g_initialized)
+        return refuse_result(result);
     CoreQueueMutex* queue = queue_for_subsystem(result->subsystem);
-    if (!queue) return false;
-
-    CompletedResultNode* node = (CompletedResultNode*)calloc(1, sizeof(*node));
-    if (!node) return false;
+    if (!queue) return refuse_result(result);
+    if (result->kind == COMPLETED_RESULT_ANALYSIS_FINISHED &&
+        result->subsystem == COMPLETED_SUBSYSTEM_ANALYSIS) {
+        stats_lock();
+        if (g_terminal_valid) { stats_unlock(); return refuse_result(result); }
+        g_terminal = *result;
+        g_terminal.seq = g_next_seq++;
+        g_terminal_valid = true;
+        g_pushed++;
+        uint32_t depth = total_depth_unsafe() + 1;
+        if (depth > g_high_watermark) g_high_watermark = depth;
+        stats_unlock();
+        return true;
+    }
+    CompletedResultNode* node = calloc(1, sizeof(*node));
+    if (!node) return refuse_result(result);
     node->result = *result;
-
+    /* Assign sequence and publish under one lock: competing producers cannot
+     * expose a later sequence before an earlier producer enqueues its node. */
     stats_lock();
     node->result.seq = g_next_seq++;
-    stats_unlock();
-
     if (!core_queue_mutex_push(queue, node)) {
-        completed_results_queue_release(&node->result);
-        free(node);
-        return false;
+        stats_unlock(); free(node); return refuse_result(result);
     }
-
-    stats_lock();
     g_pushed++;
-    uint32_t depth = total_depth_unsafe();
+    uint32_t depth = total_depth_unsafe() + (g_terminal_valid ? 1u : 0u);
     if (depth > g_high_watermark) g_high_watermark = depth;
-    stats_unlock();
-    return true;
+    stats_unlock(); return true;
 }
 
 bool completed_results_queue_pop(CompletedResultSubsystem subsystem, CompletedResult* out) {
@@ -237,7 +261,16 @@ bool completed_results_queue_pop(CompletedResultSubsystem subsystem, CompletedRe
         subsystem != COMPLETED_SUBSYSTEM_DIAGNOSTICS) {
         return false;
     }
-    if (!refill_head_from_queue(subsystem)) return false;
+    bool have_head = refill_head_from_queue(subsystem);
+    if (subsystem == COMPLETED_SUBSYSTEM_ANALYSIS) {
+        stats_lock();
+        if (g_terminal_valid && (!have_head || g_terminal.seq < g_head_analysis.seq)) {
+            *out = g_terminal; memset(&g_terminal, 0, sizeof(g_terminal));
+            g_terminal_valid = false; g_popped++; stats_unlock(); return true;
+        }
+        stats_unlock();
+    }
+    if (!have_head) return false;
     CompletedResult* head = head_for_subsystem(subsystem);
     if (!head) return false;
     *out = *head;
@@ -254,6 +287,7 @@ bool completed_results_queue_pop_any(CompletedResult* out) {
     if (!out || !g_initialized) return false;
     memset(out, 0, sizeof(*out));
 
+    stats_lock();
     refill_head_from_queue(COMPLETED_SUBSYSTEM_ANALYSIS);
     refill_head_from_queue(COMPLETED_SUBSYSTEM_SYMBOLS);
     refill_head_from_queue(COMPLETED_SUBSYSTEM_DIAGNOSTICS);
@@ -274,9 +308,14 @@ bool completed_results_queue_pop_any(CompletedResult* out) {
     }
     if (g_head_diagnostics_valid && (!have_choice || g_head_diagnostics.seq < chosen_seq)) {
         chosen_subsystem = COMPLETED_SUBSYSTEM_DIAGNOSTICS;
+        chosen_seq = g_head_diagnostics.seq;
         have_choice = true;
     }
 
+    if (g_terminal_valid && (!have_choice || g_terminal.seq < chosen_seq)) {
+        chosen_subsystem = COMPLETED_SUBSYSTEM_ANALYSIS; have_choice = true;
+    }
+    stats_unlock();
     if (!have_choice) return false;
     return completed_results_queue_pop(chosen_subsystem, out);
 }
@@ -296,7 +335,7 @@ void completed_results_queue_note_stale_dropped(void) {
 void completed_results_queue_snapshot(CompletedResultsQueueStats* out) {
     if (!out) return;
     stats_lock();
-    out->analysis_depth = g_initialized ? (uint32_t)core_queue_mutex_size(&g_analysis_queue) : 0u;
+    out->analysis_depth = g_initialized ? (uint32_t)core_queue_mutex_size(&g_analysis_queue) + (g_terminal_valid ? 1u : 0u) : 0u;
     out->symbols_depth = g_initialized ? (uint32_t)core_queue_mutex_size(&g_symbols_queue) : 0u;
     out->diagnostics_depth = g_initialized ? (uint32_t)core_queue_mutex_size(&g_diagnostics_queue) : 0u;
     out->total_depth = out->analysis_depth + out->symbols_depth + out->diagnostics_depth;

@@ -124,9 +124,12 @@ TerminalBackend* terminal_backend_spawn(const char* start_dir, int rows, int col
         .ws_ypixel = 0
     };
 
+    TerminalBackend* term = calloc(1, sizeof(*term));
+    if (!term) return NULL;
     int master_fd = -1;
     pid_t pid = forkpty(&master_fd, NULL, NULL, &ws);
     if (pid < 0) {
+        free(term);
         perror("forkpty");
         return NULL;
     }
@@ -165,16 +168,10 @@ TerminalBackend* terminal_backend_spawn(const char* start_dir, int rows, int col
     }
 
     // Parent
+    fcntl(master_fd, F_SETFD, FD_CLOEXEC);
     int flags = fcntl(master_fd, F_GETFL, 0);
     if (flags >= 0) {
         fcntl(master_fd, F_SETFL, flags | O_NONBLOCK);
-    }
-
-    TerminalBackend* term = (TerminalBackend*)calloc(1, sizeof(TerminalBackend));
-    if (!term) {
-        close(master_fd);
-        kill(pid, SIGHUP);
-        return NULL;
     }
 
     term->master_fd = master_fd;
@@ -191,22 +188,16 @@ TerminalBackend* terminal_backend_spawn(const char* start_dir, int rows, int col
 void terminal_backend_destroy(TerminalBackend* term) {
     if (!term) return;
 
-    if (term->master_fd >= 0) {
-        close(term->master_fd);
+    /* EOF is a stream state, not proof that the child has been reaped. */
+    if (term->child_pid > 0) {
+        pid_t foreground = term->master_fd >= 0 ? tcgetpgrp(term->master_fd) : -1;
+        if (foreground > 0 && foreground != getpgrp()) kill(-foreground, SIGKILL);
+        kill(-term->child_pid, SIGKILL); /* forkpty owns a separate session */
+        kill(term->child_pid, SIGKILL);
+        while (waitpid(term->child_pid, NULL, 0) < 0 && errno == EINTR) {}
+        term->child_pid = -1;
     }
-
-    if (!term->dead && term->child_pid > 0) {
-        pid_t pid = term->child_pid;
-        // Try SIGHUP, then SIGTERM, then SIGKILL, without blocking.
-        kill(pid, SIGHUP);
-        if (waitpid(pid, NULL, WNOHANG) == 0) {
-            kill(pid, SIGTERM);
-            if (waitpid(pid, NULL, WNOHANG) == 0) {
-                kill(pid, SIGKILL);
-                waitpid(pid, NULL, WNOHANG);
-            }
-        }
-    }
+    if (term->master_fd >= 0) close(term->master_fd);
     free(term->scrollback);
     free(term);
 }
@@ -227,6 +218,7 @@ ssize_t terminal_backend_read_output(TerminalBackend* term) {
             term->dead = true;
             break;
         }
+        if (errno == EINTR) continue;
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             break;
         }
@@ -257,10 +249,17 @@ bool terminal_backend_send_input(TerminalBackend* term, const char* buf, size_t 
 }
 
 int terminal_backend_poll_child(TerminalBackend* term) {
-    if (!term || term->dead || term->child_pid <= 0) return -1;
+    if (!term || term->child_pid <= 0) return -1;
     int status = 0;
-    pid_t res = waitpid(term->child_pid, &status, WNOHANG);
-    if (res > 0) {
+    pid_t res;
+    do { res = waitpid(term->child_pid, &status, WNOHANG); } while (res < 0 && errno == EINTR);
+    if (res > 0 || (res < 0 && errno == ECHILD)) {
+        if (res > 0) {
+            pid_t foreground = term->master_fd >= 0 ? tcgetpgrp(term->master_fd) : -1;
+            if (foreground > 0 && foreground != getpgrp()) kill(-foreground, SIGKILL);
+            kill(-term->child_pid, SIGKILL);
+        }
+        term->child_pid = -1;
         term->dead = true;
     }
     return (int)res;

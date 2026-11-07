@@ -1,3 +1,4 @@
+#include "core/Process/owned_process.h"
 #include "command_menu_bar.h"
 #include "core/CommandBus/command_metadata.h"
 #include "core/CommandBus/save_queue.h"
@@ -140,23 +141,19 @@ static bool resolveWorkspaceCandidate(const char* candidate, char* outAbs, size_
 
 static bool chooseWorkspaceRootNative(char* outPath, size_t outPathSize) {
 #if defined(__APPLE__)
-    const char* script =
-        "/usr/bin/osascript -e 'POSIX path of (choose folder with prompt \"Choose codeC Workspace Root\")'";
-    FILE* pipe = NULL;
+    const char* argv[] = {"/usr/bin/osascript", "-e",
+        "POSIX path of (choose folder with prompt \"Choose codeC Workspace Root\")", NULL};
+    OwnedProcess process;
     char buffer[PATH_MAX];
     size_t len = 0u;
-
     if (!outPath || outPathSize == 0u) return false;
     outPath[0] = '\0';
-
-    pipe = popen(script, "r");
-    if (!pipe) return false;
-
-    if (!fgets(buffer, sizeof(buffer), pipe)) {
-        (void)pclose(pipe);
-        return false;
-    }
-    (void)pclose(pipe);
+    if (!owned_process_start(".", argv, 2, &process)) return false;
+    bool got_path = owned_process_read_line(&process, buffer, sizeof(buffer)) != NULL;
+    char sink[256];
+    while (owned_process_read_line(&process, sink, sizeof(sink))) {}
+    int status = owned_process_close(&process);
+    if (!got_path || status != 0) return false;
 
     len = strlen(buffer);
     while (len > 0u && (buffer[len - 1u] == '\n' || buffer[len - 1u] == '\r')) {

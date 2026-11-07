@@ -722,21 +722,12 @@ static char* handle_request_payload(const char* payload) {
     return out;
 }
 
-typedef struct {
-    int fd;
-} ClientCtx;
+#include "ide_ipc_clients.inc"
 
-static void* client_thread_main(void* arg) {
-    ClientCtx* ctx = (ClientCtx*)arg;
-    if (!ctx) return NULL;
-
-    int fd = ctx->fd;
-    free(ctx);
-
+static void client_handle(int fd) {
     char* buf = (char*)malloc(IDE_IPC_MAX_REQUEST_BYTES + 1);
     if (!buf) {
-        close(fd);
-        return NULL;
+        return;
     }
 
     size_t used = 0;
@@ -756,11 +747,13 @@ static void* client_thread_main(void* arg) {
         break;
     }
     buf[used] = '\0';
+    if (!ide_ipc_is_running()) { free(buf); return; }
 
     static pthread_rwlock_t workspace_transactions = PTHREAD_RWLOCK_INITIALIZER;
     json_object* request_preview=json_tokener_parse(buf); json_object* preview_cmd=NULL;
     bool switching=request_preview && json_object_object_get_ex(request_preview,"cmd",&preview_cmd) &&
-        json_object_is_type(preview_cmd,json_type_string) && !strcmp(json_object_get_string(preview_cmd),"workspace_open");
+        json_object_is_type(preview_cmd,json_type_string) && (!strcmp(json_object_get_string(preview_cmd),"workspace_open") ||
+         !strcmp(json_object_get_string(preview_cmd),"build"));
     if (request_preview) json_object_put(request_preview);
     int locked=switching ? pthread_rwlock_trywrlock(&workspace_transactions) : pthread_rwlock_tryrdlock(&workspace_transactions);
     char* response;
@@ -784,8 +777,6 @@ static void* client_thread_main(void* arg) {
     }
 
     free(buf);
-    close(fd);
-    return NULL;
 }
 
 static void* accept_thread_main(void* arg) {
@@ -814,20 +805,14 @@ static void* accept_thread_main(void* arg) {
             continue;
         }
 
-        ClientCtx* ctx = (ClientCtx*)calloc(1, sizeof(ClientCtx));
-        if (!ctx) {
-            close(client_fd);
-            continue;
-        }
-        ctx->fd = client_fd;
-
-        pthread_t client_thread;
-        if (pthread_create(&client_thread, NULL, client_thread_main, ctx) == 0) {
-            pthread_detach(client_thread);
-        } else {
-            close(client_fd);
-            free(ctx);
-        }
+        fcntl(client_fd, F_SETFD, FD_CLOEXEC);
+        int no_sigpipe = 1;
+#ifdef SO_NOSIGPIPE
+        setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
+#else
+        (void)no_sigpipe;
+#endif
+        if (!ipc_clients_admit(client_fd, client_handle)) close(client_fd);
     }
 
     return NULL;
@@ -867,6 +852,7 @@ bool ide_ipc_start(const char* project_root) {
         return false;
     }
 
+    fcntl(fd, F_SETFD, FD_CLOEXEC);
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
@@ -908,6 +894,8 @@ bool ide_ipc_start(const char* project_root) {
     g_server.peer_reject_log_suppressed = 0;
     pthread_mutex_unlock(&g_server.lock);
 
+    ide_ipc_build_set_stopping(false);
+    ipc_clients_start();
     if (pthread_create(&g_server.accept_thread, NULL, accept_thread_main, NULL) != 0) {
         perror("[IPC] pthread_create");
         pthread_mutex_lock(&g_server.lock);
@@ -959,6 +947,8 @@ void ide_ipc_stop(void) {
     g_server.peer_reject_log_suppressed = 0;
     pthread_mutex_unlock(&g_server.lock);
 
+    ide_ipc_build_set_stopping(true);
+    ipc_clients_interrupt();
     ide_ipc_agent_session_clear(session_id);
     ide_ipc_presentation_cancel();
     ide_ipc_typing_cancel();
@@ -990,6 +980,7 @@ void ide_ipc_stop(void) {
     if (was_running) {
         pthread_join(g_server.accept_thread, NULL);
     }
+    ipc_clients_join();
 
     if (socket_path[0]) {
         unlink(socket_path);
