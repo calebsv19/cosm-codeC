@@ -30,3 +30,7 @@ LDFLAGS = $(ARCH_FLAGS) $(BASE_LDFLAGS) $(PROFILE_LDFLAGS)
 ifneq ($(strip $(TMPDIR)),)
 CFLAGS += -DIDE_TEST_TMPDIR='"$(patsubst %/,%,$(TMPDIR))"'
 endif
+
+# The explicit fisiCs route uses its own dependency graph, not Clang driver flags.
+FISICS_COMPAT_FLAGS ?= --compat=gnu
+FISICS_APP_CFLAGS = $(filter-out -W% -O% -g -MMD -MP,$(CFLAGS)) $(FISICS_COMPAT_FLAGS) -D__clang_version__=\"fisiCs\"

@@ -29,8 +29,9 @@ $(SHARED_BUILD_DIR):
 	@mkdir -p $@
 
 define build_copy_static_lib
-$($(1)_LIB): FORCE $(3) | $(SHARED_BUILD_DIR)
-	@PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" PKG_CONFIG="$(PKG_CONFIG)" $(MAKE) -C $($(1)_DIR) CC="$(SHARED_CC)" $(2)
+$($(1)_LIB): $(3) | $(SHARED_BUILD_DIR)
+	@rm -f "$($(1)_LIB_SRC)"
+	@env -u MAKEFLAGS -u MFLAGS -u MAKEOVERRIDES -u CFLAGS -u CPPFLAGS -u LDFLAGS PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" PKG_CONFIG="$(PKG_CONFIG)" $$(MAKE) -B MAKEOVERRIDES= -C $($(1)_DIR) CC="python3 $(abspath tools/shared_compile.py) --target $(abspath $($(1)_LIB)) -- $(SHARED_CC)" $(2) $(patsubst $($(1)_DIR)/%,%,$($(1)_LIB_SRC))
 	@cp "$($(1)_LIB_SRC)" "$$@"
 endef
 
@@ -76,7 +77,7 @@ $(APP_OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(COMPILER_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<"
 	@echo "CFLAGS: $(CFLAGS)"
-	@$(APP_CC) $(CFLAGS) $(if $(filter clang,$(BUILD_TOOLCHAIN)),$(ARCH_FLAGS),) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
+	@$(if $(filter fisics,$(BUILD_TOOLCHAIN)),python3 tools/fisics_compile.py -- $(APP_CC) $(FISICS_APP_CFLAGS),$(APP_CC) $(CFLAGS) $(ARCH_FLAGS)) -c $< -o $@ || (echo "Compile failed for $<" && exit 1)
 
 $(HOST_OBJ_DIR)/timer_hud/%.o: $(TIMER_HUD_DIR)/src/%.c
 	@mkdir -p $(dir $@)

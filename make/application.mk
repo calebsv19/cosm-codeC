@@ -28,3 +28,5 @@ include make/rules-test-diagnostics.mk
 -include $(DEP_FILES)
 
 include make/release-disposable.mk
+
+include make/build-identity.mk

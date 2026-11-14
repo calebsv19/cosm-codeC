@@ -21,6 +21,7 @@ class BundledCompilerVersion(unittest.TestCase):
             (compiler / 'src/main.c').write_text('#include <stdio.h>\nconst char *frontend_version(void);\nint main(void) { printf("main=%s frontend=%s\\n", FISICS_VERSION, frontend_version()); }\n')
             (compiler / 'Makefile').write_text('''RELEASE_VERSION ?= $(shell cat VERSION)
 frontend:
+	@test -z "$(SHARED_ROOT)"
 	@mkdir -p "$(BUILD_DIR)"
 	@$(CC) -DFISICS_VERSION='"$(RELEASE_VERSION)"' -c src/frontend.c -o "$(BUILD_DIR)/frontend.o"
 	@ar rcs "$(LIB_FRONTEND)" "$(BUILD_DIR)/frontend.o"
@@ -39,18 +40,21 @@ $(BIN): frontend
             helper.mkdir(parents=True)
             (helper / 'verify_compiler_snapshot.py').write_bytes((SOURCE/'tools/packaging/verify_compiler_snapshot.py').read_bytes())
             module = (SOURCE/'make/rules-fisics-dependency.mk').read_text()
-            (root / 'Makefile').write_text(f'FISICS_DIR := {compiler}\nHOST_CC := cc\nBUILD_DIR ?= build\nSHARED_BUILD_DIR := $(BUILD_DIR)/shared\nFISICS_LIB := $(SHARED_BUILD_DIR)/frontend.a\nLLVM_CONFIG := fixture\n' + module + '\nFORCE:\n$(SHARED_BUILD_DIR):\n\t@mkdir -p "$@"\n')
+            (root / 'Makefile').write_text(f'FISICS_DIR := {compiler}\nHOST_CC := cc\nBUILD_DIR ?= build\nSHARED_BUILD_DIR := $(BUILD_DIR)/shared\nFISICS_LIB := $(SHARED_BUILD_DIR)/frontend.a\nLLVM_CONFIG := /usr/bin/true\n' + module + '\nFORCE:\n$(SHARED_BUILD_DIR):\n\t@mkdir -p "$@"\n')
             # This is an independent Make fixture, not an app sub-build. Outer
             # command-line variables must not override its local compiler root.
             fixture_env = os.environ.copy()
+            fixture_env['SHARED_ROOT'] = '/unrelated/consumer/shared-source'
             for key in ('MAKEFLAGS', 'MFLAGS', 'MAKEOVERRIDES'):
                 fixture_env.pop(key, None)
             for ordinal, parent in enumerate(['0.6.0', '9.9.9']):
                 with self.subTest(parent_release_version=parent):
                     build = root / f'build-{ordinal}'
-                    result = subprocess.run(['make', f'RELEASE_VERSION={parent}', f'BUILD_DIR={build}', 'fisics-package-compiler'], cwd=root, env=fixture_env, capture_output=True, text=True)
+                    result = subprocess.run(['make', 'SHARED_ROOT=/unrelated/consumer/shared-source', f'RELEASE_VERSION={parent}', f'BUILD_DIR={build}', 'fisics-package-compiler'], cwd=root, env=fixture_env, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    binary = build / 'fisics-dependency' / pin / '0.7.0' / 'fisics'
+                    binaries = list((build / 'fisics-dependency' / pin / '0.7.0').glob('*/fisics'))
+                    self.assertEqual(len(binaries), 1, binaries)
+                    binary = binaries[0]
                     self.assertEqual(subprocess.check_output([str(binary)], text=True).strip(), 'main=0.7.0 frontend=0.7.0')
                     self.assertEqual(subprocess.check_output(['git', '-C', str(compiler), 'status', '--porcelain'], text=True).strip(), '')
                     self.assertFalse((compiler/'build').exists())

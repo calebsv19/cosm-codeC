@@ -633,6 +633,13 @@ void shutdownSystem(UIPane** panes, int paneCount) {
     shutdownCommandBus();
     terminal_shutdown_shell();
 
+    // Pane and text caches own textures referenced by the last submitted frame.
+    // Quiesce the GPU before those owners release their descriptors and images.
+    RenderContext* ctx = getRenderContext();
+#if USE_VULKAN
+    if (ctx && ctx->renderer) vk_renderer_wait_idle(ctx->renderer);
+#endif
+
     // === Destroy UI panes ===
     for (int i = 0; i < paneCount; i++) {
         destroyPane(panes[i]);
@@ -665,7 +672,6 @@ void shutdownSystem(UIPane** panes, int paneCount) {
     freeBuildOutputPanelState();
     TTF_Quit();
 
-    RenderContext* ctx = getRenderContext();
 #if USE_VULKAN
     if (ctx->renderer) {
         vk_renderer_shutdown(ctx->renderer);

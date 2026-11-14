@@ -1,8 +1,12 @@
 # IDE owns dependency outputs; compiler source stays read-only.
+FISICS_DEPENDENCY_RULE := $(lastword $(MAKEFILE_LIST))
 FISICS_RELEASE_VERSION := $(strip $(shell cat "$(FISICS_DIR)/VERSION"))
 FISICS_REQUIRED_SOURCE_HEAD := $(strip $(shell cat make/fisics-source-pin.txt))
 FISICS_SOURCE_HEAD := $(strip $(shell python3 tools/packaging/verify_compiler_snapshot.py --root "$(FISICS_DIR)"))
-FISICS_DEP_ROOT := $(abspath $(BUILD_DIR)/fisics-dependency/$(FISICS_SOURCE_HEAD)/$(FISICS_RELEASE_VERSION))
+fisics_build_id_for = $(shell { printf '%s\n' "$(HOST_CC) $(ARCH_FLAGS)" "$(LLVM_CONFIG)" "$(1)"; $(HOST_CC) --version; $(LLVM_CONFIG) --version; cksum "$(FISICS_DEPENDENCY_RULE)" make/fisics-snapshot-inputs.json "$$(command -v $(firstword $(HOST_CC)))" "$(LLVM_CONFIG)"; } | shasum -a 256 | cut -d' ' -f1)
+FISICS_BUILD_ID := $(call fisics_build_id_for,$(FISICS_FRONTEND_BUILD_PROFILE))
+PACKAGE_FISICS_BUILD_ID := $(call fisics_build_id_for,unsanitized)
+FISICS_DEP_ROOT := $(abspath $(BUILD_DIR)/fisics-dependency/$(FISICS_SOURCE_HEAD)/$(FISICS_RELEASE_VERSION)/$(FISICS_BUILD_ID))
 FISICS_DEP_ARCHIVE := $(FISICS_DEP_ROOT)/libfisics_frontend.a
 FISICS_DEP_BIN := $(FISICS_DEP_ROOT)/fisics
 FISICS_FRONTEND_ARCHIVE_SRC = $(FISICS_LIB)
@@ -15,11 +19,11 @@ fisics-dependency-check:
 
 $(FISICS_LIB): FORCE fisics-dependency-check | $(SHARED_BUILD_DIR)
 	@mkdir -p "$(FISICS_DEP_ROOT)"
-	@$(MAKE) -C "$(FISICS_DIR)" BUILD_PROFILE="$(FISICS_FRONTEND_BUILD_PROFILE)" CC="$(HOST_CC) $(ARCH_FLAGS)" LLVM_CONFIG="$(LLVM_CONFIG)" RELEASE_VERSION="$(FISICS_RELEASE_VERSION)" BUILD_DIR="$(FISICS_DEP_ROOT)/obj" LIB_FRONTEND="$(FISICS_DEP_ARCHIVE)" frontend
-	@cp "$(FISICS_DEP_ARCHIVE)" "$@"
+	@env -u MAKEFLAGS -u MFLAGS -u MAKEOVERRIDES -u SHARED_ROOT -u CFLAGS -u CPPFLAGS -u LDFLAGS $(MAKE) MAKEOVERRIDES= -C "$(FISICS_DIR)" BUILD_PROFILE="$(FISICS_FRONTEND_BUILD_PROFILE)" CC="$(HOST_CC) $(ARCH_FLAGS)" LLVM_CONFIG="$(LLVM_CONFIG)" RELEASE_VERSION="$(FISICS_RELEASE_VERSION)" BUILD_DIR="$(FISICS_DEP_ROOT)/obj" LIB_FRONTEND="$(FISICS_DEP_ARCHIVE)" frontend
+	@cmp -s "$(FISICS_DEP_ARCHIVE)" "$@" || cp "$(FISICS_DEP_ARCHIVE)" "$@"
 
 fisics-package-compiler: $(FISICS_LIB)
-	@$(MAKE) -C "$(FISICS_DIR)" BUILD_PROFILE="$(FISICS_FRONTEND_BUILD_PROFILE)" CC="$(HOST_CC) $(ARCH_FLAGS)" LLVM_CONFIG="$(LLVM_CONFIG)" RELEASE_VERSION="$(FISICS_RELEASE_VERSION)" BUILD_DIR="$(FISICS_DEP_ROOT)/obj" LIB_FRONTEND="$(FISICS_DEP_ARCHIVE)" BIN="$(FISICS_DEP_BIN)" "$(FISICS_DEP_BIN)"
+	@env -u MAKEFLAGS -u MFLAGS -u MAKEOVERRIDES -u SHARED_ROOT -u CFLAGS -u CPPFLAGS -u LDFLAGS $(MAKE) MAKEOVERRIDES= -C "$(FISICS_DIR)" BUILD_PROFILE="$(FISICS_FRONTEND_BUILD_PROFILE)" CC="$(HOST_CC) $(ARCH_FLAGS)" LLVM_CONFIG="$(LLVM_CONFIG)" RELEASE_VERSION="$(FISICS_RELEASE_VERSION)" BUILD_DIR="$(FISICS_DEP_ROOT)/obj" LIB_FRONTEND="$(FISICS_DEP_ARCHIVE)" BIN="$(FISICS_DEP_BIN)" "$(FISICS_DEP_BIN)"
 
 .PHONY: test-fisics-snapshot-inputs
 test-fisics-snapshot-inputs:
