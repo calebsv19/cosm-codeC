@@ -66,6 +66,16 @@ void handleKeyboardInput(SDL_Event* event,
     UIState* uiState = getUIState();
     SDL_Keycode key = event->key.keysym.sym;
     Uint16 mod = event->key.keysym.mod;
+    if (isRenaming()) {
+        if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
+            if (!event->key.repeat) submitRenameWithMod((SDL_Keymod)mod);
+        } else if (key == SDLK_ESCAPE) {
+            if (!event->key.repeat) cancelRename();
+        } else {
+            (void)handleRenameEditingKeyWithMod(key, (SDL_Keymod)mod);
+        }
+        return;
+    }
     bool ctrl_or_cmd = (mod & (KMOD_CTRL | KMOD_GUI)) != 0;
     bool shift = (mod & KMOD_SHIFT) != 0;
     bool alt = (mod & KMOD_ALT) != 0;
@@ -129,16 +139,6 @@ void handleKeyboardInput(SDL_Event* event,
             return;
         }
     }
-
-    // === GLOBAL COMMANDS (Always valid regardless of focused pane) ===
-
-    if (isRenaming()) {
-	    if (key == SDLK_RETURN) { submitRenameWithMod((SDL_Keymod)mod); return; }
-	    else if (key == SDLK_ESCAPE) { cancelRename(); return; }
-        else if (handleRenameEditingKeyWithMod(key,(SDL_Keymod)mod)) return;
-        return; /* The single-field modal owns unhandled editing keys too. */
-    }
-
 
     // Ctrl+E → Add task
 /*    if ((mod & KMOD_CTRL) && key == SDLK_e) {

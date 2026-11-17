@@ -9,6 +9,8 @@ bool handleCommandCopySelection(EditorBuffer* buffer, EditorState* state);
 bool handleCommandCutSelection(EditorBuffer* buffer, EditorState* state);
 bool handleCommandPasteClipboard(EditorBuffer* buffer, EditorState* state);
 bool removeSelectedText(EditorBuffer* buffer, EditorState* state);
+struct OpenFile;
+bool editor_replace_selection_with_text(struct OpenFile* file, const char* text);
 
 bool handleCommandLineClipboard(SDL_Keycode key, EditorBuffer* buffer, EditorState* state);
 bool handleCommandTextClipboard(SDL_Keycode key, EditorBuffer* buffer, EditorState* state);

@@ -13,6 +13,8 @@ void handleInput(SDL_Event* event,
                  ResizeZone* zones, int zoneCount,
                  int* paneCountRef, bool* running);
 
+void input_cancel_held_keys(void);
+
 
 #endif // INPUT_MANAGER_H
 

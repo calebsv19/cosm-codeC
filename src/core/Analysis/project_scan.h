@@ -27,14 +27,12 @@ void analysis_scan_files_with_flags(const char* root,
                                     bool update_engine,
                                     bool persist_outputs);
 
-// Live active-buffer variant: analyzes one in-memory buffer snapshot using the
-// same flag set without requiring the file contents on disk to match.
-void analysis_scan_buffer_with_flags(const char* root,
-                                     const char* file_path,
-                                     const char* contents,
-                                     size_t content_length,
-                                     const BuildFlagSet* flags,
-                                     bool update_engine,
-                                     bool persist_outputs);
+// The live compiler owns the input bytes until the guarded terminal result is released.
+typedef struct AnalysisPreparedBuffer AnalysisPreparedBuffer;
+AnalysisPreparedBuffer* analysis_prepare_live_buffer(const char* file_path, char* owned_contents,
+                                                     size_t length, const BuildFlagSet* flags);
+void analysis_publish_live_buffer(const char* root, const char* file_path,
+                                  const AnalysisPreparedBuffer* prepared);
+void analysis_release_live_buffer(void* payload);
 
 #endif // PROJECT_SCAN_H

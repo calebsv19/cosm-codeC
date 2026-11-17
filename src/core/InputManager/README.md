@@ -4,6 +4,10 @@ SDL funnels all events through this module before anything else in the IDE
 sees them. The manager normalises mouse/keyboard/device events, updates shared
 state, and emits commands into the command bus.
 
+Rename owns keyboard, text and pointer input while its popup is active. Window
+events still reach the window owner. A held key keeps its pane and editor target
+through repeats. Changing focus or taking modal input retires the old key press.
+
 ## Top-Level Files
 
 | File | Responsibility |

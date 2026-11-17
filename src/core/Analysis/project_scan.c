@@ -263,16 +263,8 @@ static int count_scannable_files_in_list(const char* const* files, size_t file_c
     return total;
 }
 
-static void analyze_buffer_with_active_flags(const char* file_path,
-                                             const char* buf,
-                                             size_t len) {
-    if (!file_path || !*file_path || !buf) return;
-    if (analysis_job_cancel_requested()) return;
-
-    FisicsAnalysisResult res;
-    memset(&res, 0, sizeof(res));
-
-    const BuildFlagSet* flags = g_activeFlags ? g_activeFlags : &g_buildFlags;
+static bool prepare_buffer_analysis(const char* file_path, const char* buf, size_t len,
+                                    const BuildFlagSet* flags, FisicsAnalysisResult* result) {
     BuildFlagSet file_flags = *flags;
     build_flags_enable_overlays_for_source(&file_flags, buf, len);
     FisicsFrontendOptions opts = {0};
@@ -289,7 +281,7 @@ static void analyze_buffer_with_active_flags(const char* file_path,
         saved_stdout = suppress_stdout_begin();
         saved_stderr = suppress_stderr_begin();
     }
-    bool ok = fisics_analyze_buffer(file_path, buf, len, &opts, &res);
+    bool ok = fisics_analyze_buffer(file_path, buf, len, &opts, result);
     if (saved_stderr >= 0) {
         suppress_stderr_end(saved_stderr);
     }
@@ -297,15 +289,14 @@ static void analyze_buffer_with_active_flags(const char* file_path,
         suppress_stdout_end(saved_stdout);
     }
     fisics_frontend_guard_unlock();
-    (void)ok;
+    return ok;
+}
 
-    if (analysis_job_cancel_requested()) {
-        fisics_free_analysis_result(&res);
-        return;
-    }
-
+static void publish_buffer_analysis(const char* root,
+                                    const char* file_path, const char* buf, size_t len,
+                                    const FisicsAnalysisResult* res, bool update_library_index) {
     char contract_warning[256];
-    bool degraded_contract = fisics_contract_should_degrade(&res, contract_warning, sizeof(contract_warning));
+    bool degraded_contract = fisics_contract_should_degrade(res, contract_warning, sizeof(contract_warning));
     if (degraded_contract && !g_contract_warning_emitted) {
         fprintf(stderr,
                 "[analysis] degraded contract mode enabled: %s\n",
@@ -314,7 +305,7 @@ static void analyze_buffer_with_active_flags(const char* file_path,
     }
     if (!degraded_contract && !g_parent_link_warning_emitted) {
         char parent_link_warning[256];
-        if (fisics_contract_should_warn_parent_link_fallback(&res,
+        if (fisics_contract_should_warn_parent_link_fallback(res,
                                                              parent_link_warning,
                                                              sizeof(parent_link_warning))) {
             fprintf(stderr,
@@ -325,7 +316,7 @@ static void analyze_buffer_with_active_flags(const char* file_path,
     }
     if (!degraded_contract && !g_symbol_capability_warning_emitted) {
         char capability_warning[256];
-        if (fisics_contract_should_warn_missing_capability(&res,
+        if (fisics_contract_should_warn_missing_capability(res,
                                                            FISICS_CONTRACT_CAP_SYMBOLS,
                                                            "symbols",
                                                            capability_warning,
@@ -338,7 +329,7 @@ static void analyze_buffer_with_active_flags(const char* file_path,
     }
     if (!degraded_contract && !g_token_capability_warning_emitted) {
         char capability_warning[256];
-        if (fisics_contract_should_warn_missing_capability(&res,
+        if (fisics_contract_should_warn_missing_capability(res,
                                                            FISICS_CONTRACT_CAP_TOKENS,
                                                            "tokens",
                                                            capability_warning,
@@ -350,33 +341,33 @@ static void analyze_buffer_with_active_flags(const char* file_path,
         }
     }
 
-    const bool symbols_enabled = fisics_contract_symbols_enabled(&res, degraded_contract);
-    const bool tokens_enabled = fisics_contract_tokens_enabled(&res, degraded_contract);
-    const bool units_enabled = fisics_contract_units_attachments_enabled(&res, degraded_contract);
-    const bool units_concrete_enabled = fisics_contract_units_concrete_enabled(&res, degraded_contract);
-    const FisicsSymbol* symbols = symbols_enabled ? res.symbols : NULL;
-    size_t symbol_count = symbols_enabled ? res.symbol_count : 0u;
-    const FisicsTokenSpan* tokens = tokens_enabled ? res.tokens : NULL;
-    size_t token_count = tokens_enabled ? res.token_count : 0u;
-    const FisicsUnitsAttachment* units = units_enabled ? res.units_attachments : NULL;
-    size_t units_count = units_enabled ? res.units_attachment_count : 0u;
+    const bool symbols_enabled = fisics_contract_symbols_enabled(res, degraded_contract);
+    const bool tokens_enabled = fisics_contract_tokens_enabled(res, degraded_contract);
+    const bool units_enabled = fisics_contract_units_attachments_enabled(res, degraded_contract);
+    const bool units_concrete_enabled = fisics_contract_units_concrete_enabled(res, degraded_contract);
+    const FisicsSymbol* symbols = symbols_enabled ? res->symbols : NULL;
+    size_t symbol_count = symbols_enabled ? res->symbol_count : 0u;
+    const FisicsTokenSpan* tokens = tokens_enabled ? res->tokens : NULL;
+    size_t token_count = tokens_enabled ? res->token_count : 0u;
+    const FisicsUnitsAttachment* units = units_enabled ? res->units_attachments : NULL;
+    size_t units_count = units_enabled ? res->units_attachment_count : 0u;
 
     analysis_provenance_store_upsert(file_path,
                                      buf,
                                      len,
-                                     &res.contract,
-                                     fisics_contract_effective_capabilities(&res),
+                                     &res->contract,
+                                     fisics_contract_effective_capabilities(res),
                                      degraded_contract,
                                      contract_warning);
-    analysis_store_upsert(file_path, res.diagnostics, res.diag_count);
+    analysis_store_upsert(file_path, res->diagnostics, res->diag_count);
     analysis_symbols_store_upsert(file_path, symbols, symbol_count);
     analysis_token_store_upsert(file_path, tokens, token_count);
     analysis_units_store_upsert(file_path, units, units_count, units_concrete_enabled);
-    include_graph_replace_from_result(file_path, res.includes, res.include_count, g_activeWorkspaceRoot);
-    if (g_update_library_index) {
+    include_graph_replace_from_result(file_path, res->includes, res->include_count, root);
+    if (update_library_index) {
         library_index_remove_source(file_path);
-        for (size_t i = 0; i < res.include_count; ++i) {
-            const FisicsInclude* inc = &res.includes[i];
+        for (size_t i = 0; i < res->include_count; ++i) {
+            const FisicsInclude* inc = &res->includes[i];
             char fallbackName[512];
             const char* includeName = include_label_or_fallback(inc, fallbackName, sizeof(fallbackName));
             if (!includeName) continue;
@@ -390,8 +381,21 @@ static void analyze_buffer_with_active_flags(const char* file_path,
         }
     }
 
+}
+
+static void analyze_buffer_with_active_flags(const char* file_path, const char* buf, size_t len) {
+    if (!file_path || !*file_path || !buf || analysis_job_cancel_requested()) return;
+
+    FisicsAnalysisResult res = {0};
+    const BuildFlagSet* flags = g_activeFlags ? g_activeFlags : &g_buildFlags;
+    bool ok = prepare_buffer_analysis(file_path, buf, len, flags, &res);
+    if (analysis_job_cancel_requested()) {
+        fisics_free_analysis_result(&res);
+        return;
+    }
+    publish_buffer_analysis(g_activeWorkspaceRoot, file_path, buf, len, &res, g_update_library_index);
     size_t diag_count = res.diag_count;
-    size_t log_symbol_count = symbol_count;
+    size_t log_symbol_count = res.symbol_count;
     size_t include_count = res.include_count;
     fisics_free_analysis_result(&res);
 
@@ -589,40 +593,42 @@ void analysis_scan_files_with_flags(const char* root,
     }
 }
 
-void analysis_scan_buffer_with_flags(const char* root,
-                                     const char* file_path,
-                                     const char* contents,
-                                     size_t content_length,
-                                     const BuildFlagSet* flags,
-                                     bool update_engine,
-                                     bool persist_outputs) {
-    if (!root || !*root || !file_path || !*file_path || !contents || !flags) return;
-    g_activeFlags = flags;
-    g_activeWorkspaceRoot = root;
-    g_update_library_index = true;
+struct AnalysisPreparedBuffer {
+    FisicsAnalysisResult result;
+    char* contents;
+    size_t length;
+};
+
+AnalysisPreparedBuffer* analysis_prepare_live_buffer(const char* file_path, char* owned_contents,
+                                                     size_t length, const BuildFlagSet* flags) {
+    AnalysisPreparedBuffer* prepared = calloc(1, sizeof(*prepared));
+    if (!prepared) {
+        free(owned_contents);
+        return NULL;
+    }
+    prepared->contents = owned_contents;
+    prepared->length = length;
+    (void)prepare_buffer_analysis(file_path, owned_contents, length, flags, &prepared->result);
+    if (analysis_job_cancel_requested()) {
+        analysis_release_live_buffer(prepared);
+        return NULL;
+    }
+    return prepared;
+}
+
+void analysis_publish_live_buffer(const char* root, const char* file_path,
+                                  const AnalysisPreparedBuffer* prepared) {
     g_contract_warning_emitted = false;
     g_symbol_capability_warning_emitted = false;
     g_token_capability_warning_emitted = false;
     g_parent_link_warning_emitted = false;
-    g_analysis_progress_total = 1;
-    g_analysis_progress_done = 0;
-    analysis_job_report_progress(0, g_analysis_progress_total);
+    publish_buffer_analysis(root, file_path, prepared->contents, prepared->length, &prepared->result, true);
+}
 
-    analyze_buffer_with_active_flags(file_path, contents, content_length);
-
-    g_activeFlags = NULL;
-    g_activeWorkspaceRoot = NULL;
-    g_update_library_index = false;
-    if (update_engine) {
-        analysis_store_flatten_to_engine();
-    }
-    if (persist_outputs) {
-        analysis_store_save(root);
-        analysis_symbols_store_save(root);
-        analysis_token_store_save(root);
-        analysis_units_store_save(root);
-        analysis_provenance_store_save(root);
-        include_graph_save(root);
-        library_index_save(root);
-    }
+void analysis_release_live_buffer(void* payload) {
+    AnalysisPreparedBuffer* prepared = payload;
+    if (!prepared) return;
+    fisics_free_analysis_result(&prepared->result);
+    free(prepared->contents);
+    free(prepared);
 }

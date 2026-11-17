@@ -263,58 +263,65 @@ bool handleCommandTextClipboard(SDL_Keycode key, EditorBuffer* buffer, EditorSta
     }
 }
 
-bool removeSelectedText(EditorBuffer* buffer, EditorState* state) {
-    if (!state->selecting) return false;
+// Prepare the merged row before changing the buffer or reserving replacement history.
+static bool replace_selected_text(EditorBuffer* buffer, EditorState* state,
+                                  const char* text, OpenFile* replacement_owner) {
+    if (!buffer || !state || !state->selecting) return false;
 
-    int startRow = state->selStartRow, startCol = state->selStartCol;
-    int endRow = state->cursorRow, endCol = state->cursorCol;
-
-    if (startRow > endRow || (startRow == endRow && startCol > endCol)) {
-        int tmpRow = startRow, tmpCol = startCol;
-        startRow = endRow; startCol = endCol;
-        endRow = tmpRow;   endCol = tmpCol;
+    int start_row = state->selStartRow, start_col = state->selStartCol;
+    int end_row = state->cursorRow, end_col = state->cursorCol;
+    if (start_row > end_row || (start_row == end_row && start_col > end_col)) {
+        start_row = state->cursorRow;
+        start_col = state->cursorCol;
+        end_row = state->selStartRow;
+        end_col = state->selStartCol;
     }
+    if (start_row < 0 || end_row >= buffer->lineCount || start_col < 0 || end_col < 0 ||
+        (size_t)start_col > strlen(buffer->lines[start_row]) ||
+        (size_t)end_col > strlen(buffer->lines[end_row])) return false;
 
-    if (startRow == endRow) {
-        char* line = buffer->lines[startRow];
-        int len = strlen(line);
-        memmove(line + startCol, line + endCol, len - endCol + 1);
-    } else {
-        char* startLine = buffer->lines[startRow];
-        char* endLine   = buffer->lines[endRow];
-
-        int startLen = startCol;
-        int endLen   = strlen(endLine) - endCol;
-
-        char* merged = malloc(startLen + endLen + 1);
+    size_t text_length = strlen(text);
+    const char* suffix = buffer->lines[end_row] + end_col;
+    char* merged = NULL;
+    if (start_row != end_row || text_length != 0) {
+        size_t suffix_length = strlen(suffix);
+        merged = malloc((size_t)start_col + text_length + suffix_length + 1);
         if (!merged) return false;
-        strncpy(merged, startLine, startCol);
-        strcpy(merged + startCol, endLine + endCol);
-
-        free(buffer->lines[startRow]);
-        buffer->lines[startRow] = merged;
-
-        for (int i = startRow + 1; i <= endRow; i++) {
-            free(buffer->lines[i]);
-        }
-        for (int i = endRow + 1; i < buffer->lineCount; i++) {
-            buffer->lines[i - (endRow - startRow)] = buffer->lines[i];
-        }
-
-        buffer->lineCount -= (endRow - startRow);
+        memcpy(merged, buffer->lines[start_row], (size_t)start_col);
+        memcpy(merged + start_col, text, text_length);
+        memcpy(merged + start_col + text_length, suffix, suffix_length + 1);
+    }
+    if (replacement_owner && !pushUndoState(replacement_owner)) {
+        free(merged);
+        return false;
     }
 
-    state->cursorRow = startRow;
-    state->cursorCol = startCol;
-    state->selecting = false;
+    if (merged) {
+        for (int i = start_row; i <= end_row; ++i) free(buffer->lines[i]);
+        buffer->lines[start_row] = merged;
+        int removed = end_row - start_row;
+        for (int i = end_row + 1; i < buffer->lineCount; ++i)
+            buffer->lines[i - removed] = buffer->lines[i];
+        buffer->lineCount -= removed;
+    } else {
+        memmove(buffer->lines[start_row] + start_col, suffix, strlen(suffix) + 1);
+    }
 
+    state->cursorRow = start_row;
+    state->cursorCol = start_col + (int)text_length;
+    state->selecting = false;
     enforceNonEmptyBuffer(buffer);
+    if (replacement_owner) markFileAsModified(replacement_owner);
     return true;
 }
 
+bool removeSelectedText(EditorBuffer* buffer, EditorState* state) {
+    return replace_selected_text(buffer, state, "", NULL);
+}
 
-
-
+bool editor_replace_selection_with_text(OpenFile* file, const char* text) {
+    return file && text && *text && replace_selected_text(file->buffer, &file->state, text, file);
+}
 
 //              Text Buffer
 //      ===============================

@@ -261,6 +261,12 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
     }
 
     if (completed_result_is_stale(result)) {
+        if (result->kind == COMPLETED_RESULT_ANALYSIS_FINISHED &&
+            analysis_status_get() == ANALYSIS_STATUS_REFRESHING) {
+            analysis_status_set(ANALYSIS_STATUS_IDLE);
+            if (loop_events_emit_analysis_status_updated(projectPath, result_run_id, ++s_analysis_status_stamp))
+                event_loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_STATUS_UPDATED);
+        }
         event_loop_diag_note_stale_drop_kind(result->kind);
         return;
     }
@@ -276,7 +282,22 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         /* Terminal is reliable even when intermediate status/projection hints
          * were refused under completion pressure. */
         analysis_status_set(p->cancelled || p->had_error ? ANALYSIS_STATUS_IDLE : ANALYSIS_STATUS_FRESH);
+        uint64_t library_stamp = p->library_index_stamp;
         if (!p->cancelled && !p->had_error) {
+            if (result->owned_ptr && result->has_document_revision) {
+                analysis_publish_live_buffer(p->project_root, result->document_path, result->owned_ptr);
+                analysis_status_note_refresh(ANALYSIS_REFRESH_MODE_INCREMENTAL, 0, 0, 0, 1);
+                analysis_status_set_progress(1, 1);
+                analysis_status_set_last_error(NULL);
+                library_stamp = library_index_combined_stamp();
+                uint64_t diagnostics_stamp = analysis_store_combined_stamp();
+                analysis_store_mark_published(diagnostics_stamp);
+                if (loop_events_emit_diagnostics_updated(p->project_root, result_run_id, diagnostics_stamp))
+                    event_loop_diag_note_event_emitted(IDE_EVENT_DIAGNOSTICS_UPDATED);
+                if (loop_events_emit_symbol_tree_updated(p->project_root, result_run_id,
+                                                        analysis_symbols_store_combined_stamp()))
+                    event_loop_diag_note_event_emitted(IDE_EVENT_SYMBOL_TREE_UPDATED);
+            }
             analysis_status_set_has_cache(true);
             analysis_store_flatten_to_engine();
             editor_sync_active_file_projection_mode();
@@ -284,12 +305,12 @@ static void apply_completed_result(FrameContext* ctx, const CompletedResult* res
         completed_results_queue_note_applied();
         if (loop_events_emit_library_index_updated(p->project_root,
                                                    p->analysis_run_id,
-                                                   p->library_index_stamp)) {
+                                                   library_stamp)) {
             event_loop_diag_note_event_emitted(IDE_EVENT_LIBRARY_INDEX_UPDATED);
         }
         if (loop_events_emit_analysis_run_finished(p->project_root,
                                                    p->analysis_run_id,
-                                                   p->library_index_stamp)) {
+                                                   library_stamp)) {
             event_loop_diag_note_event_emitted(IDE_EVENT_ANALYSIS_RUN_FINISHED);
         }
         if (result_run_id > s_latest_applied_analysis_run_id) {
@@ -578,6 +599,7 @@ static bool process_single_input_event(FrameContext* ctx,
     ide_window_lifecycle_event(&e, ctx->panes, ctx->paneCount);
     if (core &&
         ide_workspace_authoring_host_handle_sdl_event(&core->workspaceAuthoring, &e, false)) {
+        input_cancel_held_keys();
         ide_menu_bar_cancel();
         ide_button_scopes_cancel_except(NULL);
         requestFullRedraw(RENDER_INVALIDATION_OVERLAY | RENDER_INVALIDATION_INPUT);

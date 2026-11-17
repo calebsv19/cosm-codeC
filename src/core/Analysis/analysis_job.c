@@ -81,7 +81,7 @@ void analysis_job_system_shutdown(void) {
 
 static void analysis_attach_live_document_revision(CompletedResult* result);
 
-static void analysis_queue_finished_message(bool cancelled, bool had_error) {
+static void analysis_queue_finished_message(bool cancelled, bool had_error, AnalysisPreparedBuffer* prepared) {
     CompletedResult result;
     memset(&result, 0, sizeof(result));
     result.workspace_generation = g_workspace_generation;
@@ -89,6 +89,8 @@ static void analysis_queue_finished_message(bool cancelled, bool had_error) {
     result.kind = COMPLETED_RESULT_ANALYSIS_FINISHED;
     analysis_attach_live_document_revision(&result);
     result.payload.analysis_finished.analysis_run_id = g_analysis_run_id;
+    result.owned_ptr = prepared;
+    result.free_owned_ptr = analysis_release_live_buffer;
     result.payload.analysis_finished.cancelled = cancelled;
     result.payload.analysis_finished.had_error = had_error;
     result.payload.analysis_finished.library_index_stamp = library_index_combined_stamp();
@@ -504,7 +506,7 @@ static int analysis_thread_fn(void* data) {
                                           true,
                                           g_last_error);
         SDL_AtomicSet(&g_slow_mode_active, 0);
-        analysis_queue_finished_message(false, true);
+        analysis_queue_finished_message(false, true, NULL);
         analysis_job_clear_live_request();
         mainthread_wake_push();
         mainthread_context_pop_non_owner_scope();
@@ -523,7 +525,7 @@ static int analysis_thread_fn(void* data) {
                                           true,
                                           NULL);
         SDL_AtomicSet(&g_slow_mode_active, 0);
-        analysis_queue_finished_message(true, false);
+        analysis_queue_finished_message(true, false, NULL);
         analysis_job_clear_live_request();
         mainthread_wake_push();
         mainthread_context_pop_non_owner_scope();
@@ -534,43 +536,44 @@ static int analysis_thread_fn(void* data) {
     bool force_full = SDL_AtomicSet(&g_force_full_refresh, 0) != 0;
 
     if (g_run_mode == ANALYSIS_JOB_RUN_LIVE_BUFFER) {
-        analysis_scan_buffer_with_flags(g_project_root,
-                                        g_live_file_path,
-                                        g_live_contents ? g_live_contents : "",
-                                        g_live_content_length,
-                                        &flags,
-                                        false,
-                                        false);
-        analysis_status_note_refresh(ANALYSIS_REFRESH_MODE_INCREMENTAL, 0, 0, 0, 1);
-    } else {
-        IncrementalRunStats run_stats = {0};
-        bool incremental_ok = force_full ? false : run_incremental_scan(&flags, &run_stats);
-        if (!incremental_ok) {
-            // Fallback path for first run, invalid snapshots, or incremental errors.
-            analysis_scan_workspace_with_flags(g_project_root, &flags, false /*update_engine*/);
-            library_index_build_workspace_with_flags(g_project_root, &flags);
-            analysis_snapshot_refresh_and_save(g_project_root);
-            analysis_status_note_refresh(ANALYSIS_REFRESH_MODE_FULL, 0, 0, 0, 0);
-        } else {
-            analysis_status_note_refresh(ANALYSIS_REFRESH_MODE_INCREMENTAL,
-                                         run_stats.dirty_count,
-                                         run_stats.removed_count,
-                                         run_stats.dependent_count,
-                                         run_stats.target_count);
+        analysis_job_report_progress(0, 1);
+        char* contents = g_live_contents;
+        g_live_contents = NULL;
+        AnalysisPreparedBuffer* prepared = analysis_prepare_live_buffer(
+            g_live_file_path, contents, g_live_content_length, &flags);
+        free_build_flag_set(&flags);
+        bool cancelled = analysis_job_cancel_requested();
+        if (cancelled) {
+            analysis_release_live_buffer(prepared);
+            prepared = NULL;
         }
+        analysis_queue_finished_message(cancelled, !cancelled && !prepared, prepared);
+        goto finished;
+    }
+
+    IncrementalRunStats run_stats = {0};
+    bool incremental_ok = force_full ? false : run_incremental_scan(&flags, &run_stats);
+    if (!incremental_ok) {
+        // Fallback path for first run, invalid snapshots, or incremental errors.
+        analysis_scan_workspace_with_flags(g_project_root, &flags, false /*update_engine*/);
+        library_index_build_workspace_with_flags(g_project_root, &flags);
+        analysis_snapshot_refresh_and_save(g_project_root);
+        analysis_status_note_refresh(ANALYSIS_REFRESH_MODE_FULL, 0, 0, 0, 0);
+    } else {
+        analysis_status_note_refresh(ANALYSIS_REFRESH_MODE_INCREMENTAL,
+                                     run_stats.dirty_count,
+                                     run_stats.removed_count,
+                                     run_stats.dependent_count,
+                                     run_stats.target_count);
     }
 
     bool cancelled = analysis_job_cancel_requested();
     if (!cancelled) {
-        if (g_run_mode != ANALYSIS_JOB_RUN_LIVE_BUFFER) {
-            // Persist outputs + metadata
-            analysis_cache_save_metadata(g_project_root, g_build_args);
-            analysis_cache_save_build_flags(&flags, g_project_root);
-            library_index_save(g_project_root);
-            analysis_cache_manifest_write_report(g_project_root,
-                                                 g_build_args,
-                                                 "analysis_persisted");
-        }
+        // Persist outputs + metadata
+        analysis_cache_save_metadata(g_project_root, g_build_args);
+        analysis_cache_save_build_flags(&flags, g_project_root);
+        library_index_save(g_project_root);
+        analysis_cache_manifest_write_report(g_project_root, g_build_args, "analysis_persisted");
         analysis_queue_symbols_updated_message(analysis_symbols_store_combined_stamp());
         analysis_queue_diagnostics_updated_message(analysis_store_combined_stamp());
     }
@@ -591,7 +594,9 @@ static int analysis_thread_fn(void* data) {
                                           true,
                                           NULL);
     }
-    analysis_queue_finished_message(cancelled, false);
+    analysis_queue_finished_message(cancelled, false, NULL);
+
+finished:
     analysis_job_clear_live_request();
     SDL_AtomicSet(&g_slow_mode_active, 0);
     mainthread_wake_push();
@@ -689,7 +694,7 @@ void start_async_workspace_analysis_with_file_hints(const char* project_root,
                                           false,
                                           NULL);
         g_thread_running = false;
-        analysis_queue_finished_message(false, true);
+        analysis_queue_finished_message(false, true, NULL);
         mainthread_wake_push();
         return;
     }
@@ -705,7 +710,9 @@ void start_async_live_buffer_analysis(const char* project_root,
     analysis_job_poll();
     if (!g_accepting || g_thread_running ||
         !completed_results_queue_analysis_available()) return;
-    if (!project_root || !*project_root || !file_path || !*file_path || !contents) return;
+    if (!project_root || !*project_root || !file_path || !*file_path || !contents ||
+        !document_revision || content_length == SIZE_MAX ||
+        strlen(file_path) >= sizeof(g_live_file_path) || strlen(project_root) >= sizeof(g_project_root)) return;
     char* owned_contents = (char*)malloc(content_length + 1u);
     if (!owned_contents) return;
     memcpy(owned_contents, contents, content_length);
@@ -757,7 +764,7 @@ void start_async_live_buffer_analysis(const char* project_root,
                                           false,
                                           NULL);
         g_thread_running = false;
-        analysis_queue_finished_message(false, true);
+        analysis_queue_finished_message(false, true, NULL);
         analysis_job_clear_live_request();
         mainthread_wake_push();
         return;

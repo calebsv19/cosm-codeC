@@ -1,6 +1,7 @@
 #include "editor_input_keyboard.h"
 #include "app/GlobalInfo/core_state.h"
 #include "ide/Panes/Editor/editor.h"
+#include "ide/Panes/Editor/editor_clipboard.h"
 #include "ide/Panes/Editor/undo_stack.h"
 #include "ide/Panes/Editor/Commands/editor_commands.h"
 #include "ide/Panes/Editor/editor_text_edit.h"
@@ -271,9 +272,13 @@ void editorProcessTextInput(UIPane* pane, const EditorTextInputPayload* payload)
     EditorView* view = core ? core->activeEditorView : NULL;
     if (!view || view->type != VIEW_LEAF || view->fileCount <= 0) return;
     OpenFile* active = getActiveOpenFile(view);
-    if (editor_keyboard_projection_mode_active(active)) return;
+    if (!active || editor_keyboard_projection_mode_active(active)) return;
 
     const char* text = payload->text;
+    if (active->state.selecting) {
+        (void)editor_replace_selection_with_text(active, text);
+        return;
+    }
     for (int i = 0; text[i] != '\0'; ++i) {
         insertCharAtCursor(text[i]);
     }
