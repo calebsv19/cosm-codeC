@@ -7,7 +7,8 @@ panel-local search, and double-click/keyboard jump to file/line.
 
 | File | Responsibility |
 | --- | --- |
-| `tool_errors.h/c` | Stores flattened diagnostics, selection/search state, collapse flags, jump-to-file. |
+| `tool_errors.h/c` | Owns diagnostic snapshots, selection/search state, collapse flags, and jump-to-file. |
+| `errors_rows.h/c` | Builds bounded file headers and diagnostic rows from the current snapshot and filter state. |
 | `render_tool_errors.h/c` | Renders grouped file headers + messages with clip/scroll and scrollbar, including the compact analysis status badge for updating and queued save diagnostics. |
 | `input_tool_errors.h/c` | Mouse/scroll input (wheel + thumb drag), selection ranges, double-click navigation. |
 | `command_tool_errors.h/c` | Command bus glue (minimal today). |

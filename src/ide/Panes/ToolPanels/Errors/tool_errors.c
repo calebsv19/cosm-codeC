@@ -16,7 +16,6 @@
 #include "ide/UI/scroll_manager.h"
 #include "ide/Panes/ToolPanels/tool_panel_top_layout.h"
 #include "ide/Panes/ToolPanels/Errors/errors_context_detail.h"
-#include "ide/Panes/ToolPanels/Errors/errors_filter.h"
 #include "ide/Panes/ToolPanels/Errors/errors_units_detail.h"
 
 #include <string.h>
@@ -24,13 +23,6 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <SDL2/SDL_ttf.h>
-
-typedef struct {
-    char* path;
-    Diagnostic* diags;
-    int count;
-    bool seen;
-} ErrorFileSnapshot;
 
 typedef struct {
     bool selected[512];
@@ -705,48 +697,19 @@ const Diagnostic* errors_get_selected_diagnostic_ref(void) {
     return NULL;
 }
 
-static bool diag_visible(const Diagnostic* d) {
-    if (!d) return false;
-    bool severityVisible = false;
-    if (g_filterAll) {
-        severityVisible = true;
-    } else if (d->severity == DIAG_SEVERITY_ERROR) {
-        severityVisible = g_filterErrors;
-    } else if (d->severity == DIAG_SEVERITY_WARNING) {
-        severityVisible = g_filterWarnings;
-    }
-    return severityVisible && errors_filter_diagnostic_matches_query(d, g_searchQuery);
-}
-
 int flatten_diagnostics(FlatDiagRef* out, int max) {
-    int total = 0;
-    for (int fi = 0; fi < g_snapshotCount && total < max; ++fi) {
-        const ErrorFileSnapshot* f = &g_snapshotFiles[fi];
-        if (!f || f->count <= 0) continue;
-        int visibleCount = 0;
-        for (int di = 0; di < f->count; ++di) {
-            if (diag_visible(&f->diags[di])) visibleCount++;
-        }
-        if (visibleCount <= 0) continue;
-        if (total < max) {
-            out[total].diag = NULL;
-            out[total].path = f->path;
-            out[total].fileIndex = fi;
-            out[total].isHeader = true;
-            total++;
-        }
-        bool collapsed = (fi < sizeof(fileCollapsed) / sizeof(fileCollapsed[0])) ? fileCollapsed[fi] : false;
-        if (collapsed) continue;
-        for (int di = 0; di < f->count && total < max; ++di) {
-            if (!diag_visible(&f->diags[di])) continue;
-            out[total].diag = &f->diags[di];
-            out[total].path = f->path;
-            out[total].fileIndex = (int)fi;
-            out[total].isHeader = false;
-            total++;
-        }
-    }
-    return total;
+    const ErrorPanelState* state = errors_panel_state();
+    const ErrorsRowSource source = {
+        .files = state->snapshot_files,
+        .fileCount = state->snapshot_count,
+        .collapsed = state->file_collapsed,
+        .collapseCount = sizeof(state->file_collapsed) / sizeof(state->file_collapsed[0]),
+        .query = state->search_query,
+        .showAll = state->filter_all,
+        .showErrors = state->filter_errors,
+        .showWarnings = state->filter_warnings,
+    };
+    return errors_build_rows(&source, out, max);
 }
 static void jump_to_diag(const Diagnostic* d) {
     if (!d) return;

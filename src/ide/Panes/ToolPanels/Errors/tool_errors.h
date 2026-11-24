@@ -5,16 +5,10 @@
 #include "ide/Panes/PaneInfo/pane.h"
 #include "core/Diagnostics/diagnostics_engine.h"
 #include "ide/Panes/ToolPanels/Errors/errors_context_detail.h"
+#include "ide/Panes/ToolPanels/Errors/errors_rows.h"
 #include "ide/UI/panel_control_widgets.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
-
-typedef struct {
-    const Diagnostic* diag;
-    const char* path;
-    int fileIndex;
-    bool isHeader;
-} FlatDiagRef;
 
 typedef struct {
     int includeCount;

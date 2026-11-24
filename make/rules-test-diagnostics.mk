@@ -165,7 +165,7 @@ test-diagnostic-context-cache:
 test-errors-filter:
 	@mkdir -p $(TEST_BUILD_DIR)
 	@echo "Compiling Errors panel filter test..."
-	@$(CC) $(CFLAGS) tests/errors_filter_test.c src/ide/Panes/ToolPanels/Errors/errors_filter.c src/core/Diagnostics/diagnostics_engine.c -o $(TEST_BUILD_DIR)/errors_filter_test $(LIB_DIRS) -ljson-c || (echo "Errors panel filter test compile failed."; exit 1)
+	@$(CC) $(CFLAGS) tests/errors_filter_test.c src/ide/Panes/ToolPanels/Errors/errors_filter.c src/ide/Panes/ToolPanels/Errors/errors_rows.c src/core/Diagnostics/diagnostics_engine.c -o $(TEST_BUILD_DIR)/errors_filter_test $(LIB_DIRS) -ljson-c || (echo "Errors panel filter test compile failed."; exit 1)
 	@echo "Running Errors panel filter test..."
 	@$(TEST_BUILD_DIR)/errors_filter_test || (echo "Errors panel filter test failed."; exit 1)
 	@echo "Errors panel filter test passed."
